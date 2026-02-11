@@ -38,7 +38,11 @@
             <input type="text" id="part-id" placeholder="Barcode ID">
             <input type="text" id="part-name" placeholder="Part Name">
             <input type="number" id="part-price" placeholder="Price">
-            <input type="number" id="part-qty" placeholder="Add Quantity (e.g. 5 or -2)">
+            <div class="stepper-container">
+                <button type="button" class="step-btn" onclick="changeQty(-1)">−</button>
+                <input type="number" id="part-qty" value="1" readonly>
+                <button type="button" class="step-btn" onclick="changeQty(1)">+</button>
+            </div>
             <button onclick="savePart()" style="background:#2563eb;">Update Stock</button>
         </section>
 

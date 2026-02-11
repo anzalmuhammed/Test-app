@@ -36,6 +36,46 @@ input {
   box-sizing: border-box;
   font-size: 16px;
 }
+.stepper-container {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  background-color: #4f46e5; /* The blue color from your image */
+  border-radius: 12px;
+  padding: 5px;
+  width: 100%;
+  max-width: 200px;
+  margin: 10px auto;
+}
+
+.step-btn {
+  background: none;
+  border: none;
+  color: white;
+  font-size: 24px;
+  font-weight: bold;
+  cursor: pointer;
+  padding: 0 15px;
+  line-height: 1;
+}
+
+#part-qty {
+  background: none;
+  border: none;
+  color: white;
+  font-size: 20px;
+  text-align: center;
+  width: 50px;
+  outline: none;
+  pointer-events: none; /* User can't type, must use buttons */
+}
+
+/* Remove arrows from number input */
+#part-qty::-webkit-inner-spin-button,
+#part-qty::-webkit-outer-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
 button {
   width: 100%;
   color: white;

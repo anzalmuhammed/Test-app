@@ -185,3 +185,13 @@ async function updateLedgerUI() {
         listDiv.innerHTML += `<div><strong>${c}</strong>: $${Math.abs(balances[c]).toFixed(2)}</div>`;
     }
 }
+
+function changeQty(amount) {
+    const qtyInput = document.getElementById('part-qty');
+    let currentVal = parseInt(qtyInput.value) || 0;
+
+    // Prevent quantity from going below 1 (optional)
+    if (currentVal + amount >= 1) {
+        qtyInput.value = currentVal + amount;
+    }
+}
