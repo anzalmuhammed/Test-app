@@ -3,57 +3,65 @@
   --bg: #f8fafc;
   --text: #1e293b;
 }
-
 body {
-  font-family: -apple-system, system-ui, sans-serif;
+  font-family: sans-serif;
   background-color: var(--bg);
   color: var(--text);
   margin: 0;
-  padding: 20px;
+  padding: 15px;
 }
-
 nav {
   background: var(--primary);
   color: white;
-  padding: 1rem;
+  padding: 10px 20px;
   border-radius: 8px;
-  margin-bottom: 20px;
   display: flex;
   justify-content: space-between;
   align-items: center;
+  margin-bottom: 15px;
 }
-
 section {
   background: white;
-  padding: 15px;
+  padding: 20px;
   border-radius: 12px;
-  box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
+  box-shadow: 0 2px 5px rgba(0, 0, 0, 0.1);
   margin-bottom: 20px;
 }
-
 input {
   width: 100%;
   padding: 12px;
   margin: 8px 0;
   border: 1px solid #cbd5e1;
   border-radius: 6px;
-  box-sizing: border-box; /* Crucial for mobile sizing */
+  box-sizing: border-box;
+  font-size: 16px;
 }
-
 button {
   width: 100%;
-  background: var(--primary);
   color: white;
   padding: 14px;
   border: none;
   border-radius: 6px;
   font-weight: bold;
   cursor: pointer;
+  margin-top: 5px;
 }
-
+#sync-btn {
+  width: auto;
+  background: #fbbf24;
+  color: black;
+  padding: 8px 15px;
+  font-size: 12px;
+}
 .ledger-card {
   border-left: 5px solid var(--primary);
-  padding: 10px;
+  padding: 12px;
   margin: 10px 0;
   background: #f1f5f9;
+  border-radius: 4px;
+}
+#reader {
+  width: 100%;
+  border-radius: 8px;
+  overflow: hidden;
 }

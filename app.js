@@ -1,63 +1,51 @@
-// 1. INITIALIZE LOCAL DATABASE
 const db = new PouchDB('workshop_db');
-
-// 2. GOOGLE DRIVE CONFIGURATION
-// Replace 'YOUR_CLIENT_ID_HERE' with the ID you got from Google Cloud Console
 const CLIENT_ID = 'YOUR_CLIENT_ID_HERE.apps.googleusercontent.com';
 const SCOPES = 'https://www.googleapis.com/auth/drive.file';
 
-// 3. BARCODE SCANNER SETUP
-function onScanSuccess(decodedText) {
-    console.log("Code scanned: " + decodedText);
-    document.getElementById('part-id').value = decodedText;
+let html5QrcodeScanner;
 
-    // Optional: Auto-fill if part exists
-    findPartInDb(decodedText);
-}
-
-// Configured for Workshop Barcodes (EAN, Code128, QR)
-let html5QrcodeScanner = new Html5QrcodeScanner(
-    "reader",
-    {
+// --- SCANNER LOGIC ---
+function startScanner() {
+    document.getElementById('restart-scan').style.display = 'none';
+    html5QrcodeScanner = new Html5QrcodeScanner("reader", {
         fps: 20,
         qrbox: { width: 280, height: 150 },
         experimentalFeatures: { useBarCodeDetectorIfSupported: true }
-    }
-);
-html5QrcodeScanner.render(onScanSuccess);
+    });
+    html5QrcodeScanner.render(onScanSuccess);
+}
 
-// 4. INVENTORY FUNCTIONS
+function onScanSuccess(decodedText) {
+    document.getElementById('part-id').value = decodedText;
+    findPartInDb(decodedText);
+
+    // Stop scanner after success
+    html5QrcodeScanner.clear().then(() => {
+        document.getElementById('restart-scan').style.display = 'block';
+    });
+}
+
+// --- INVENTORY LOGIC ---
 async function savePart() {
     const id = document.getElementById('part-id').value;
     const name = document.getElementById('part-name').value;
-    const price = document.getElementById('part-price').value;
-    const qty = document.getElementById('part-qty').value;
+    const price = parseFloat(document.getElementById('part-price').value) || 0;
+    const qty = parseInt(document.getElementById('part-qty').value) || 0;
 
-    if (!id || !name) return alert("Please enter Barcode and Name");
-
-    const part = {
-        _id: id,
-        name: name,
-        price: parseFloat(price),
-        qty: parseInt(qty),
-        category: 'inventory',
-        updatedAt: new Date().toISOString()
-    };
+    if (!id || !name) return alert("Enter Barcode and Name");
 
     try {
-        // 'put' updates if ID exists, or creates if new
+        let doc = { _id: id, name, price, qty, category: 'inventory' };
         try {
             const existing = await db.get(id);
-            part._rev = existing._rev; // Required for PouchDB updates
-        } catch (e) { /* New item */ }
+            doc._rev = existing._rev;
+            doc.qty = existing.qty + qty; // Adds new stock to old stock
+        } catch (e) { }
 
-        await db.put(part);
-        alert("Stock Updated Successfully!");
-        clearForm();
-    } catch (err) {
-        console.error(err);
-        alert("Error saving: " + err.message);
-    }
+        await db.put(doc);
+        alert("Stock updated!");
+        location.reload(); // Refresh to clear and show updates
+    } catch (err) { console.error(err); }
 }
 
 async function findPartInDb(id) {
@@ -65,105 +53,81 @@ async function findPartInDb(id) {
         const doc = await db.get(id);
         document.getElementById('part-name').value = doc.name;
         document.getElementById('part-price').value = doc.price;
-        document.getElementById('part-qty').value = doc.qty;
-    } catch (err) {
-        console.log("New part detected");
-    }
+        alert("Part Found: " + doc.name + " (Current Stock: " + doc.qty + ")");
+    } catch (e) { console.log("New Part"); }
 }
 
-function clearForm() {
-    document.getElementById('part-id').value = '';
-    document.getElementById('part-name').value = '';
-    document.getElementById('part-price').value = '';
-    document.getElementById('part-qty').value = '';
-}
+// --- LEDGER LOGIC ---
+async function addTransaction(type) {
+    const name = document.getElementById('cust-name').value;
+    const amount = parseFloat(document.getElementById('trans-amount').value);
 
-// 5. LEDGER & CUSTOMER FUNCTIONS
-async function addTransaction(customerName, amount, type) {
-    if (!customerName || !amount) return alert("Enter name and amount");
+    if (!name || !amount) return alert("Fill Name and Amount");
 
     const entry = {
-        _id: 'ledger_' + new Date().getTime(),
-        customer: customerName,
-        amount: parseFloat(amount),
-        type: type, // 'invoice' or 'payment'
-        category: 'ledger',
-        date: new Date().toISOString()
+        _id: 'ledger_' + Date.now(),
+        customer: name,
+        amount: amount,
+        type: type,
+        category: 'ledger'
     };
 
-    try {
-        await db.put(entry);
-        updateLedgerUI();
-        document.getElementById('trans-amount').value = '';
-    } catch (err) {
-        console.error(err);
-    }
+    await db.put(entry);
+    updateLedgerUI();
 }
 
 async function updateLedgerUI() {
     const result = await db.allDocs({ include_docs: true });
-    const docs = result.rows.map(row => row.doc);
-
     const balances = {};
-    docs.filter(d => d.category === 'ledger').forEach(t => {
-        if (!balances[t.customer]) balances[t.customer] = 0;
-        balances[t.customer] += (t.type === 'invoice' ? t.amount : -t.amount);
+
+    result.rows.forEach(r => {
+        if (r.doc.category === 'ledger') {
+            const d = r.doc;
+            if (!balances[d.customer]) balances[d.customer] = 0;
+            balances[d.customer] += (d.type === 'invoice' ? d.amount : -d.amount);
+        }
     });
 
     const listDiv = document.getElementById('customer-list');
-    listDiv.innerHTML = "<h3>Current Balances</h3>";
-    for (let name in balances) {
-        const style = balances[name] > 0 ? "color: red" : "color: green";
+    listDiv.innerHTML = "<h3>Ledger / Balances</h3>";
+    for (let c in balances) {
         listDiv.innerHTML += `
             <div class="ledger-card">
-                <strong>${name}</strong>: 
-                <span style="${style}">$${Math.abs(balances[name]).toFixed(2)}</span>
-                ${balances[name] > 0 ? ' (Owes You)' : ' (Credit)'}
+                <strong>${c}</strong>: ${balances[c] > 0 ? 'Owes' : 'Credit'} $${Math.abs(balances[c]).toFixed(2)}
             </div>`;
     }
 }
 
-// 6. CLOUD SYNC LOGIC (GOOGLE DRIVE)
+// --- SYNC LOGIC ---
 function handleSync() {
     gapi.load('client:auth2', async () => {
-        try {
-            await gapi.client.init({ clientId: CLIENT_ID, scope: SCOPES });
-            if (!gapi.auth2.getAuthInstance().isSignedIn.get()) {
-                await gapi.auth2.getAuthInstance().signIn();
-            }
-            uploadToDrive();
-        } catch (err) {
-            alert("Auth failed: " + JSON.stringify(err));
+        await gapi.client.init({ clientId: CLIENT_ID, scope: SCOPES });
+        if (!gapi.auth2.getAuthInstance().isSignedIn.get()) {
+            await gapi.auth2.getAuthInstance().signIn();
         }
+        uploadToDrive();
     });
 }
 
 async function uploadToDrive() {
-    document.getElementById('sync-status').innerText = "Syncing...";
-    const allData = await db.allDocs({ include_docs: true });
-    const content = JSON.stringify(allData.rows.map(r => r.doc));
-
-    const fileContent = new Blob([content], { type: 'application/json' });
-    const metadata = {
-        'name': 'workshop_backup.json',
-        'mimeType': 'application/json'
-    };
+    const res = await db.allDocs({ include_docs: true });
+    const content = JSON.stringify(res.rows.map(r => r.doc));
+    const metadata = { 'name': 'workshop_db_backup.json', 'mimeType': 'application/json' };
 
     const form = new FormData();
     form.append('metadata', new Blob([JSON.stringify(metadata)], { type: 'application/json' }));
-    form.append('file', fileContent);
+    form.append('file', new Blob([content], { type: 'application/json' }));
 
     fetch('https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart', {
         method: 'POST',
         headers: new Headers({ 'Authorization': 'Bearer ' + gapi.auth2.getAuthInstance().currentUser.get().getAuthResponse().access_token }),
         body: form
-    }).then(res => {
-        if (res.ok) {
-            alert("Backup Saved to Google Drive!");
-            document.getElementById('sync-status').innerText = "Last Synced: " + new Date().toLocaleTimeString();
-        }
+    }).then(() => {
+        alert("Synced to Drive!");
+        document.getElementById('sync-status').innerText = "Synced: " + new Date().toLocaleTimeString();
     });
 }
 
-// Load UI on start
+// Initialize
+startScanner();
 updateLedgerUI();

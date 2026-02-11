@@ -4,10 +4,8 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Workshop Manager</title>
+    <title>Workshop Pro</title>
     <link rel="stylesheet" href="style.css">
-    <script src="https://cdn.jsdelivr.net/npm/pouchdb@8.0.1/dist/pouchdb.min.js"></script>
-    <script src="https://unpkg.com/html5-qrcode"></script>
     <script src="https://cdn.jsdelivr.net/npm/pouchdb@8.0.1/dist/pouchdb.min.js"></script>
     <script src="https://unpkg.com/html5-qrcode"></script>
     <script src="https://apis.google.com/js/api.js"></script>
@@ -15,45 +13,40 @@
 
 <body>
     <nav>
-        <h2>Workshop Pro</h2>
-        <div id="sync-status">Offline Mode</div>
-        <button onclick="handleSync()" style="width: auto; padding: 5px 15px; background: #fbbf24; color: black;">
-            Cloud Sync
-        </button>
-        <script src="https://apis.google.com/js/api.js"></script>
+        <h2>Workshop Manager</h2>
+        <button id="sync-btn" onclick="handleSync()">Cloud Sync</button>
     </nav>
+    <p id="sync-status" style="text-align:center; font-size: 12px;">Local Mode (Offline)</p>
 
     <div class="container">
         <section id="scanner-section">
-            <h3>Scan Part</h3>
-            <div id="reader" style="width: 100%"></div>
+            <h3>Scan Part Barcode</h3>
+            <div id="reader"></div>
+            <button id="restart-scan" onclick="startScanner()" style="display:none; margin-top:10px;">Scan
+                Another</button>
         </section>
 
         <section id="inventory-form">
-            <input type="text" id="part-id" placeholder="Barcode ID">
+            <h3>Inventory Stock In/Out</h3>
+            <input type="text" id="part-id" placeholder="Barcode ID (Scanned)">
             <input type="text" id="part-name" placeholder="Part Name">
-            <input type="number" id="part-price" placeholder="Price">
-            <input type="number" id="part-qty" placeholder="Quantity">
-            <button onclick="savePart()">Save to Stock</button>
-        </section>
-
-        <section id="ledger">
-            <h3>Customer Balances</h3>
-            <div id="customer-list"></div>
+            <input type="number" id="part-price" placeholder="Unit Price">
+            <input type="number" id="part-qty" placeholder="Quantity to Add/Remove">
+            <button onclick="savePart()" style="background:#2563eb;">Save to Stock</button>
         </section>
 
         <section id="ledger-input">
-            <h3>Payment & Billing</h3>
+            <h3>Customer Ledger (Billing)</h3>
             <input type="text" id="cust-name" placeholder="Customer Name">
             <input type="number" id="trans-amount" placeholder="Amount">
             <div style="display: flex; gap: 10px;">
-                <button
-                    onclick="addTransaction(document.getElementById('cust-name').value, document.getElementById('trans-amount').value, 'invoice')"
-                    style="background: #e11d48;">Add Bill</button>
-                <button
-                    onclick="addTransaction(document.getElementById('cust-name').value, document.getElementById('trans-amount').value, 'payment')"
-                    style="background: #16a34a;">Receive Pay</button>
+                <button onclick="addTransaction('invoice')" style="background: #e11d48;">Add Bill</button>
+                <button onclick="addTransaction('payment')" style="background: #16a34a;">Receive Payment</button>
             </div>
+        </section>
+
+        <section id="ledger-display">
+            <div id="customer-list"></div>
         </section>
     </div>
 
