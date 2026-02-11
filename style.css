@@ -1,0 +1,59 @@
+:root {
+  --primary: #2563eb;
+  --bg: #f8fafc;
+  --text: #1e293b;
+}
+
+body {
+  font-family: -apple-system, system-ui, sans-serif;
+  background-color: var(--bg);
+  color: var(--text);
+  margin: 0;
+  padding: 20px;
+}
+
+nav {
+  background: var(--primary);
+  color: white;
+  padding: 1rem;
+  border-radius: 8px;
+  margin-bottom: 20px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+section {
+  background: white;
+  padding: 15px;
+  border-radius: 12px;
+  box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
+  margin-bottom: 20px;
+}
+
+input {
+  width: 100%;
+  padding: 12px;
+  margin: 8px 0;
+  border: 1px solid #cbd5e1;
+  border-radius: 6px;
+  box-sizing: border-box; /* Crucial for mobile sizing */
+}
+
+button {
+  width: 100%;
+  background: var(--primary);
+  color: white;
+  padding: 14px;
+  border: none;
+  border-radius: 6px;
+  font-weight: bold;
+  cursor: pointer;
+}
+
+.ledger-card {
+  border-left: 5px solid var(--primary);
+  padding: 10px;
+  margin: 10px 0;
+  background: #f1f5f9;
+}
