@@ -116,3 +116,7 @@ button {
   border-radius: 8px;
   overflow: hidden;
 }
+.stop-btn {
+  background-color: #fbbf24 !important;
+  color: black !important;
+}
