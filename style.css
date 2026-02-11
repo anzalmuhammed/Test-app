@@ -43,6 +43,17 @@ input {
   box-sizing: border-box;
   font-size: 16px;
 }
+
+/* REMOVE NUMBER ARROWS (UP/DOWN) */
+input::-webkit-outer-spin-button,
+input::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+input[type="number"] {
+  -moz-appearance: textfield;
+}
+
 button {
   width: 100%;
   color: white;
@@ -72,38 +83,32 @@ button {
   position: static !important;
 }
 
-/* Brute-force hide duplicate file input and "No file chosen" text */
 #reader input[type="file"],
 #html5-qrcode-private-files-selector,
 .html5-qrcode-element + input {
   display: none !important;
   visibility: hidden !important;
-  opacity: 0 !important;
-  position: absolute !important;
 }
 
-/* Hide Info icon and branding */
 #reader img,
 #reader__dashboard_section_csr span,
 #reader div[style*="text-align: right"] {
   display: none !important;
 }
 
+/* CENTERED TOGGLE TEXT */
 #html5-qrcode-anchor-scan-type-change {
   display: block !important;
-  text-align: center !important; /* Centers the text */
-  margin: 15px auto !important; /* Adds space around it */
-  width: fit-content !important; /* Ensures it stays centered */
   color: var(--primary) !important;
   text-decoration: underline;
+  text-align: center !important;
+  margin: 15px auto !important;
   font-size: 14px;
-  font-weight: bold;
   cursor: pointer;
-  border: none !important;
-  background: none !important;
+  width: 100% !important;
 }
 
-/* --- UI COMPONENTS --- */
+/* --- COMPONENTS --- */
 #sync-btn {
   width: auto;
   background: var(--amber);
