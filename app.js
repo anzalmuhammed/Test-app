@@ -27,6 +27,10 @@ function gsiLoaded() {
     });
 }
 
+window.addEventListener('online', () => {
+    if (accessToken) uploadToDrive();
+});
+
 window.onload = () => {
     gapiLoaded();
     gsiLoaded();
@@ -49,6 +53,10 @@ function playBeep() {
 }
 
 function handleSync() {
+    if (!navigator.onLine) {
+        alert("You are offline. Changes will sync when you connect.");
+        return;
+    }
     if (accessToken === null) {
         tokenClient.requestAccessToken({ prompt: 'consent' });
     } else {
@@ -57,6 +65,7 @@ function handleSync() {
 }
 
 async function uploadToDrive() {
+    if (!navigator.onLine || !accessToken) return;
     const syncBtn = document.getElementById('sync-btn');
     syncBtn.innerText = "Syncing...";
     try {
@@ -84,9 +93,6 @@ async function uploadToDrive() {
         });
         if (response.ok) {
             document.getElementById('sync-status').innerText = "Last Synced: " + new Date().toLocaleTimeString();
-        } else if (response.status === 401) {
-            accessToken = null;
-            handleSync();
         }
     } catch (err) {
         console.error(err);
@@ -138,25 +144,29 @@ async function savePart() {
     const id = document.getElementById('part-id').value, name = document.getElementById('part-name').value;
     const price = parseFloat(document.getElementById('part-price').value) || 0;
     const qty = parseInt(document.getElementById('part-qty').value) || 0;
-    if (!id || !name) return alert("Fill ID and Name");
-    let doc = { _id: id, name, price, qty, category: 'inventory' };
+    if (!id || !name) return alert("Missing ID or Name");
+    let doc = { _id: id, name, price, qty, category: 'inventory', updatedAt: new Date().toISOString() };
     try {
-        const exist = await db.get(id);
-        doc._rev = exist._rev;
-        doc.qty = exist.qty + qty;
+        const existing = await db.get(id);
+        doc._rev = existing._rev;
+        doc.qty = existing.qty + qty;
     } catch (e) { }
     await db.put(doc);
-    alert("Saved Locally!");
-    if (accessToken) uploadToDrive();
-    location.reload();
+    document.getElementById('part-id').value = "";
+    document.getElementById('part-name').value = "";
+    document.getElementById('part-price').value = "";
+    document.getElementById('part-qty').value = "1";
+    alert("Saved to phone!");
+    uploadToDrive();
 }
 
 async function addTransaction(type) {
     const name = document.getElementById('cust-name').value, amount = parseFloat(document.getElementById('trans-amount').value);
     if (!name || !amount) return alert("Fill details");
-    await db.put({ _id: 'ledger_' + Date.now(), customer: name, amount, type, category: 'ledger' });
+    await db.put({ _id: 'ledger_' + Date.now(), customer: name, amount, type, category: 'ledger', date: new Date().toISOString() });
+    document.getElementById('trans-amount').value = "";
     updateLedgerUI();
-    if (accessToken) uploadToDrive();
+    uploadToDrive();
 }
 
 async function updateLedgerUI() {
@@ -168,6 +178,6 @@ async function updateLedgerUI() {
         }
     });
     const list = document.getElementById('customer-list');
-    list.innerHTML = "<h3>Balances</h3>";
+    list.innerHTML = "<h3>Customer Balances</h3>";
     for (let c in balances) { list.innerHTML += `<div class="ledger-card"><strong>${c}</strong>: $${Math.abs(balances[c]).toFixed(2)}</div>`; }
 }
