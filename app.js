@@ -1,5 +1,5 @@
 const db = new PouchDB('workshop_db');
-const CLIENT_ID = 'YOUR_ACTUAL_ID_HERE.apps.googleusercontent.com';
+const CLIENT_ID = '265618310384-mvgcqs0j7tk1fvi6k1b902s8batrehmj.apps.googleusercontent.com';
 const SCOPES = 'https://www.googleapis.com/auth/drive.file';
 
 let tokenClient;
@@ -26,10 +26,7 @@ function gsiLoaded() {
     });
 }
 
-// AUTO-SYNC ON RECONNECT
-window.addEventListener('online', () => {
-    if (accessToken) uploadToDrive();
-});
+window.addEventListener('online', () => { if (accessToken) uploadToDrive(); });
 
 window.onload = () => {
     gapiLoaded();
@@ -44,7 +41,7 @@ function changeQty(amount) {
     if (currentVal + amount >= 1) qtyInput.value = currentVal + amount;
 }
 
-// DRIVE SYNC (Search-then-Update)
+// DRIVE SYNC
 function handleSync() {
     if (!navigator.onLine) return alert("Offline: Will sync once connected.");
     if (!accessToken) tokenClient.requestAccessToken({ prompt: 'consent' });
@@ -80,7 +77,7 @@ async function uploadToDrive() {
             body: fileContent
         });
         document.getElementById('sync-status').innerText = "Last Synced: " + new Date().toLocaleTimeString();
-    } catch (err) { console.error("Sync Error:", err); }
+    } catch (err) { console.error(err); }
     finally { syncBtn.innerText = "Cloud Sync"; }
 }
 
@@ -92,20 +89,17 @@ function startScanner() {
     html5QrcodeScanner = new Html5QrcodeScanner("reader", { fps: 20, qrbox: { width: 250, height: 150 } });
     html5QrcodeScanner.render((text) => {
         if (navigator.vibrate) navigator.vibrate(100);
-
         document.getElementById('part-id').value = text;
         db.get(text).then(doc => {
             document.getElementById('part-name').value = doc.name;
             document.getElementById('part-price').value = doc.price;
         }).catch(() => { });
-
         html5QrcodeScanner.clear().then(() => {
             document.getElementById('restart-scan').style.display = 'block';
         });
     });
 }
 
-// SAVE & AUTO-SYNC
 async function savePart() {
     const id = document.getElementById('part-id').value;
     const name = document.getElementById('part-name').value;
@@ -125,7 +119,6 @@ async function savePart() {
     await db.put(doc);
     alert("Saved Locally!");
 
-    // Reset Fields
     document.getElementById('part-id').value = "";
     document.getElementById('part-name').value = "";
     document.getElementById('part-price').value = "";
@@ -138,7 +131,6 @@ async function addTransaction(type) {
     const name = document.getElementById('cust-name').value;
     const amount = parseFloat(document.getElementById('trans-amount').value);
     if (!name || !amount) return alert("Fill Name and Amount");
-
     await db.put({ _id: 'ledger_' + Date.now(), customer: name, amount, type, category: 'ledger' });
     document.getElementById('trans-amount').value = "";
     updateLedgerUI();

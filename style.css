@@ -35,60 +35,64 @@ input {
   font-size: 16px;
 }
 
-/* AMBER CAMERA BUTTONS - Forced Consistency */
+/* REVERTED AMBER BUTTON STYLING */
 .stop-btn {
   background-color: #f59e0b !important;
   color: white !important;
   border: none !important;
   width: 100% !important;
-  padding: 18px !important;
-  border-radius: 12px !important;
+  padding: 15px !important;
+  border-radius: 8px !important;
   font-weight: bold !important;
-  font-size: 18px !important;
+  font-size: 16px !important;
   cursor: pointer;
   text-transform: uppercase;
-  margin-top: 15px;
-  box-shadow: 0 4px 10px rgba(0, 0, 0, 0.2);
-  display: block;
+  margin-top: 10px;
 }
 
-.stop-btn:active {
-  background-color: #d97706 !important;
-  transform: scale(0.98);
-}
-
-/* Stepper Styling */
+/* STEPPER STYLING - Matching your blue image theme */
 .stepper-container {
   display: flex;
   align-items: center;
-  justify-content: space-around;
+  justify-content: space-between;
   background: #4f46e5;
-  border-radius: 12px;
-  padding: 10px;
+  border-radius: 10px;
+  padding: 5px;
   margin: 10px 0;
+  max-width: 220px;
 }
+
 .step-btn {
-  background: rgba(255, 255, 255, 0.2);
+  background: none;
   border: none;
   color: white;
   font-size: 28px;
-  width: 50px;
-  height: 50px;
-  border-radius: 50%;
-  cursor: pointer;
-}
-#part-qty {
-  background: none;
-  border: none;
-  color: white !important;
-  font-size: 24px;
-  text-align: center;
   width: 60px;
-  pointer-events: none;
+  height: 50px;
+  cursor: pointer;
+  font-weight: bold;
+}
+
+/* Quantity input - now typeable */
+#part-qty {
+  background: rgba(255, 255, 255, 0.1);
+  border: 1px solid rgba(255, 255, 255, 0.3);
+  color: white !important;
+  font-size: 22px;
+  text-align: center;
+  width: 80px;
+  margin: 0;
+  border-radius: 5px;
+  padding: 5px;
+}
+
+/* Hide default arrows on number input for a cleaner look */
+#part-qty::-webkit-inner-spin-button,
+#part-qty::-webkit-outer-spin-button {
+  -webkit-appearance: none;
   margin: 0;
 }
 
-/* Other Action Buttons */
 .save-btn {
   background: #2563eb;
   color: white;
@@ -98,7 +102,6 @@ input {
   border-radius: 8px;
   font-weight: bold;
   margin-top: 10px;
-  font-size: 16px;
 }
 .bill-btn {
   background: #e11d48;
