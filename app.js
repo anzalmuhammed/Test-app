@@ -1,9 +1,9 @@
 const db = new PouchDB('workshop_db');
-const CLIENT_ID = '265618310384-mvgcqs0j7tk1fvi6k1b902s8batrehmj.apps.googleusercontent.com';
+const CLIENT_ID = 'YOUR_ACTUAL_ID_HERE.apps.googleusercontent.com';
 const SCOPES = 'https://www.googleapis.com/auth/drive.file';
 
 let tokenClient;
-let accessToken = null;
+let accessToken = sessionStorage.getItem('drive_token');
 let html5QrcodeScanner;
 
 // --- INITIALIZATION ---
@@ -22,14 +22,20 @@ function gsiLoaded() {
         callback: (response) => {
             if (response.error !== undefined) throw (response);
             accessToken = response.access_token;
-            // Store token in session to avoid constant popups
             sessionStorage.setItem('drive_token', accessToken);
             uploadToDrive();
         },
     });
-    // Check if we already have a token from this session
-    accessToken = sessionStorage.getItem('drive_token');
 }
+
+// --- NEW: THE ONLINE DETECTOR ---
+// This listens for the moment your internet comes back
+window.addEventListener('online', () => {
+    console.log("Internet is back! Syncing...");
+    if (accessToken) {
+        uploadToDrive();
+    }
+});
 
 window.onload = () => {
     gapiLoaded();
@@ -38,18 +44,22 @@ window.onload = () => {
     startScanner();
 };
 
-// --- SYNC LOGIC (SMART UPDATE) ---
+// --- SMART SYNC LOGIC ---
 function handleSync() {
+    if (!navigator.onLine) {
+        alert("You are currently offline. Changes will sync automatically when you connect.");
+        return;
+    }
     if (accessToken === null) {
-        // Only show popup if we don't have a token
         tokenClient.requestAccessToken({ prompt: 'consent' });
     } else {
-        // Silent update if token exists
         uploadToDrive();
     }
 }
 
 async function uploadToDrive() {
+    if (!navigator.onLine || !accessToken) return;
+
     const syncBtn = document.getElementById('sync-btn');
     syncBtn.innerText = "Syncing...";
 
@@ -58,7 +68,6 @@ async function uploadToDrive() {
         const content = JSON.stringify(res.rows.map(r => r.doc));
         const fileContent = new Blob([content], { type: 'application/json' });
 
-        // 1. Search for existing file
         const searchResponse = await fetch(`https://www.googleapis.com/drive/v3/files?q=name='workshop_db_backup.json' and trashed=false`, {
             headers: { 'Authorization': 'Bearer ' + accessToken }
         });
@@ -68,13 +77,11 @@ async function uploadToDrive() {
         let url = 'https://www.googleapis.com/upload/drive/v3/files?uploadType=media';
         let method = 'POST';
 
-        // 2. If file exists, change to UPDATE mode (PATCH)
         if (existingFile) {
             url = `https://www.googleapis.com/upload/drive/v3/files/${existingFile.id}?uploadType=media`;
             method = 'PATCH';
         }
 
-        // 3. Perform the upload
         const response = await fetch(url, {
             method: method,
             headers: new Headers({
@@ -85,21 +92,16 @@ async function uploadToDrive() {
         });
 
         if (response.ok) {
-            console.log("Drive Updated Successfully");
             document.getElementById('sync-status').innerText = "Last Synced: " + new Date().toLocaleTimeString();
-        } else if (response.status === 401) {
-            // Token expired? Clear and ask again
-            accessToken = null;
-            handleSync();
         }
     } catch (err) {
-        console.error("Sync error:", err);
+        console.error("Sync failed:", err);
     } finally {
         syncBtn.innerText = "Cloud Sync";
     }
 }
 
-// --- APP LOGIC (WITH AUTO-SYNC) ---
+// --- UPDATED SAVE FUNCTIONS (No Reload) ---
 async function savePart() {
     const id = document.getElementById('part-id').value;
     const name = document.getElementById('part-name').value;
@@ -108,7 +110,7 @@ async function savePart() {
 
     if (!id || !name) return alert("Missing ID or Name");
 
-    let doc = { _id: id, name, price, qty, category: 'inventory' };
+    let doc = { _id: id, name, price, qty, category: 'inventory', updatedAt: new Date().toISOString() };
     try {
         const existing = await db.get(id);
         doc._rev = existing._rev;
@@ -116,12 +118,16 @@ async function savePart() {
     } catch (e) { }
 
     await db.put(doc);
-    alert("Saved Locally!");
 
-    // AUTO SYNC
-    if (accessToken) uploadToDrive();
+    // Clear inputs and give feedback without reloading
+    document.getElementById('part-id').value = "";
+    document.getElementById('part-name').value = "";
+    document.getElementById('part-price').value = "";
+    document.getElementById('part-qty').value = "";
+    alert("Saved to phone!");
 
-    location.reload();
+    // Try to sync (will happen automatically if online)
+    uploadToDrive();
 }
 
 async function addTransaction(type) {
@@ -134,17 +140,19 @@ async function addTransaction(type) {
         customer: name,
         amount: amount,
         type: type,
-        category: 'ledger'
+        category: 'ledger',
+        date: new Date().toISOString()
     };
 
     await db.put(entry);
-    updateLedgerUI();
+    document.getElementById('trans-amount').value = "";
+    updateLedgerUI(); // Update list instantly
 
-    // AUTO SYNC
-    if (accessToken) uploadToDrive();
+    // Try to sync
+    uploadToDrive();
 }
 
-// (Keep your existing startScanner, onScanSuccess, and updateLedgerUI functions below)
+// (Keep your existing startScanner, onScanSuccess, and updateLedgerUI functions)
 function startScanner() {
     html5QrcodeScanner = new Html5QrcodeScanner("reader", { fps: 20, qrbox: { width: 280, height: 150 } });
     html5QrcodeScanner.render(onScanSuccess);
