@@ -12,7 +12,6 @@ function gsiLoaded() {
     });
 }
 
-window.addEventListener('online', () => { if (accessToken) uploadToDrive(); });
 window.onload = () => { gapiLoaded(); gsiLoaded(); updateLedgerUI(); };
 
 function changeQty(amount) {
@@ -22,7 +21,7 @@ function changeQty(amount) {
 }
 
 function handleSync() {
-    if (!navigator.onLine) return alert("Offline: Will sync later.");
+    if (!navigator.onLine) return alert("Offline.");
     if (!accessToken) tokenClient.requestAccessToken({ prompt: 'consent' });
     else uploadToDrive();
 }
@@ -51,8 +50,11 @@ async function uploadToDrive() {
 function startScanner() {
     document.getElementById('start-scan-manual').style.display = 'none';
     document.getElementById('restart-scan').style.display = 'none';
-
-    html5QrcodeScanner = new Html5QrcodeScanner("reader", { fps: 20, qrbox: { width: 250, height: 150 } });
+    html5QrcodeScanner = new Html5QrcodeScanner("reader", {
+        fps: 20,
+        qrbox: { width: 250, height: 150 },
+        supportedScanTypes: [Html5QrcodeScanType.SCAN_TYPE_CAMERA, Html5QrcodeScanType.SCAN_TYPE_FILE]
+    });
     html5QrcodeScanner.render((text) => {
         if (navigator.vibrate) navigator.vibrate(100);
         document.getElementById('part-id').value = text;
@@ -60,23 +62,19 @@ function startScanner() {
             document.getElementById('part-name').value = doc.name;
             document.getElementById('part-price').value = doc.price;
         }).catch(() => { });
-        html5QrcodeScanner.clear().then(() => {
-            document.getElementById('restart-scan').style.display = 'block';
-        });
+        html5QrcodeScanner.clear().then(() => { document.getElementById('restart-scan').style.display = 'block'; });
     });
 }
 
 async function savePart() {
     const id = document.getElementById('part-id').value, name = document.getElementById('part-name').value;
     const price = parseFloat(document.getElementById('part-price').value) || 0;
-    const qtyInput = document.getElementById('part-qty'), qty = parseInt(qtyInput.value) || 1;
+    const qty = parseInt(document.getElementById('part-qty').value) || 1;
     if (!id || !name) return alert("Fill ID and Name");
     let doc = { _id: id, name, price, qty, category: 'inventory' };
     try { const exist = await db.get(id); doc._rev = exist._rev; doc.qty = exist.qty + qty; } catch (e) { }
     await db.put(doc);
     alert("Saved!");
-    document.getElementById('part-id').value = ""; document.getElementById('part-name').value = ""; document.getElementById('part-price').value = "";
-    qtyInput.value = "1";
     uploadToDrive();
 }
 
@@ -84,7 +82,6 @@ async function addTransaction(type) {
     const name = document.getElementById('cust-name').value, amount = parseFloat(document.getElementById('trans-amount').value);
     if (!name || !amount) return alert("Fill Name and Amount");
     await db.put({ _id: 'ledger_' + Date.now(), customer: name, amount, type, category: 'ledger' });
-    document.getElementById('trans-amount').value = "";
     updateLedgerUI();
     uploadToDrive();
 }
@@ -94,11 +91,10 @@ async function updateLedgerUI() {
     const balances = {};
     result.rows.forEach(r => {
         if (r.doc.category === 'ledger') {
-            const d = r.doc; if (!balances[d.customer]) balances[d.customer] = 0;
-            balances[d.customer] += (d.type === 'invoice' ? d.amount : -d.amount);
+            const d = r.doc; balances[d.customer] = (balances[d.customer] || 0) + (d.type === 'invoice' ? d.amount : -d.amount);
         }
     });
     const listDiv = document.getElementById('customer-list');
     listDiv.innerHTML = "<h3>Balances</h3>";
-    for (let c in balances) { listDiv.innerHTML += `<div class="ledger-card"><strong>${c}</strong>: $${Math.abs(balances[c]).toFixed(2)}</div>`; }
+    for (let c in balances) { listDiv.innerHTML += `<div class="ledger-card"><strong>${c}</strong>: $${balances[c].toFixed(2)}</div>`; }
 }

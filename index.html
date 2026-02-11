@@ -1,32 +1,66 @@
-<div class="container">
-    <section id="scanner-section">
-        <div id="reader"></div>
-        <button id="start-scan-manual" class="stop-btn" onclick="startScanner()">Start Camera</button>
-        <button id="restart-scan" class="stop-btn" onclick="startScanner()" style="display:none;">Scan Another</button>
-    </section>
+<!DOCTYPE html>
+<html lang="en">
 
-    <section id="inventory-form">
-        <h3>Stock Management</h3>
-        <input type="text" id="part-id" placeholder="Barcode ID">
-        <input type="text" id="part-name" placeholder="Part Name">
-        <input type="number" id="part-price" placeholder="Price">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Workshop Manager Pro</title>
 
-        <label style="font-weight:bold;">Add Quantity:</label>
-        <div class="stepper-container">
-            <button type="button" class="step-btn" onclick="changeQty(-1)">−</button>
-            <input type="number" id="part-qty" value="1">
-            <button type="button" class="step-btn" onclick="changeQty(1)">+</button>
-        </div>
-        <button onclick="savePart()" class="save-btn">Update Stock</button>
-    </section>
+    <script src="https://cdn.jsdelivr.net/npm/pouchdb@8.0.1/dist/pouchdb.min.js"></script>
+    <script src="https://unpkg.com/html5-qrcode"></script>
+    <script src="https://accounts.google.com/gsi/client" async defer></script>
+    <script src="https://apis.google.com/js/api.js"></script>
 
-    <section id="ledger-input">
-        <h3>Customer Billing</h3>
-        <input type="text" id="cust-name" placeholder="Customer Name">
-        <input type="number" id="trans-amount" placeholder="Amount">
-        <button onclick="addTransaction('invoice')" class="bill-btn">Add Bill</button>
-        <button onclick="addTransaction('payment')" class="pay-btn">Payment</button>
-    </section>
+    <link rel="stylesheet" href="style.css">
+</head>
 
-    <div id="customer-list"></div>
-</div>
+<body>
+
+    <nav>
+        <h2>Workshop App</h2>
+        <button id="sync-btn" onclick="handleSync()">Cloud Sync</button>
+    </nav>
+    <p id="sync-status" style="text-align:center; font-size: 12px; color: #666; margin-top: 5px;">Local Mode</p>
+
+    <div class="container">
+        <section id="scanner-section">
+            <div id="reader"></div>
+            <button id="start-scan-manual" class="stop-btn" onclick="startScanner()">Start Camera</button>
+            <button id="restart-scan" class="stop-btn" onclick="startScanner()" style="display:none;">Scan
+                Another</button>
+        </section>
+
+        <section id="inventory-form">
+            <h3>Stock Management</h3>
+            <input type="text" id="part-id" placeholder="Barcode ID">
+            <input type="text" id="part-name" placeholder="Part Name">
+            <input type="number" id="part-price" placeholder="Price">
+
+            <label style="font-weight:bold; display:block; margin-top:10px;">Add Quantity:</label>
+            <div class="stepper-container">
+                <button type="button" class="step-btn" onclick="changeQty(-1)">−</button>
+                <input type="number" id="part-qty" value="1">
+                <button type="button" class="step-btn" onclick="changeQty(1)">+</button>
+            </div>
+            <button onclick="savePart()" class="save-btn">Update Stock</button>
+        </section>
+
+        <section id="ledger-input">
+            <h3>Customer Billing</h3>
+            <input type="text" id="cust-name" placeholder="Customer Name">
+            <input type="number" id="trans-amount" placeholder="Amount">
+            <div style="display: flex; gap: 10px;">
+                <button onclick="addTransaction('invoice')" class="bill-btn">Add Bill</button>
+                <button onclick="addTransaction('payment')" class="pay-btn">Payment</button>
+            </div>
+        </section>
+
+        <section id="ledger-display">
+            <div id="customer-list"></div>
+        </section>
+    </div>
+
+    <script src="app.js"></script>
+</body>
+
+</html>

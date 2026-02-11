@@ -12,6 +12,10 @@ body {
   margin: 0;
   padding: 15px;
 }
+.container {
+  max-width: 500px;
+  margin: auto;
+}
 
 nav {
   background: var(--primary);
@@ -23,7 +27,6 @@ nav {
   align-items: center;
   margin-bottom: 15px;
 }
-
 section {
   background: white;
   padding: 20px;
@@ -31,7 +34,6 @@ section {
   box-shadow: 0 2px 5px rgba(0, 0, 0, 0.1);
   margin-bottom: 20px;
 }
-
 input {
   width: 100%;
   padding: 12px;
@@ -41,7 +43,6 @@ input {
   box-sizing: border-box;
   font-size: 16px;
 }
-
 button {
   width: 100%;
   color: white;
@@ -53,7 +54,7 @@ button {
   margin-top: 5px;
 }
 
-/* --- SCANNER LIBRARY FIXES (No more grey!) --- */
+/* --- SCANNER INTERFACE FIXES --- */
 #html5-qrcode-button-camera-permission,
 #html5-qrcode-button-camera-start,
 #html5-qrcode-button-camera-stop,
@@ -65,19 +66,44 @@ button {
   padding: 14px !important;
   font-weight: bold !important;
   text-transform: uppercase;
-  margin-top: 10px !important;
   width: 100% !important;
+  display: block !important;
+  margin: 12px 0 !important;
+  position: static !important;
 }
 
-#html5-qrcode-select-camera {
-  width: 100%;
-  padding: 12px;
-  margin: 10px 0;
-  border-radius: 6px;
-  border: 1px solid #cbd5e1;
+/* Brute-force hide duplicate file input and "No file chosen" text */
+#reader input[type="file"],
+#html5-qrcode-private-files-selector,
+.html5-qrcode-element + input {
+  display: none !important;
+  visibility: hidden !important;
+  opacity: 0 !important;
+  position: absolute !important;
 }
 
-/* --- CUSTOM BUTTONS --- */
+/* Hide Info icon and branding */
+#reader img,
+#reader__dashboard_section_csr span,
+#reader div[style*="text-align: right"] {
+  display: none !important;
+}
+
+#html5-qrcode-anchor-scan-type-change {
+  display: block !important;
+  text-align: center !important; /* Centers the text */
+  margin: 15px auto !important; /* Adds space around it */
+  width: fit-content !important; /* Ensures it stays centered */
+  color: var(--primary) !important;
+  text-decoration: underline;
+  font-size: 14px;
+  font-weight: bold;
+  cursor: pointer;
+  border: none !important;
+  background: none !important;
+}
+
+/* --- UI COMPONENTS --- */
 #sync-btn {
   width: auto;
   background: var(--amber);
@@ -101,7 +127,6 @@ button {
   background: #16a34a;
 }
 
-/* --- STEPPER (Indigo style, typeable) --- */
 .stepper-container {
   display: flex;
   align-items: center;
@@ -124,6 +149,7 @@ button {
   margin: 0 5px;
   height: 40px;
   border: none;
+  border-radius: 4px;
 }
 
 .ledger-card {
