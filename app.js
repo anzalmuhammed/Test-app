@@ -1,5 +1,5 @@
 const db = new PouchDB('workshop_db');
-const CLIENT_ID = 'YOUR_ACTUAL_ID_HERE.apps.googleusercontent.com';
+const CLIENT_ID = '265618310384-mvgcqs0j7tk1fvi6k1b902s8batrehmj.apps.googleusercontent.com';
 const SCOPES = 'https://www.googleapis.com/auth/drive.file';
 
 let tokenClient;
