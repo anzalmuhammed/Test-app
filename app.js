@@ -1,5 +1,5 @@
 const db = new PouchDB('workshop_db');
-const CLIENT_ID = 'YOUR_ID.apps.googleusercontent.com';
+const CLIENT_ID = '265618310384-mvgcqs0j7tk1fvi6k1b902s8batrehmj.apps.googleusercontent.com';
 let accessToken = sessionStorage.getItem('drive_token'), html5QrcodeScanner;
 
 function gsiLoaded() {
