@@ -84,21 +84,28 @@ async function uploadToDrive() {
     finally { syncBtn.innerText = "Cloud Sync"; }
 }
 
-// INVENTORY & SCANNER
+// SCANNER WITH VIBRATION
 function startScanner() {
     document.getElementById('start-scan-manual').style.display = 'none';
+    document.getElementById('restart-scan').style.display = 'none';
+
     html5QrcodeScanner = new Html5QrcodeScanner("reader", { fps: 20, qrbox: { width: 250, height: 150 } });
     html5QrcodeScanner.render((text) => {
+        // Vibrate for 100ms on success
+        if (navigator.vibrate) navigator.vibrate(100);
+
         document.getElementById('part-id').value = text;
         db.get(text).then(doc => {
             document.getElementById('part-name').value = doc.name;
             document.getElementById('part-price').value = doc.price;
         }).catch(() => { });
+
         html5QrcodeScanner.clear();
         document.getElementById('restart-scan').style.display = 'block';
     });
 }
 
+// INVENTORY SAVE
 async function savePart() {
     const id = document.getElementById('part-id').value;
     const name = document.getElementById('part-name').value;
@@ -116,9 +123,8 @@ async function savePart() {
     } catch (e) { }
 
     await db.put(doc);
-    alert("Saved!");
+    alert("Saved Locally!");
 
-    // RESET
     document.getElementById('part-id').value = "";
     document.getElementById('part-name').value = "";
     document.getElementById('part-price').value = "";

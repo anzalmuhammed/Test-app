@@ -66,16 +66,7 @@ input {
   margin: 0;
 }
 
-/* Button Colors */
-.start-btn {
-  background: #10b981;
-  color: white;
-  border: none;
-  width: 100%;
-  padding: 15px;
-  border-radius: 8px;
-  font-weight: bold;
-}
+/* High-Visibility Amber Buttons for Camera */
 .stop-btn {
   background: #f59e0b;
   color: white;
@@ -84,7 +75,19 @@ input {
   padding: 15px;
   border-radius: 8px;
   font-weight: bold;
+  font-size: 16px;
+  cursor: pointer;
+  text-transform: uppercase;
+  margin-top: 10px;
+  box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
 }
+
+.stop-btn:active {
+  background: #d97706;
+  transform: translateY(1px);
+}
+
+/* Other Action Buttons */
 .save-btn {
   background: #2563eb;
   color: white;
@@ -93,6 +96,7 @@ input {
   padding: 15px;
   border-radius: 8px;
   font-weight: bold;
+  margin-top: 10px;
 }
 .bill-btn {
   background: #e11d48;
@@ -117,4 +121,5 @@ input {
   width: 100%;
   border-radius: 8px;
   overflow: hidden;
+  background: #000;
 }
