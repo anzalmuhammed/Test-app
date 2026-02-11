@@ -2,6 +2,7 @@
   --primary: #2563eb;
   --bg: #f8fafc;
   --text: #1e293b;
+  --amber: #fbbf24;
 }
 
 body {
@@ -41,7 +42,6 @@ input {
   font-size: 16px;
 }
 
-/* The buttons now follow your old simple styling */
 button {
   width: 100%;
   color: white;
@@ -53,21 +53,42 @@ button {
   margin-top: 5px;
 }
 
-/* Restoring your Amber Sync button */
+/* --- SCANNER LIBRARY FIXES (No more grey!) --- */
+#html5-qrcode-button-camera-permission,
+#html5-qrcode-button-camera-start,
+#html5-qrcode-button-camera-stop,
+.html5-qrcode-element {
+  background-color: var(--amber) !important;
+  color: black !important;
+  border: none !important;
+  border-radius: 6px !important;
+  padding: 14px !important;
+  font-weight: bold !important;
+  text-transform: uppercase;
+  margin-top: 10px !important;
+  width: 100% !important;
+}
+
+#html5-qrcode-select-camera {
+  width: 100%;
+  padding: 12px;
+  margin: 10px 0;
+  border-radius: 6px;
+  border: 1px solid #cbd5e1;
+}
+
+/* --- CUSTOM BUTTONS --- */
 #sync-btn {
   width: auto;
-  background: #fbbf24;
+  background: var(--amber);
   color: black;
   padding: 8px 15px;
   font-size: 12px;
-  margin-top: 0;
+  margin: 0;
 }
-
-/* Specifically styling the scanner buttons like your old buttons but in Amber */
 .stop-btn {
-  background: #fbbf24 !important;
+  background: var(--amber) !important;
   color: black !important;
-  margin-bottom: 10px;
 }
 .save-btn {
   background: var(--primary);
@@ -80,7 +101,7 @@ button {
   background: #16a34a;
 }
 
-/* Stepper Fusion: Keeps your blue theme but allows typing */
+/* --- STEPPER (Indigo style, typeable) --- */
 .stepper-container {
   display: flex;
   align-items: center;
@@ -91,7 +112,7 @@ button {
 }
 .step-btn {
   background: none;
-  width: 50px;
+  width: 60px;
   font-size: 24px;
   margin-top: 0;
 }
@@ -102,6 +123,7 @@ button {
   width: 100%;
   margin: 0 5px;
   height: 40px;
+  border: none;
 }
 
 .ledger-card {
@@ -115,8 +137,5 @@ button {
   width: 100%;
   border-radius: 8px;
   overflow: hidden;
-}
-.stop-btn {
-  background-color: #fbbf24 !important;
-  color: black !important;
+  border: 1px solid #cbd5e1;
 }
