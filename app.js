@@ -1,5 +1,5 @@
 const db = new PouchDB('workshop_db');
-const CLIENT_ID = '265618310384-mvgcqs0j7tk1fvi6k1b902s8batrehmj.apps.googleusercontent.com';
+const CLIENT_ID = 'YOUR_ACTUAL_ID_HERE.apps.googleusercontent.com';
 const SCOPES = 'https://www.googleapis.com/auth/drive.file';
 
 let tokenClient;
@@ -26,7 +26,7 @@ function gsiLoaded() {
     });
 }
 
-// AUTO-SYNC WHEN ONLINE
+// AUTO-SYNC ON RECONNECT
 window.addEventListener('online', () => {
     if (accessToken) uploadToDrive();
 });
@@ -44,7 +44,7 @@ function changeQty(amount) {
     if (currentVal + amount >= 1) qtyInput.value = currentVal + amount;
 }
 
-// DRIVE SYNC
+// DRIVE SYNC (Search-then-Update)
 function handleSync() {
     if (!navigator.onLine) return alert("Offline: Will sync once connected.");
     if (!accessToken) tokenClient.requestAccessToken({ prompt: 'consent' });
@@ -80,18 +80,17 @@ async function uploadToDrive() {
             body: fileContent
         });
         document.getElementById('sync-status').innerText = "Last Synced: " + new Date().toLocaleTimeString();
-    } catch (err) { console.error(err); }
+    } catch (err) { console.error("Sync Error:", err); }
     finally { syncBtn.innerText = "Cloud Sync"; }
 }
 
-// SCANNER WITH VIBRATION
+// SCANNER + VIBRATION
 function startScanner() {
     document.getElementById('start-scan-manual').style.display = 'none';
     document.getElementById('restart-scan').style.display = 'none';
 
     html5QrcodeScanner = new Html5QrcodeScanner("reader", { fps: 20, qrbox: { width: 250, height: 150 } });
     html5QrcodeScanner.render((text) => {
-        // Vibrate for 100ms on success
         if (navigator.vibrate) navigator.vibrate(100);
 
         document.getElementById('part-id').value = text;
@@ -100,12 +99,13 @@ function startScanner() {
             document.getElementById('part-price').value = doc.price;
         }).catch(() => { });
 
-        html5QrcodeScanner.clear();
-        document.getElementById('restart-scan').style.display = 'block';
+        html5QrcodeScanner.clear().then(() => {
+            document.getElementById('restart-scan').style.display = 'block';
+        });
     });
 }
 
-// INVENTORY SAVE
+// SAVE & AUTO-SYNC
 async function savePart() {
     const id = document.getElementById('part-id').value;
     const name = document.getElementById('part-name').value;
@@ -125,6 +125,7 @@ async function savePart() {
     await db.put(doc);
     alert("Saved Locally!");
 
+    // Reset Fields
     document.getElementById('part-id').value = "";
     document.getElementById('part-name').value = "";
     document.getElementById('part-price').value = "";
@@ -133,7 +134,6 @@ async function savePart() {
     uploadToDrive();
 }
 
-// LEDGER
 async function addTransaction(type) {
     const name = document.getElementById('cust-name').value;
     const amount = parseFloat(document.getElementById('trans-amount').value);

@@ -35,7 +35,29 @@ input {
   font-size: 16px;
 }
 
-/* Stepper Component */
+/* AMBER CAMERA BUTTONS - Forced Consistency */
+.stop-btn {
+  background-color: #f59e0b !important;
+  color: white !important;
+  border: none !important;
+  width: 100% !important;
+  padding: 18px !important;
+  border-radius: 12px !important;
+  font-weight: bold !important;
+  font-size: 18px !important;
+  cursor: pointer;
+  text-transform: uppercase;
+  margin-top: 15px;
+  box-shadow: 0 4px 10px rgba(0, 0, 0, 0.2);
+  display: block;
+}
+
+.stop-btn:active {
+  background-color: #d97706 !important;
+  transform: scale(0.98);
+}
+
+/* Stepper Styling */
 .stepper-container {
   display: flex;
   align-items: center;
@@ -58,33 +80,12 @@ input {
 #part-qty {
   background: none;
   border: none;
-  color: white;
+  color: white !important;
   font-size: 24px;
   text-align: center;
   width: 60px;
   pointer-events: none;
   margin: 0;
-}
-
-/* High-Visibility Amber Buttons for Camera */
-.stop-btn {
-  background: #f59e0b;
-  color: white;
-  border: none;
-  width: 100%;
-  padding: 15px;
-  border-radius: 8px;
-  font-weight: bold;
-  font-size: 16px;
-  cursor: pointer;
-  text-transform: uppercase;
-  margin-top: 10px;
-  box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
-}
-
-.stop-btn:active {
-  background: #d97706;
-  transform: translateY(1px);
 }
 
 /* Other Action Buttons */
@@ -97,6 +98,7 @@ input {
   border-radius: 8px;
   font-weight: bold;
   margin-top: 10px;
+  font-size: 16px;
 }
 .bill-btn {
   background: #e11d48;
