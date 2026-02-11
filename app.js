@@ -1,40 +1,43 @@
 const db = new PouchDB('workshop_db');
 const CLIENT_ID = '265618310384-mvgcqs0j7tk1fvi6k1b902s8batrehmj.apps.googleusercontent.com';
-let accessToken = sessionStorage.getItem('drive_token'), html5QrCode;
+let html5QrCode;
 
 window.onload = () => { updateLedgerUI(); };
+
+function playBeep() {
+    const context = new (window.AudioContext || window.webkitAudioContext)();
+    const osc = context.createOscillator();
+    const gain = context.createGain();
+    osc.connect(gain);
+    gain.connect(context.destination);
+    osc.type = 'square';
+    osc.frequency.setValueAtTime(800, context.currentTime);
+    gain.gain.setValueAtTime(0.1, context.currentTime);
+    gain.gain.exponentialRampToValueAtTime(0.0001, context.currentTime + 0.6);
+    osc.start();
+    osc.stop(context.currentTime + 0.6);
+}
 
 function startScanner() {
     document.getElementById('start-scan-manual').style.display = 'none';
     document.getElementById('restart-scan').style.display = 'none';
-
-    if (!html5QrCode) {
-        html5QrCode = new Html5Qrcode("reader");
-    }
-
+    if (!html5QrCode) { html5QrCode = new Html5Qrcode("reader"); }
     const config = { fps: 20, qrbox: { width: 250, height: 150 } };
-
-    // FORCE BACK CAMERA
     html5QrCode.start({ facingMode: "environment" }, config, onScanSuccess)
         .catch(err => {
-            alert("Camera failed. Use HTTPS or check permissions.");
+            alert("Camera Error");
             document.getElementById('start-scan-manual').style.display = 'block';
         });
 }
 
 function onScanSuccess(decodedText) {
-    // Beep & Vibrate
-    const beep = document.getElementById('beep-sound');
-    if (beep) beep.play().catch(() => { });
-    if (navigator.vibrate) navigator.vibrate(100);
-
+    playBeep();
+    if (navigator.vibrate) navigator.vibrate(200);
     document.getElementById('part-id').value = decodedText;
-
     db.get(decodedText).then(doc => {
         document.getElementById('part-name').value = doc.name;
         document.getElementById('part-price').value = doc.price;
     }).catch(() => { });
-
     html5QrCode.stop().then(() => {
         document.getElementById('restart-scan').style.display = 'block';
     });
@@ -42,12 +45,10 @@ function onScanSuccess(decodedText) {
 
 function scanImageFile(e) {
     if (e.target.files.length === 0) return;
-    const file = e.target.files[0];
     if (!html5QrCode) html5QrCode = new Html5Qrcode("reader");
-
-    html5QrCode.scanFile(file, true)
+    html5QrCode.scanFile(e.target.files[0], true)
         .then(decodedText => onScanSuccess(decodedText))
-        .catch(err => alert("No barcode found in image."));
+        .catch(err => alert("No barcode found"));
 }
 
 function changeQty(amount) {
@@ -63,7 +64,7 @@ async function savePart() {
     let doc = { _id: id, name, qty, category: 'inventory' };
     try { const exist = await db.get(id); doc._rev = exist._rev; doc.qty = exist.qty + qty; } catch (e) { }
     await db.put(doc);
-    alert("Saved!");
+    alert("Saved");
 }
 
 async function addTransaction(type) {
