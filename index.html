@@ -4,39 +4,46 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Workshop Pro</title>
-    <link rel="stylesheet" href="style.css">
+    <title>Workshop Inventory & Ledger</title>
+
     <script src="https://cdn.jsdelivr.net/npm/pouchdb@8.0.1/dist/pouchdb.min.js"></script>
+
     <script src="https://unpkg.com/html5-qrcode"></script>
+
+    <script src="https://accounts.google.com/gsi/client" async defer></script>
+
     <script src="https://apis.google.com/js/api.js"></script>
+
+    <link rel="stylesheet" href="style.css">
 </head>
 
 <body>
+
     <nav>
         <h2>Workshop Manager</h2>
         <button id="sync-btn" onclick="handleSync()">Cloud Sync</button>
     </nav>
-    <p id="sync-status" style="text-align:center; font-size: 12px;">Local Mode (Offline)</p>
+    <p id="sync-status" style="text-align:center; font-size: 12px; color: #666;">Local Mode</p>
 
     <div class="container">
         <section id="scanner-section">
-            <h3>Scan Part Barcode</h3>
+            <h3>Scan Barcode</h3>
             <div id="reader"></div>
-            <button id="restart-scan" onclick="startScanner()" style="display:none; margin-top:10px;">Scan
-                Another</button>
+            <button id="restart-scan" onclick="startScanner()"
+                style="display:none; margin-top:10px; background: #6366f1;">Scan Another</button>
         </section>
 
         <section id="inventory-form">
-            <h3>Inventory Stock In/Out</h3>
-            <input type="text" id="part-id" placeholder="Barcode ID (Scanned)">
+            <h3>Stock Management</h3>
+            <input type="text" id="part-id" placeholder="Barcode ID">
             <input type="text" id="part-name" placeholder="Part Name">
-            <input type="number" id="part-price" placeholder="Unit Price">
-            <input type="number" id="part-qty" placeholder="Quantity to Add/Remove">
-            <button onclick="savePart()" style="background:#2563eb;">Save to Stock</button>
+            <input type="number" id="part-price" placeholder="Price">
+            <input type="number" id="part-qty" placeholder="Add Quantity (e.g. 5 or -2)">
+            <button onclick="savePart()" style="background:#2563eb;">Update Stock</button>
         </section>
 
         <section id="ledger-input">
-            <h3>Customer Ledger (Billing)</h3>
+            <h3>Customer Billing</h3>
             <input type="text" id="cust-name" placeholder="Customer Name">
             <input type="number" id="trans-amount" placeholder="Amount">
             <div style="display: flex; gap: 10px;">
