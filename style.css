@@ -1,105 +1,118 @@
-:root {
-  --primary: #2563eb;
-  --bg: #f8fafc;
-  --text: #1e293b;
-}
 body {
   font-family: sans-serif;
-  background-color: var(--bg);
-  color: var(--text);
+  background: #f3f4f6;
   margin: 0;
+  padding: 0;
+}
+.container {
   padding: 15px;
+  max-width: 500px;
+  margin: auto;
 }
 nav {
-  background: var(--primary);
+  background: #1e293b;
   color: white;
   padding: 10px 20px;
-  border-radius: 8px;
   display: flex;
   justify-content: space-between;
   align-items: center;
-  margin-bottom: 15px;
 }
 section {
   background: white;
-  padding: 20px;
+  padding: 15px;
   border-radius: 12px;
-  box-shadow: 0 2px 5px rgba(0, 0, 0, 0.1);
   margin-bottom: 20px;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
 }
+
 input {
   width: 100%;
   padding: 12px;
   margin: 8px 0;
-  border: 1px solid #cbd5e1;
-  border-radius: 6px;
+  border: 1px solid #ddd;
+  border-radius: 8px;
   box-sizing: border-box;
   font-size: 16px;
 }
+
+/* Stepper Component */
 .stepper-container {
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  background-color: #4f46e5; /* The blue color from your image */
+  justify-content: space-around;
+  background: #4f46e5;
   border-radius: 12px;
-  padding: 5px;
-  width: 100%;
-  max-width: 200px;
-  margin: 10px auto;
+  padding: 10px;
+  margin: 10px 0;
 }
-
 .step-btn {
-  background: none;
+  background: rgba(255, 255, 255, 0.2);
   border: none;
   color: white;
-  font-size: 24px;
-  font-weight: bold;
+  font-size: 28px;
+  width: 50px;
+  height: 50px;
+  border-radius: 50%;
   cursor: pointer;
-  padding: 0 15px;
-  line-height: 1;
 }
-
 #part-qty {
   background: none;
   border: none;
   color: white;
-  font-size: 20px;
+  font-size: 24px;
   text-align: center;
-  width: 50px;
-  outline: none;
-  pointer-events: none; /* User can't type, must use buttons */
-}
-
-/* Remove arrows from number input */
-#part-qty::-webkit-inner-spin-button,
-#part-qty::-webkit-outer-spin-button {
-  -webkit-appearance: none;
+  width: 60px;
+  pointer-events: none;
   margin: 0;
 }
-button {
-  width: 100%;
+
+/* Button Colors */
+.start-btn {
+  background: #10b981;
   color: white;
-  padding: 14px;
   border: none;
-  border-radius: 6px;
+  width: 100%;
+  padding: 15px;
+  border-radius: 8px;
   font-weight: bold;
-  cursor: pointer;
-  margin-top: 5px;
 }
-#sync-btn {
-  width: auto;
-  background: #fbbf24;
-  color: black;
-  padding: 8px 15px;
-  font-size: 12px;
+.stop-btn {
+  background: #f59e0b;
+  color: white;
+  border: none;
+  width: 100%;
+  padding: 15px;
+  border-radius: 8px;
+  font-weight: bold;
 }
-.ledger-card {
-  border-left: 5px solid var(--primary);
+.save-btn {
+  background: #2563eb;
+  color: white;
+  border: none;
+  width: 100%;
+  padding: 15px;
+  border-radius: 8px;
+  font-weight: bold;
+}
+.bill-btn {
+  background: #e11d48;
+  color: white;
+  border: none;
+  flex: 1;
   padding: 12px;
-  margin: 10px 0;
-  background: #f1f5f9;
-  border-radius: 4px;
+  border-radius: 8px;
+  font-weight: bold;
 }
+.pay-btn {
+  background: #16a34a;
+  color: white;
+  border: none;
+  flex: 1;
+  padding: 12px;
+  border-radius: 8px;
+  font-weight: bold;
+}
+
 #reader {
   width: 100%;
   border-radius: 8px;
