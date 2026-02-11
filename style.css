@@ -71,7 +71,7 @@ button {
   display: block;
   text-align: center;
   color: var(--primary);
-  text-decoration: underline;
+  text-decoration: none;
   font-weight: bold;
   cursor: pointer;
   margin-top: 15px;
