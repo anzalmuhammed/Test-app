@@ -26,6 +26,7 @@ nav {
   align-items: center;
 }
 
+/* OLD VERSION STYLE SECTIONS */
 section {
   background: white;
   padding: 20px;
@@ -33,7 +34,6 @@ section {
   box-shadow: 0 2px 5px rgba(0, 0, 0, 0.1);
   margin-bottom: 20px;
 }
-
 input {
   width: 100%;
   padding: 12px;
@@ -44,28 +44,40 @@ input {
   font-size: 16px;
 }
 
-/* SCANNER BUTTONS (Old Style Amber) */
+/* SCANNER BUTTONS - EXACT OLD VERSION STYLE */
 .stop-btn {
-  background-color: #fbbf24 !important; /* Amber color from your old code */
+  background-color: #fbbf24 !important; /* Your specific yellow */
   color: black !important;
   border: none !important;
   width: 100% !important;
   padding: 14px !important;
-  border-radius: 6px !important;
+  border-radius: 6px !important; /* Old version radius */
   font-weight: bold !important;
   font-size: 16px !important;
   cursor: pointer;
-  margin-top: 10px;
-  text-transform: uppercase;
+  margin-top: 5px;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.2);
 }
 
-/* STEPPER (Modern Blue) */
+/* SYNC BUTTON - OLD VERSION STYLE */
+#sync-btn {
+  width: auto;
+  background: #fbbf24;
+  color: black;
+  padding: 8px 15px;
+  font-size: 12px;
+  border-radius: 6px;
+  font-weight: bold;
+  border: none;
+}
+
+/* STEPPER - REMAINS FUNCTIONAL BUT MATCHES THEME */
 .stepper-container {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  background: #4f46e5;
-  border-radius: 8px;
+  background: var(--primary);
+  border-radius: 6px;
   padding: 5px;
   margin: 10px 0;
 }
@@ -91,14 +103,6 @@ input {
 }
 
 /* OTHER BUTTONS */
-#sync-btn {
-  width: auto;
-  background: #fbbf24;
-  color: black;
-  padding: 8px 15px;
-  font-size: 12px;
-  margin: 0;
-}
 .save-btn {
   background: var(--primary);
   color: white;
@@ -106,6 +110,7 @@ input {
   border: none;
   border-radius: 6px;
   font-weight: bold;
+  width: 100%;
 }
 .bill-btn {
   background: #e11d48;
@@ -124,6 +129,13 @@ input {
   padding: 12px;
   border-radius: 6px;
   font-weight: bold;
+}
+.ledger-card {
+  border-left: 5px solid var(--primary);
+  padding: 12px;
+  margin: 10px 0;
+  background: #f1f5f9;
+  border-radius: 4px;
 }
 
 #reader {

@@ -5,28 +5,25 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Workshop Manager Pro</title>
-
     <script src="https://cdn.jsdelivr.net/npm/pouchdb@8.0.1/dist/pouchdb.min.js"></script>
     <script src="https://unpkg.com/html5-qrcode"></script>
     <script src="https://accounts.google.com/gsi/client" async defer></script>
     <script src="https://apis.google.com/js/api.js"></script>
-
     <link rel="stylesheet" href="style.css">
 </head>
 
 <body>
-
     <nav>
         <h2>Workshop App</h2>
         <button id="sync-btn" onclick="handleSync()">Cloud Sync</button>
     </nav>
-    <p id="sync-status" style="text-align:center; font-size: 12px; color: #666; margin-top: 5px;">Local Mode</p>
+    <p id="sync-status" style="text-align:center; font-size: 11px; color: #888;">Local Mode</p>
 
     <div class="container">
         <section id="scanner-section">
             <div id="reader"></div>
             <button id="start-scan-manual" class="stop-btn" onclick="startScanner()">Start Camera</button>
-            <button id="restart-scan" class="stop-btn" onclick="startScanner()" style="display:none;">Scan
+            <button id="restart-scan" class="stop-btn" style="display:none;" onclick="startScanner()">Scan
                 Another</button>
         </section>
 
@@ -36,13 +33,12 @@
             <input type="text" id="part-name" placeholder="Part Name">
             <input type="number" id="part-price" placeholder="Price">
 
-            <label style="display:block; margin-top:10px; font-weight:bold;">Add Quantity:</label>
+            <label style="font-size: 14px; font-weight: bold;">Quantity:</label>
             <div class="stepper-container">
                 <button type="button" class="step-btn" onclick="changeQty(-1)">−</button>
                 <input type="number" id="part-qty" value="1" min="1">
                 <button type="button" class="step-btn" onclick="changeQty(1)">+</button>
             </div>
-
             <button onclick="savePart()" class="save-btn">Update Stock</button>
         </section>
 
@@ -60,7 +56,6 @@
             <div id="customer-list"></div>
         </section>
     </div>
-
     <script src="app.js"></script>
 </body>
 

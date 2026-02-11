@@ -6,7 +6,6 @@ let tokenClient;
 let accessToken = sessionStorage.getItem('drive_token');
 let html5QrcodeScanner;
 
-// INITIALIZATION
 function gapiLoaded() {
     gapi.load('client', async () => {
         await gapi.client.init({ discoveryDocs: ["https://www.googleapis.com/discovery/v1/apis/drive/v3/rest"] });
@@ -34,14 +33,12 @@ window.onload = () => {
     updateLedgerUI();
 };
 
-// STEPPER LOGIC
 function changeQty(amount) {
     const qtyInput = document.getElementById('part-qty');
     let currentVal = parseInt(qtyInput.value) || 1;
     if (currentVal + amount >= 1) qtyInput.value = currentVal + amount;
 }
 
-// DRIVE SYNC
 function handleSync() {
     if (!navigator.onLine) return alert("Offline: Will sync once connected.");
     if (!accessToken) tokenClient.requestAccessToken({ prompt: 'consent' });
@@ -52,25 +49,21 @@ async function uploadToDrive() {
     if (!navigator.onLine || !accessToken) return;
     const syncBtn = document.getElementById('sync-btn');
     syncBtn.innerText = "Syncing...";
-
     try {
         const res = await db.allDocs({ include_docs: true });
         const content = JSON.stringify(res.rows.map(r => r.doc));
         const fileContent = new Blob([content], { type: 'application/json' });
-
         const search = await fetch(`https://www.googleapis.com/drive/v3/files?q=name='workshop_db_backup.json' and trashed=false`, {
             headers: { 'Authorization': 'Bearer ' + accessToken }
         });
         const searchRes = await search.json();
         const file = searchRes.files && searchRes.files[0];
-
         let url = 'https://www.googleapis.com/upload/drive/v3/files?uploadType=media';
         let method = 'POST';
         if (file) {
             url = `https://www.googleapis.com/upload/drive/v3/files/${file.id}?uploadType=media`;
             method = 'PATCH';
         }
-
         await fetch(url, {
             method: method,
             headers: new Headers({ 'Authorization': 'Bearer ' + accessToken, 'Content-Type': 'application/json' }),
@@ -81,11 +74,9 @@ async function uploadToDrive() {
     finally { syncBtn.innerText = "Cloud Sync"; }
 }
 
-// SCANNER + VIBRATION
 function startScanner() {
     document.getElementById('start-scan-manual').style.display = 'none';
     document.getElementById('restart-scan').style.display = 'none';
-
     html5QrcodeScanner = new Html5QrcodeScanner("reader", { fps: 20, qrbox: { width: 250, height: 150 } });
     html5QrcodeScanner.render((text) => {
         if (navigator.vibrate) navigator.vibrate(100);
@@ -100,31 +91,25 @@ function startScanner() {
     });
 }
 
-// SAVE & RESET
 async function savePart() {
     const id = document.getElementById('part-id').value;
     const name = document.getElementById('part-name').value;
     const price = parseFloat(document.getElementById('part-price').value) || 0;
     const qtyInput = document.getElementById('part-qty');
     const qty = parseInt(qtyInput.value) || 1;
-
     if (!id || !name) return alert("Fill ID and Name");
-
     let doc = { _id: id, name, price, qty, category: 'inventory' };
     try {
         const exist = await db.get(id);
         doc._rev = exist._rev;
         doc.qty = exist.qty + qty;
     } catch (e) { }
-
     await db.put(doc);
     alert("Saved!");
-
     document.getElementById('part-id').value = "";
     document.getElementById('part-name').value = "";
     document.getElementById('part-price').value = "";
     qtyInput.value = "1";
-
     uploadToDrive();
 }
 
