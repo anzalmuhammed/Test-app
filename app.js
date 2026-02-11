@@ -100,6 +100,7 @@ function startScanner() {
     });
 }
 
+// SAVE & RESET
 async function savePart() {
     const id = document.getElementById('part-id').value;
     const name = document.getElementById('part-name').value;
@@ -117,7 +118,7 @@ async function savePart() {
     } catch (e) { }
 
     await db.put(doc);
-    alert("Saved Locally!");
+    alert("Saved!");
 
     document.getElementById('part-id').value = "";
     document.getElementById('part-name').value = "";
@@ -150,6 +151,6 @@ async function updateLedgerUI() {
     const listDiv = document.getElementById('customer-list');
     listDiv.innerHTML = "<h3>Balances</h3>";
     for (let c in balances) {
-        listDiv.innerHTML += `<div><strong>${c}</strong>: $${Math.abs(balances[c]).toFixed(2)}</div>`;
+        listDiv.innerHTML += `<div class="ledger-card"><strong>${c}</strong>: $${Math.abs(balances[c]).toFixed(2)}</div>`;
     }
 }
