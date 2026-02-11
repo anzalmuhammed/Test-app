@@ -1,35 +1,28 @@
 const db = new PouchDB('workshop_db');
 const CLIENT_ID = '265618310384-mvgcqs0j7tk1fvi6k1b902s8batrehmj.apps.googleusercontent.com';
-let accessToken = sessionStorage.getItem('drive_token'), html5QrcodeScanner;
+let accessToken = sessionStorage.getItem('drive_token'), html5QrCode;
 
-function gsiLoaded() {
-    tokenClient = google.accounts.oauth2.initTokenClient({
-        client_id: CLIENT_ID, scope: 'https://www.googleapis.com/auth/drive.file',
-        callback: (res) => { accessToken = res.access_token; sessionStorage.setItem('drive_token', accessToken); uploadToDrive(); }
-    });
-}
-window.onload = () => { gsiLoaded(); updateLedgerUI(); };
+window.onload = () => { updateLedgerUI(); };
 
 function startScanner() {
-    // UI Cleanup
     document.getElementById('start-scan-manual').style.display = 'none';
     document.getElementById('restart-scan').style.display = 'none';
 
-    // Clear existing scanner instance
-    if (html5QrcodeScanner) {
-        html5QrcodeScanner.clear();
+    if (!html5QrCode) {
+        html5QrCode = new Html5Qrcode("reader");
     }
 
-    html5QrcodeScanner = new Html5QrcodeScanner("reader", {
-        fps: 20,
-        qrbox: { width: 250, height: 150 },
-        supportedScanTypes: [Html5QrcodeScanType.SCAN_TYPE_CAMERA, Html5QrcodeScanType.SCAN_TYPE_FILE]
-    });
+    const config = { fps: 20, qrbox: { width: 250, height: 150 } };
 
-    html5QrcodeScanner.render(onScanSuccess, onScanFailure);
+    // FORCE BACK CAMERA
+    html5QrCode.start({ facingMode: "environment" }, config, onScanSuccess)
+        .catch(err => {
+            alert("Camera failed. Use HTTPS or check permissions.");
+            document.getElementById('start-scan-manual').style.display = 'block';
+        });
 }
 
-function onScanSuccess(decodedText, decodedResult) {
+function onScanSuccess(decodedText) {
     // Beep & Vibrate
     const beep = document.getElementById('beep-sound');
     if (beep) beep.play().catch(() => { });
@@ -42,13 +35,19 @@ function onScanSuccess(decodedText, decodedResult) {
         document.getElementById('part-price').value = doc.price;
     }).catch(() => { });
 
-    html5QrcodeScanner.clear().then(() => {
+    html5QrCode.stop().then(() => {
         document.getElementById('restart-scan').style.display = 'block';
     });
 }
 
-function onScanFailure(error) {
-    // Silent failure is better for performance
+function scanImageFile(e) {
+    if (e.target.files.length === 0) return;
+    const file = e.target.files[0];
+    if (!html5QrCode) html5QrCode = new Html5Qrcode("reader");
+
+    html5QrCode.scanFile(file, true)
+        .then(decodedText => onScanSuccess(decodedText))
+        .catch(err => alert("No barcode found in image."));
 }
 
 function changeQty(amount) {
@@ -69,7 +68,7 @@ async function savePart() {
 
 async function addTransaction(type) {
     const name = document.getElementById('cust-name').value, amount = parseFloat(document.getElementById('trans-amount').value);
-    if (!name || !amount) return alert("Enter details");
+    if (!name || !amount) return alert("Fill details");
     await db.put({ _id: 'ledger_' + Date.now(), customer: name, amount, type, category: 'ledger' });
     updateLedgerUI();
 }

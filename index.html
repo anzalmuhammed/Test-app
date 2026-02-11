@@ -28,9 +28,15 @@
     <div class="container">
         <section id="scanner-section">
             <div id="reader"></div>
-            <button id="start-scan-manual" class="stop-btn" onclick="startScanner()">Start Camera</button>
-            <button id="restart-scan" class="stop-btn" onclick="startScanner()" style="display:none;">Scan
-                Another</button>
+            <div class="scanner-controls">
+                <button id="start-scan-manual" class="stop-btn" onclick="startScanner()">Start Camera</button>
+                <button id="restart-scan" class="stop-btn" onclick="startScanner()" style="display:none;">Scan
+                    Another</button>
+
+                <label for="file-input" class="file-label">Scan an Image File</label>
+                <input type="file" id="file-input" accept="image/*" onchange="scanImageFile(event)"
+                    style="display:none;">
+            </div>
         </section>
 
         <section id="inventory-form">
