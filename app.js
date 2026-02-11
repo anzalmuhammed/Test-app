@@ -77,9 +77,10 @@ async function uploadToDrive() {
 function startScanner() {
     document.getElementById('start-scan-manual').style.display = 'none';
     document.getElementById('restart-scan').style.display = 'none';
+
     html5QrcodeScanner = new Html5QrcodeScanner("reader", { fps: 20, qrbox: { width: 250, height: 150 } });
     html5QrcodeScanner.render((text) => {
-        if (navigator.vibrate) navigator.vibrate(100);
+        if (navigator.vibrate) navigator.vibrate(100); // Vibrate on scan success
         document.getElementById('part-id').value = text;
         db.get(text).then(doc => {
             document.getElementById('part-name').value = doc.name;

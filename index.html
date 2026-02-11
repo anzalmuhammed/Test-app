@@ -23,7 +23,7 @@
         <section id="scanner-section">
             <div id="reader"></div>
             <button id="start-scan-manual" class="stop-btn" onclick="startScanner()">Start Camera</button>
-            <button id="restart-scan" class="stop-btn" style="display:none;" onclick="startScanner()">Scan
+            <button id="restart-scan" class="stop-btn" onclick="startScanner()" style="display:none;">Scan
                 Another</button>
         </section>
 
@@ -33,10 +33,10 @@
             <input type="text" id="part-name" placeholder="Part Name">
             <input type="number" id="part-price" placeholder="Price">
 
-            <label style="font-size: 14px; font-weight: bold;">Quantity:</label>
+            <label style="font-weight:bold;">Add Quantity:</label>
             <div class="stepper-container">
                 <button type="button" class="step-btn" onclick="changeQty(-1)">−</button>
-                <input type="number" id="part-qty" value="1" min="1">
+                <input type="number" id="part-qty" value="1">
                 <button type="button" class="step-btn" onclick="changeQty(1)">+</button>
             </div>
             <button onclick="savePart()" class="save-btn">Update Stock</button>
