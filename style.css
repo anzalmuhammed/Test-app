@@ -4,6 +4,18 @@
   --text: #1e293b;
   --amber: #fbbf24;
 }
+
+/* Hide number input arrows */
+input::-webkit-outer-spin-button,
+input::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+input[type="number"] {
+  -moz-appearance: textfield;
+  appearance: textfield;
+}
+
 body {
   font-family: sans-serif;
   background-color: var(--bg);
@@ -15,6 +27,7 @@ body {
   max-width: 500px;
   margin: auto;
 }
+
 nav {
   background: var(--primary);
   color: white;
@@ -25,20 +38,13 @@ nav {
   align-items: center;
   margin-bottom: 15px;
 }
+
 section {
   background: white;
   padding: 20px;
   border-radius: 12px;
   box-shadow: 0 2px 5px rgba(0, 0, 0, 0.1);
   margin-bottom: 20px;
-}
-input::-webkit-outer-spin-button,
-input::-webkit-inner-spin-button {
-  -webkit-appearance: none;
-  margin: 0;
-}
-input[type="number"] {
-  -moz-appearance: textfield;
 }
 input {
   width: 100%;
@@ -59,31 +65,61 @@ button {
   cursor: pointer;
   margin-top: 5px;
 }
-#reader {
+
+/* Menu Grid */
+.menu-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 15px;
+  margin-top: 20px;
+}
+.menu-box {
+  background: white;
+  padding: 30px 10px;
+  border-radius: 15px;
+  text-align: center;
+  box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+  cursor: pointer;
+}
+.menu-box .icon {
+  font-size: 40px;
+  margin-bottom: 10px;
+}
+
+/* Centered Scanner Controls */
+.scanner-controls {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
   width: 100%;
-  border-radius: 8px;
-  overflow: hidden;
-  border: 1px solid #cbd5e1;
-  background: #000;
-  min-height: 250px;
 }
 .file-label {
   display: block;
   text-align: center;
   color: var(--primary);
-  text-decoration: none;
   font-weight: bold;
   cursor: pointer;
   margin-top: 15px;
   font-size: 14px;
+  width: 100%;
 }
+#reader,
+#bill-reader {
+  width: 100%;
+  border-radius: 8px;
+  overflow: hidden;
+  background: #000;
+  min-height: 250px;
+}
+
+/* Buttons & Stepper */
 #sync-btn {
   width: auto;
   background: var(--amber);
   color: black;
   padding: 8px 15px;
   font-size: 12px;
-  margin: 0;
 }
 .stop-btn {
   background: var(--amber) !important;
@@ -92,13 +128,16 @@ button {
 .save-btn {
   background: var(--primary);
 }
-.bill-btn {
-  background: #e11d48;
-  margin-bottom: 5px;
-}
 .pay-btn {
   background: #16a34a;
 }
+.back-menu-btn {
+  background: #64748b;
+  margin-bottom: 15px;
+  width: auto;
+  padding: 8px 15px;
+}
+
 .stepper-container {
   display: flex;
   align-items: center;
@@ -113,15 +152,41 @@ button {
   font-size: 24px;
   margin-top: 0;
 }
-#part-qty {
+#part-qty,
+#bill-qty {
   background: white;
   color: var(--text);
   text-align: center;
   width: 100%;
-  margin: 0 5px;
   height: 40px;
   border: none;
   border-radius: 4px;
+  margin: 0 5px;
+}
+
+/* Tables */
+table {
+  width: 100%;
+  border-collapse: collapse;
+  margin-top: 10px;
+  font-size: 14px;
+}
+th {
+  text-align: left;
+  border-bottom: 2px solid #ddd;
+  padding: 8px;
+  background: #f1f5f9;
+}
+td {
+  padding: 8px;
+  border-bottom: 1px solid #eee;
+}
+.del-btn {
+  background: #ef4444;
+  padding: 5px 10px;
+  font-size: 12px;
+  width: auto;
+  margin: 0;
 }
 .ledger-card {
   border-left: 5px solid var(--primary);
@@ -130,4 +195,9 @@ button {
   background: #f1f5f9;
   border-radius: 4px;
   border-top: 1px solid #ddd;
+}
+hr {
+  border: 0;
+  border-top: 1px solid #eee;
+  margin: 15px 0;
 }

@@ -14,48 +14,143 @@
 
 <body>
     <nav>
-        <h2>Workshop App</h2>
+        <h2 onclick="showScreen('main-menu')" style="cursor:pointer">Workshop App</h2>
         <button id="sync-btn" onclick="handleSync()">Cloud Sync</button>
     </nav>
-    <p id="sync-status" style="text-align:center; font-size: 12px; color: #666; margin-top: 5px;">Local Mode</p>
+    <p id="sync-status">Local Mode</p>
 
     <div class="container">
-        <section id="scanner-section">
-            <div id="reader"></div>
-            <div class="scanner-controls">
-                <button id="start-scan-manual" class="stop-btn" onclick="startScanner()">Start Camera</button>
-                <button id="restart-scan" class="stop-btn" onclick="startScanner()" style="display:none;">Scan
-                    Another</button>
-                <label for="file-input" class="file-label">Scan an Image File</label>
-                <input type="file" id="file-input" accept="image/*" onchange="scanImageFile(event)"
-                    style="display:none;">
+        <div id="main-menu" class="screen">
+            <div class="menu-grid">
+                <div class="menu-box" onclick="showScreen('inventory-screen')">
+                    <div class="icon">📦</div>
+                    <span>Add Products</span>
+                </div>
+                <div class="menu-box" onclick="showScreen('quick-bill-screen')">
+                    <div class="icon">🧾</div>
+                    <span>Quick Bill</span>
+                </div>
+                <div class="menu-box" onclick="showScreen('stock-list-screen')">
+                    <div class="icon">📊</div>
+                    <span>Stock Report</span>
+                </div>
+                <div class="menu-box" onclick="showScreen('ledger-screen')">
+                    <div class="icon">📋</div>
+                    <span>Ledger</span>
+                </div>
             </div>
-        </section>
+        </div>
 
-        <section id="inventory-form">
-            <h3>Stock Management</h3>
-            <input type="text" id="part-id" placeholder="Barcode ID">
-            <input type="text" id="part-name" placeholder="Part Name">
-            <input type="number" id="part-price" placeholder="Price">
-            <label style="font-weight:bold; display:block; margin-top:10px;">Quantity:</label>
-            <div class="stepper-container">
-                <button type="button" class="step-btn" onclick="changeQty(-1)">−</button>
-                <input type="number" id="part-qty" value="1">
-                <button type="button" class="step-btn" onclick="changeQty(1)">+</button>
-            </div>
-            <button onclick="savePart()" class="save-btn">Update Stock</button>
-        </section>
+        <div id="inventory-screen" class="screen" style="display:none">
+            <button class="back-menu-btn" onclick="showScreen('main-menu')">← Back</button>
+            <section id="scanner-section">
+                <div id="reader"></div>
+                <div class="scanner-controls">
+                    <button id="start-scan-manual" class="stop-btn" onclick="startScanner()">Start Camera</button>
+                    <button id="restart-scan" class="stop-btn" onclick="startScanner()" style="display:none;">Scan
+                        Another</button>
+                    <label for="file-input" class="file-label">Scan an Image File</label>
+                    <input type="file" id="file-input" accept="image/*" onchange="scanImageFile(event)"
+                        style="display:none;">
+                </div>
+            </section>
+            <section id="inventory-form">
+                <h3>Stock Management</h3>
+                <input type="text" id="part-id" placeholder="Barcode ID">
+                <input type="text" id="part-name" placeholder="Part Name">
+                <input type="number" id="part-price" placeholder="Price">
+                <label style="font-weight:bold; display:block; margin-top:10px;">Quantity:</label>
+                <div class="stepper-container">
+                    <button type="button" class="step-btn" onclick="changeQty('part-qty', -1)">−</button>
+                    <input type="number" id="part-qty" value="1">
+                    <button type="button" class="step-btn" onclick="changeQty('part-qty', 1)">+</button>
+                </div>
+                <button onclick="savePart()" class="save-btn">Update Stock</button>
+            </section>
+        </div>
 
-        <section id="ledger-input">
-            <h3>Customer Billing</h3>
-            <input type="text" id="cust-name" placeholder="Customer Name">
-            <input type="number" id="trans-amount" placeholder="Amount">
-            <div style="display: flex; gap: 10px;">
-                <button onclick="addTransaction('invoice')" class="bill-btn">Add Bill</button>
-                <button onclick="addTransaction('payment')" class="pay-btn">Payment</button>
-            </div>
-        </section>
-        <div id="customer-list"></div>
+        <div id="quick-bill-screen" class="screen" style="display:none">
+            <button class="back-menu-btn" onclick="showScreen('main-menu')">← Back</button>
+            <section id="bill-scanner-section">
+                <div id="bill-reader"></div>
+                <div class="scanner-controls">
+                    <button id="bill-start-scan" class="stop-btn" onclick="startBillScanner()">Start Camera</button>
+                    <button id="bill-restart-scan" class="stop-btn" onclick="startBillScanner()"
+                        style="display:none;">Scan Next Item</button>
+                    <label for="bill-file-input" class="file-label">Scan an Image File</label>
+                    <input type="file" id="bill-file-input" accept="image/*" onchange="scanBillImageFile(event)"
+                        style="display:none;">
+                </div>
+            </section>
+            <section>
+                <h3>Create Invoice</h3>
+                <input type="text" id="bill-cust-name" placeholder="Customer Name">
+                <hr>
+                <input type="text" id="bill-item-id" placeholder="Barcode ID (Optional)">
+                <input type="text" id="bill-desc" placeholder="Item/Service Name">
+                <input type="number" id="bill-price" placeholder="Price">
+                <label style="font-weight:bold; display:block; margin-top:10px;">Quantity:</label>
+                <div class="stepper-container">
+                    <button type="button" class="step-btn" onclick="changeQty('bill-qty', -1)">−</button>
+                    <input type="number" id="bill-qty" value="1">
+                    <button type="button" class="step-btn" onclick="changeQty('bill-qty', 1)">+</button>
+                </div>
+                <button onclick="addItemToCurrentBill()" class="save-btn" style="background:#6366f1; margin-top:10px;">+
+                    Add to Bill</button>
+            </section>
+
+            <section id="current-items-section" style="display:none;">
+                <h4>Current Items:</h4>
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Item</th>
+                            <th>Qty</th>
+                            <th>Total</th>
+                            <th></th>
+                        </tr>
+                    </thead>
+                    <tbody id="current-bill-body"></tbody>
+                </table>
+                <p style="text-align:right; font-weight:bold; font-size:1.2em;">Total: $<span
+                        id="bill-total-display">0.00</span></p>
+                <button onclick="finalizeBill()" class="pay-btn">Finalize & Process Bill</button>
+            </section>
+        </div>
+
+        <div id="stock-list-screen" class="screen" style="display:none">
+            <button class="back-menu-btn" onclick="showScreen('main-menu')">← Back</button>
+            <section style="overflow-x: auto;">
+                <h3>Stock Inventory</h3>
+                <input type="text" id="stock-search" placeholder="Search products..." onkeyup="updateInventoryUI()">
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Item</th>
+                            <th>In</th>
+                            <th>Sold</th>
+                            <th>Left</th>
+                        </tr>
+                    </thead>
+                    <tbody id="inventory-list-table"></tbody>
+                </table>
+            </section>
+        </div>
+
+        <div id="ledger-screen" class="screen" style="display:none">
+            <button class="back-menu-btn" onclick="showScreen('main-menu')">← Back</button>
+            <section>
+                <h3>Record Payment</h3>
+                <input type="text" id="cust-name-pay" placeholder="Customer Name">
+                <input type="number" id="trans-amount" placeholder="Amount">
+                <button onclick="addTransaction('payment')" class="pay-btn">Record Payment</button>
+            </section>
+            <section>
+                <h3>Customer Balances</h3>
+                <input type="text" id="ledger-search" placeholder="Search customers..." onkeyup="updateLedgerUI()">
+                <div id="customer-list"></div>
+            </section>
+        </div>
     </div>
     <script src="app.js"></script>
 </body>
