@@ -7,6 +7,7 @@
     <title>Workshop Manager Pro</title>
     <script src="https://cdn.jsdelivr.net/npm/pouchdb@8.0.1/dist/pouchdb.min.js"></script>
     <script src="https://unpkg.com/html5-qrcode"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
     <script src="https://accounts.google.com/gsi/client" async defer></script>
     <script src="https://apis.google.com/js/api.js"></script>
     <link rel="stylesheet" href="style.css">
@@ -42,7 +43,7 @@
         </div>
 
         <div id="inventory-screen" class="screen" style="display:none">
-            <button class="back-menu-btn" onclick="showScreen('main-menu')">← Back</button>
+            <button class="back-menu-btn" onclick="clearAndBack()">← Back</button>
             <section>
                 <div id="reader"></div>
                 <div class="scanner-controls">
@@ -70,7 +71,7 @@
         </div>
 
         <div id="quick-bill-screen" class="screen" style="display:none">
-            <button class="back-menu-btn" onclick="showScreen('main-menu')">← Back</button>
+            <button class="back-menu-btn" onclick="clearAndBack()">← Back</button>
             <section>
                 <div id="bill-reader"></div>
                 <div class="scanner-controls">
@@ -114,40 +115,20 @@
                 </table>
                 <p style="text-align:right; font-weight:bold; font-size:1.2em;">Total: ₹<span
                         id="bill-total-display">0.00</span></p>
-                <button onclick="finalizeBill()" class="pay-btn">Finalize & Process Bill</button>
-            </section>
-        </div>
-
-        <div id="stock-list-screen" class="screen" style="display:none">
-            <button class="back-menu-btn" onclick="showScreen('main-menu')">← Back</button>
-            <section style="overflow-x: auto;">
-                <h3>Stock Inventory</h3>
-                <input type="text" id="stock-search" placeholder="Search..." onkeyup="updateInventoryUI()">
-                <table>
-                    <thead>
-                        <tr>
-                            <th>Item</th>
-                            <th>In</th>
-                            <th>Sold</th>
-                            <th>Left</th>
-                        </tr>
-                    </thead>
-                    <tbody id="inventory-list-table"></tbody>
-                </table>
+                <button onclick="finalizeBill()" class="pay-btn">Finalize & Download PDF</button>
             </section>
         </div>
 
         <div id="ledger-screen" class="screen" style="display:none">
             <button class="back-menu-btn" onclick="showScreen('main-menu')">← Back</button>
             <section>
-                <h3>Record Payment</h3>
-                <input type="text" id="cust-name-pay" placeholder="Customer Name">
-                <input type="number" id="trans-amount" placeholder="Amount (₹)">
-                <button onclick="addTransaction('payment')" class="pay-btn">Record Payment</button>
+                <h3>Bill History (Sales Details)</h3>
+                <input type="text" id="history-search" placeholder="Search customer or item..."
+                    onkeyup="updateLedgerUI()">
+                <div id="bill-history-list"></div>
             </section>
             <section>
                 <h3>Customer Balances</h3>
-                <input type="text" id="ledger-search" placeholder="Search customers..." onkeyup="updateLedgerUI()">
                 <div id="customer-list"></div>
             </section>
         </div>
