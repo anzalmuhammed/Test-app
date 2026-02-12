@@ -15,7 +15,7 @@
 
 <body>
     <nav>
-        <h2 onclick="showScreen('main-menu')" style="cursor:pointer">Workshop App</h2>
+        <h2 onclick="clearAndBack()" style="cursor:pointer">Workshop App</h2>
         <button id="sync-btn" onclick="handleSync()">Cloud Sync</button>
     </nav>
     <p id="sync-status">Local Mode</p>
@@ -99,7 +99,6 @@
                 <button onclick="addItemToCurrentBill()" class="save-btn" style="background:#6366f1; margin-top:10px;">+
                     Add to Bill</button>
             </section>
-
             <section id="current-items-section" style="display:none;">
                 <h4>Current Items:</h4>
                 <table>
@@ -119,13 +118,32 @@
             </section>
         </div>
 
+        <div id="stock-list-screen" class="screen" style="display:none">
+            <button class="back-menu-btn" onclick="showScreen('main-menu')">← Back</button>
+            <section style="overflow-x: auto;">
+                <h3>Stock Inventory</h3>
+                <input type="text" id="stock-search" placeholder="Search products..." onkeyup="updateInventoryUI()">
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Item</th>
+                            <th>In</th>
+                            <th>Sold</th>
+                            <th>Left</th>
+                        </tr>
+                    </thead>
+                    <tbody id="inventory-list-table"></tbody>
+                </table>
+            </section>
+        </div>
+
         <div id="ledger-screen" class="screen" style="display:none">
             <button class="back-menu-btn" onclick="showScreen('main-menu')">← Back</button>
             <section>
                 <h3>Bill History (Sales Details)</h3>
                 <input type="text" id="history-search" placeholder="Search customer or item..."
                     onkeyup="updateLedgerUI()">
-                <div id="bill-history-list"></div>
+                <div id="bill-history-list" style="margin-top:10px;"></div>
             </section>
             <section>
                 <h3>Customer Balances</h3>
