@@ -4,9 +4,25 @@ const SCOPES = 'https://www.googleapis.com/auth/drive.file';
 
 let tokenClient, accessToken = sessionStorage.getItem('drive_token'), html5QrCode, billQrCode, currentBillItems = [];
 
+// MOBILE BACK BUTTON GUARD
+window.addEventListener('popstate', function (event) {
+    const activeScreen = document.querySelector('.screen[style*="block"]');
+    if (activeScreen && activeScreen.id !== 'main-menu') {
+        history.pushState(null, null, window.location.pathname);
+        showScreen('main-menu');
+    }
+});
+
+// AUTO SYNC WHEN ONLINE
+window.addEventListener('online', () => { if (accessToken) uploadToDrive(); });
+
 function gapiLoaded() { gapi.load('client', async () => { await gapi.client.init({ discoveryDocs: ["https://www.googleapis.com/discovery/v1/apis/drive/v3/rest"] }); }); }
 function gsiLoaded() { tokenClient = google.accounts.oauth2.initTokenClient({ client_id: CLIENT_ID, scope: SCOPES, callback: (res) => { accessToken = res.access_token; sessionStorage.setItem('drive_token', accessToken); uploadToDrive(); } }); }
-window.onload = () => { gapiLoaded(); gsiLoaded(); updateLedgerUI(); };
+
+window.onload = () => {
+    gapiLoaded(); gsiLoaded(); updateLedgerUI();
+    history.pushState(null, null, window.location.pathname);
+};
 
 function showScreen(screenId) {
     document.querySelectorAll('.screen').forEach(s => s.style.display = 'none');
@@ -17,8 +33,9 @@ function showScreen(screenId) {
     if (billQrCode) billQrCode.stop().catch(() => { });
 }
 
-// --- SCANNER LOGIC ---
+// --- SCANNER LOGIC (Clear inputs on rescan) ---
 function startScanner() {
+    document.getElementById('part-id').value = ""; document.getElementById('part-name').value = ""; document.getElementById('part-price').value = "";
     document.getElementById('start-scan-manual').style.display = 'none';
     if (!html5QrCode) html5QrCode = new Html5Qrcode("reader");
     html5QrCode.start({ facingMode: "environment" }, { fps: 20, qrbox: { width: 250, height: 150 } }, (text) => {
@@ -27,6 +44,7 @@ function startScanner() {
 }
 
 function startBillScanner() {
+    document.getElementById('bill-item-id').value = ""; document.getElementById('bill-desc').value = ""; document.getElementById('bill-price').value = "";
     document.getElementById('bill-start-scan').style.display = 'none';
     if (!billQrCode) billQrCode = new Html5Qrcode("bill-reader");
     billQrCode.start({ facingMode: "environment" }, { fps: 20, qrbox: { width: 250, height: 150 } }, (text) => {
@@ -58,7 +76,7 @@ function scanBillImageFile(e) {
 function addItemToCurrentBill() {
     const id = document.getElementById('bill-item-id').value, desc = document.getElementById('bill-desc').value;
     const price = parseFloat(document.getElementById('bill-price').value) || 0, qty = parseInt(document.getElementById('bill-qty').value) || 1;
-    if (!desc || price <= 0) return alert("Enter item/price");
+    if (!desc || price <= 0) return alert("Enter item and price");
     currentBillItems.push({ id, desc, price, qty });
     document.getElementById('bill-item-id').value = ""; document.getElementById('bill-desc').value = "";
     document.getElementById('bill-price').value = ""; document.getElementById('bill-qty').value = "1";
@@ -72,7 +90,7 @@ function renderBillTable() {
         sect.style.display = 'block';
         currentBillItems.forEach((item, index) => {
             total += (item.price * item.qty);
-            body.innerHTML += `<tr><td>${item.desc}</td><td>${item.qty}</td><td>$${(item.price * item.qty).toFixed(2)}</td><td><button class="del-btn" onclick="removeItem(${index})">X</button></td></tr>`;
+            body.innerHTML += `<tr><td>${item.desc}</td><td>${item.qty}</td><td>₹${(item.price * item.qty).toFixed(2)}</td><td><button class="del-btn" onclick="removeItem(${index})">X</button></td></tr>`;
         });
         document.getElementById('bill-total-display').innerText = total.toFixed(2);
     } else { sect.style.display = 'none'; }
@@ -82,14 +100,14 @@ function removeItem(index) { currentBillItems.splice(index, 1); renderBillTable(
 
 async function finalizeBill() {
     const cust = document.getElementById('bill-cust-name').value;
-    if (!cust || currentBillItems.length === 0) return alert("Missing info");
+    if (!cust || currentBillItems.length === 0) return alert("Missing Info");
     let total = 0;
     for (let item of currentBillItems) {
         total += (item.price * item.qty);
         if (item.id) { try { let p = await db.get(item.id); p.totalSold = (p.totalSold || 0) + item.qty; await db.put(p); } catch (e) { } }
     }
     await db.put({ _id: 'ledger_' + Date.now(), customer: cust, amount: total, type: 'invoice', category: 'ledger', date: new Date().toISOString() });
-    alert("Bill Saved!"); currentBillItems = []; document.getElementById('bill-cust-name').value = ""; renderBillTable();
+    alert("Bill Finalized!"); currentBillItems = []; document.getElementById('bill-cust-name').value = ""; renderBillTable();
     uploadToDrive(); showScreen('main-menu');
 }
 
@@ -97,10 +115,10 @@ async function finalizeBill() {
 async function savePart() {
     const id = document.getElementById('part-id').value, name = document.getElementById('part-name').value;
     const price = parseFloat(document.getElementById('part-price').value) || 0, qty = parseInt(document.getElementById('part-qty').value) || 0;
-    if (!id || !name) return alert("Missing details");
+    if (!id || !name) return alert("ID/Name missing");
     let doc = { _id: id, name, price, totalIn: qty, totalSold: 0, category: 'inventory' };
     try { const ex = await db.get(id); doc._rev = ex._rev; doc.totalIn = (ex.totalIn || 0) + qty; doc.totalSold = ex.totalSold || 0; } catch (e) { }
-    await db.put(doc); uploadToDrive(); showScreen('main-menu');
+    await db.put(doc); uploadToDrive(); alert("Stock Updated"); showScreen('main-menu');
 }
 
 async function addTransaction(type) {
@@ -108,7 +126,7 @@ async function addTransaction(type) {
     if (!name || !amount) return alert("Fill details");
     await db.put({ _id: 'ledger_' + Date.now(), customer: name, amount, type, category: 'ledger' });
     document.getElementById('cust-name-pay').value = ""; document.getElementById('trans-amount').value = "";
-    updateLedgerUI(); uploadToDrive();
+    updateLedgerUI(); uploadToDrive(); alert("Payment Recorded");
 }
 
 async function updateInventoryUI() {
@@ -130,16 +148,17 @@ async function updateLedgerUI() {
     list.innerHTML = "";
     for (let c in bals) {
         if (c.toLowerCase().includes(q)) {
-            list.innerHTML += `<div class="ledger-card"><strong>${c}</strong>: $${Math.abs(bals[c]).toFixed(2)} ${bals[c] > 0 ? '(Due)' : '(Credit)'}</div>`;
+            list.innerHTML += `<div class="ledger-card"><strong>${c}</strong>: ₹${Math.abs(bals[c]).toFixed(2)} ${bals[c] > 0 ? '(Due)' : '(Credit)'}</div>`;
         }
     }
 }
 
-// --- UTILS ---
-function changeQty(id, n) { const q = document.getElementById(id); let v = parseInt(q.value) || 1; if (v + n >= 1) q.value = v + n; }
+// --- CLOUD SYNC ---
 function handleSync() { if (!accessToken) tokenClient.requestAccessToken({ prompt: 'consent' }); else uploadToDrive(); }
+
 async function uploadToDrive() {
     if (!navigator.onLine || !accessToken) return;
+    document.getElementById('sync-status').innerText = "Syncing...";
     try {
         const res = await db.allDocs({ include_docs: true });
         const content = JSON.stringify(res.rows.map(r => r.doc));
@@ -147,7 +166,9 @@ async function uploadToDrive() {
         const sRes = await search.json(); const exist = sRes.files && sRes.files[0];
         let url = exist ? `https://www.googleapis.com/upload/drive/v3/files/${exist.id}?uploadType=media` : 'https://www.googleapis.com/upload/drive/v3/files?uploadType=media';
         await fetch(url, { method: exist ? 'PATCH' : 'POST', headers: { 'Authorization': 'Bearer ' + accessToken, 'Content-Type': 'application/json' }, body: new Blob([content], { type: 'application/json' }) });
-        document.getElementById('sync-status').innerText = "Synced: " + new Date().toLocaleTimeString();
-    } catch (e) { console.error(e); }
+        document.getElementById('sync-status').innerText = "Last Synced: " + new Date().toLocaleTimeString();
+    } catch (e) { document.getElementById('sync-status').innerText = "Sync Failed"; }
 }
+
+function changeQty(id, n) { const q = document.getElementById(id); let v = parseInt(q.value) || 1; if (v + n >= 1) q.value = v + n; }
 function playBeep() { const ctx = new AudioContext(), osc = ctx.createOscillator(); osc.connect(ctx.destination); osc.frequency.value = 1000; osc.start(); osc.stop(ctx.currentTime + 0.1); }

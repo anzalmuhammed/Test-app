@@ -3,7 +3,7 @@
 
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>Workshop Manager Pro</title>
     <script src="https://cdn.jsdelivr.net/npm/pouchdb@8.0.1/dist/pouchdb.min.js"></script>
     <script src="https://unpkg.com/html5-qrcode"></script>
@@ -43,7 +43,7 @@
 
         <div id="inventory-screen" class="screen" style="display:none">
             <button class="back-menu-btn" onclick="showScreen('main-menu')">← Back</button>
-            <section id="scanner-section">
+            <section>
                 <div id="reader"></div>
                 <div class="scanner-controls">
                     <button id="start-scan-manual" class="stop-btn" onclick="startScanner()">Start Camera</button>
@@ -54,11 +54,11 @@
                         style="display:none;">
                 </div>
             </section>
-            <section id="inventory-form">
+            <section>
                 <h3>Stock Management</h3>
                 <input type="text" id="part-id" placeholder="Barcode ID">
                 <input type="text" id="part-name" placeholder="Part Name">
-                <input type="number" id="part-price" placeholder="Price">
+                <input type="number" id="part-price" placeholder="Price (₹)">
                 <label style="font-weight:bold; display:block; margin-top:10px;">Quantity:</label>
                 <div class="stepper-container">
                     <button type="button" class="step-btn" onclick="changeQty('part-qty', -1)">−</button>
@@ -71,7 +71,7 @@
 
         <div id="quick-bill-screen" class="screen" style="display:none">
             <button class="back-menu-btn" onclick="showScreen('main-menu')">← Back</button>
-            <section id="bill-scanner-section">
+            <section>
                 <div id="bill-reader"></div>
                 <div class="scanner-controls">
                     <button id="bill-start-scan" class="stop-btn" onclick="startBillScanner()">Start Camera</button>
@@ -86,9 +86,9 @@
                 <h3>Create Invoice</h3>
                 <input type="text" id="bill-cust-name" placeholder="Customer Name">
                 <hr>
-                <input type="text" id="bill-item-id" placeholder="Barcode ID (Optional)">
+                <input type="text" id="bill-item-id" placeholder="Barcode ID">
                 <input type="text" id="bill-desc" placeholder="Item/Service Name">
-                <input type="number" id="bill-price" placeholder="Price">
+                <input type="number" id="bill-price" placeholder="Price (₹)">
                 <label style="font-weight:bold; display:block; margin-top:10px;">Quantity:</label>
                 <div class="stepper-container">
                     <button type="button" class="step-btn" onclick="changeQty('bill-qty', -1)">−</button>
@@ -112,7 +112,7 @@
                     </thead>
                     <tbody id="current-bill-body"></tbody>
                 </table>
-                <p style="text-align:right; font-weight:bold; font-size:1.2em;">Total: $<span
+                <p style="text-align:right; font-weight:bold; font-size:1.2em;">Total: ₹<span
                         id="bill-total-display">0.00</span></p>
                 <button onclick="finalizeBill()" class="pay-btn">Finalize & Process Bill</button>
             </section>
@@ -122,7 +122,7 @@
             <button class="back-menu-btn" onclick="showScreen('main-menu')">← Back</button>
             <section style="overflow-x: auto;">
                 <h3>Stock Inventory</h3>
-                <input type="text" id="stock-search" placeholder="Search products..." onkeyup="updateInventoryUI()">
+                <input type="text" id="stock-search" placeholder="Search..." onkeyup="updateInventoryUI()">
                 <table>
                     <thead>
                         <tr>
@@ -142,7 +142,7 @@
             <section>
                 <h3>Record Payment</h3>
                 <input type="text" id="cust-name-pay" placeholder="Customer Name">
-                <input type="number" id="trans-amount" placeholder="Amount">
+                <input type="number" id="trans-amount" placeholder="Amount (₹)">
                 <button onclick="addTransaction('payment')" class="pay-btn">Record Payment</button>
             </section>
             <section>
