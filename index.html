@@ -5,6 +5,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>Workshop Pro</title>
+    <link rel="manifest" href="manifest.json">
     <script src="https://cdn.jsdelivr.net/npm/pouchdb@8.0.1/dist/pouchdb.min.js"></script>
     <script src="https://unpkg.com/html5-qrcode"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
@@ -16,12 +17,11 @@
 
 <body>
     <div class="background-blob"></div>
-
     <nav class="top-nav">
         <h2 onclick="clearAndBack()">Workshop<span>Pro</span></h2>
-        <button id="sync-btn" onclick="handleSync()">Sync Cloud</button>
+        <button id="sync-btn" onclick="handleSync()">Login/Sync</button>
     </nav>
-    <div id="sync-status">Status: Ready</div>
+    <div id="sync-status">Status: Ready (Offline OK)</div>
 
     <div class="container">
         <div id="main-menu" class="screen">
@@ -86,9 +86,8 @@
                 <input type="text" id="bill-desc" placeholder="Item Name">
                 <input type="number" id="bill-price" placeholder="Price (₹)">
                 <div id="bill-stock-warning"
-                    style="color: #fbbf24; font-size: 0.85rem; margin-bottom: 10px; font-weight: bold; display:none; text-align: center; background: rgba(0,0,0,0.2); padding: 5px; border-radius: 5px;">
+                    style="display:none; color: #fbbf24; font-weight: bold; margin-bottom: 10px; text-align: center;">
                 </div>
-
                 <div class="stepper-container">
                     <button type="button" class="step-btn" onclick="changeQty('bill-qty', -1)">−</button>
                     <input type="number" id="bill-qty" value="1" inputmode="numeric">
@@ -107,9 +106,8 @@
                     </thead>
                     <tbody id="current-bill-body"></tbody>
                 </table>
-                <div class="total-bar"
-                    style="text-align: right; padding: 10px; font-weight: bold; font-size: 1.1rem; border-top: 1px solid var(--glass-border);">
-                    Total: ₹<span id="bill-total-display">0.00</span></div>
+                <div class="total-bar" style="text-align: right; padding: 10px; font-weight: bold;">Total: ₹<span
+                        id="bill-total-display">0.00</span></div>
                 <button onclick="finalizeBill()" class="action-btn finalize">Finalize & PDF</button>
             </section>
         </div>
@@ -121,7 +119,7 @@
                     <input type="text" id="stock-search" placeholder="Search stock..." onkeyup="updateInventoryUI()"
                         style="margin-bottom:0;">
                     <button onclick="exportStockCSV()"
-                        style="width: auto; padding: 0 15px; background: var(--amber); color: black; border-radius: 8px; font-weight: bold; border: none;">Export</button>
+                        style="width: auto; padding: 0 15px; background: var(--amber); color: black; border-radius: 8px; font-weight: bold; border: none;">CSV</button>
                 </div>
                 <div class="table-scroll">
                     <table>
@@ -142,12 +140,21 @@
         <div id="ledger-screen" class="screen" style="display:none">
             <button class="back-menu-btn" onclick="showScreen('main-menu')">← Back</button>
             <section class="glass-card">
-                <input type="text" id="ledger-search" placeholder="Search Customer Name..." onkeyup="updateLedgerUI()">
+                <input type="text" id="ledger-search" placeholder="Search Customer..." onkeyup="updateLedgerUI()">
                 <div id="bill-history-list"></div>
             </section>
         </div>
     </div>
     <script src="app.js"></script>
+    <script>
+        if ('serviceWorker' in navigator) {
+            window.addEventListener('load', () => {
+                navigator.serviceWorker.register('./sw.js')
+                    .then(reg => console.log('SW Registered'))
+                    .catch(err => console.log('SW Error', err));
+            });
+        }
+    </script>
 </body>
 
 </html>

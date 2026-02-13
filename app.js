@@ -4,92 +4,88 @@ const SCOPES = 'https://www.googleapis.com/auth/drive.file';
 
 let tokenClient, accessToken = sessionStorage.getItem('drive_token'), html5QrCode, currentBillItems = [];
 
-// NAVIGATION
-window.addEventListener('load', () => window.history.replaceState({ screen: 'main-menu' }, ''));
-window.onpopstate = () => clearAndBack(true);
+// --- NAVIGATION ---
+window.addEventListener('load', () => window.history.pushState({ screen: 'main-menu' }, ''));
+window.onpopstate = (e) => {
+    if (e.state && e.state.screen) switchToScreenLogic(e.state.screen);
+    else clearAndBack(true);
+};
 
 function showScreen(id) {
+    switchToScreenLogic(id);
+    window.history.pushState({ screen: id }, '');
+}
+
+function switchToScreenLogic(id) {
     document.querySelectorAll('.screen').forEach(s => s.style.display = 'none');
     document.getElementById(id).style.display = 'block';
-    window.history.pushState({ screen: id }, '');
     if (id === 'stock-list-screen') updateInventoryUI();
     if (id === 'ledger-screen') updateLedgerUI();
 }
 
-function clearAndBack(isHardwareBack = false) {
+function clearAndBack(isPop = false) {
     if (html5QrCode) html5QrCode.stop().catch(() => { });
     document.querySelectorAll('input').forEach(i => {
         if (i.type !== 'file') i.value = i.id.includes('qty') ? "1" : "";
     });
+    document.getElementById('current-items-section').style.display = 'none';
     document.getElementById('bill-stock-warning').style.display = 'none';
     currentBillItems = [];
-    const billSection = document.getElementById('current-items-section');
-    if (billSection) billSection.style.display = 'none';
-    document.getElementById('inv-cam-btn').innerText = "Start Camera";
-    document.getElementById('bill-cam-btn').innerText = "Start Camera";
-    document.querySelectorAll('.screen').forEach(s => s.style.display = 'none');
-    document.getElementById('main-menu').style.display = 'block';
-    if (!isHardwareBack) window.history.pushState({ screen: 'main-menu' }, '');
+    switchToScreenLogic('main-menu');
+    if (!isPop) window.history.pushState({ screen: 'main-menu' }, '');
 }
 
-// SCANNER LOGIC
+// --- SCANNER LOGIC ---
 async function toggleScanner(type) {
-    const btnId = type === 'inventory' ? 'inv-cam-btn' : 'bill-cam-btn';
     const readerId = type === 'inventory' ? 'reader' : 'bill-reader';
-    const btn = document.getElementById(btnId);
-    if (btn.innerText.includes("Start") || btn.innerText.includes("Another")) {
-        if (!html5QrCode) html5QrCode = new Html5Qrcode(readerId);
+    const btnId = type === 'inventory' ? 'inv-cam-btn' : 'bill-cam-btn';
+    if (!html5QrCode) html5QrCode = new Html5Qrcode(readerId);
+
+    if (document.getElementById(btnId).innerText.includes("Start")) {
         html5QrCode.start({ facingMode: "environment" }, { fps: 10, qrbox: 250 }, (text) => {
-            playBeep(); handleScanResult(text, type);
-            html5QrCode.stop().then(() => { btn.innerText = "Scan Another"; });
-        }).catch(() => { btn.innerText = "Start Camera"; });
-        btn.innerText = "Stop Camera";
+            handleScanResult(text, type);
+            html5QrCode.stop();
+            document.getElementById(btnId).innerText = "Start Camera";
+        }).catch(err => alert("Camera error: " + err));
+        document.getElementById(btnId).innerText = "Stop Camera";
     } else {
-        if (html5QrCode) await html5QrCode.stop();
-        btn.innerText = "Start Camera";
+        await html5QrCode.stop();
+        document.getElementById(btnId).innerText = "Start Camera";
     }
 }
 
 function scanFile(input, type) {
     if (input.files.length === 0) return;
-    if (!html5QrCode) html5QrCode = new Html5Qrcode(type === 'inventory' ? "reader" : "bill-reader");
-    html5QrCode.scanFile(input.files[0], true).then(text => {
-        playBeep(); handleScanResult(text, type);
-    }).catch(() => alert("No barcode found."));
+    const readerId = type === 'inventory' ? "reader" : "bill-reader";
+    const tempScanner = new Html5Qrcode(readerId);
+    tempScanner.scanFile(input.files[0], true)
+        .then(text => handleScanResult(text, type))
+        .catch(() => alert("Could not find a barcode in this image."));
 }
 
 function handleScanResult(text, type) {
-    const idF = type === 'inventory' ? 'part-id' : 'bill-item-id';
-    const nameF = type === 'inventory' ? 'part-name' : 'bill-desc';
-    const priceF = type === 'inventory' ? 'part-price' : 'bill-price';
-    document.getElementById(idF).value = text;
-
+    const idField = type === 'inventory' ? 'part-id' : 'bill-item-id';
+    document.getElementById(idField).value = text;
     db.get(text).then(doc => {
-        document.getElementById(nameF).value = doc.name;
-        document.getElementById(priceF).value = doc.price;
         if (type === 'bill') {
+            document.getElementById('bill-desc').value = doc.name;
+            document.getElementById('bill-price').value = doc.price;
             const left = doc.totalIn - (doc.totalSold || 0);
             const warn = document.getElementById('bill-stock-warning');
-            warn.innerText = `Current Stock Left: ${left}`;
+            warn.innerText = `Stock Left: ${left}`;
             warn.style.display = 'block';
-            warn.style.color = left <= 5 ? '#ef4444' : '#fbbf24';
+        } else {
+            document.getElementById('part-name').value = doc.name;
+            document.getElementById('part-price').value = doc.price;
         }
-    }).catch(() => {
-        if (type === 'bill') document.getElementById('bill-stock-warning').style.display = 'none';
-    });
+    }).catch(() => { });
 }
 
-function changeQty(id, n) {
-    const el = document.getElementById(id);
-    let val = parseInt(el.value) || 1;
-    if (val + n >= 1) el.value = val + n;
-}
-
-// INVENTORY LOGIC
+// --- DATA LOGIC ---
 async function savePart() {
     const id = document.getElementById('part-id').value, name = document.getElementById('part-name').value;
     const price = parseFloat(document.getElementById('part-price').value) || 0, qty = parseInt(document.getElementById('part-qty').value) || 0;
-    if (!id || !name) return alert("Fill ID and Name");
+    if (!id || !name) return alert("Please fill ID and Name");
     try {
         const doc = await db.get(id);
         await db.put({ ...doc, name, price, totalIn: (doc.totalIn || 0) + qty });
@@ -99,98 +95,74 @@ async function savePart() {
     alert("Saved!"); clearAndBack(); uploadToDrive();
 }
 
-// BILLING LOGIC
-function addItemToCurrentBill() {
-    const desc = document.getElementById('bill-desc').value, price = parseFloat(document.getElementById('bill-price').value) || 0, qty = parseInt(document.getElementById('bill-qty').value) || 1;
-    if (!desc) return;
-    currentBillItems.push({ desc, price, qty });
-    renderBillTable();
-    ['bill-desc', 'bill-price', 'bill-item-id'].forEach(k => document.getElementById(k).value = "");
-    document.getElementById('bill-qty').value = "1";
-    document.getElementById('bill-stock-warning').style.display = 'none';
-}
-
-function renderBillTable() {
-    const body = document.getElementById('current-bill-body'); body.innerHTML = ""; let t = 0;
-    currentBillItems.forEach(i => { t += (i.price * i.qty); body.innerHTML += `<tr><td>${i.desc}</td><td>${i.qty}</td><td>₹${i.price * i.qty}</td></tr>`; });
-    document.getElementById('bill-total-display').innerText = t.toFixed(2);
-    document.getElementById('current-items-section').style.display = 'block';
-}
-
 async function finalizeBill() {
     const cust = document.getElementById('bill-cust-name').value;
-    if (!cust || currentBillItems.length === 0) return alert("Missing Customer or Items");
-
+    if (!cust || currentBillItems.length === 0) return alert("Details missing");
     const allDocs = await db.allDocs({ include_docs: true });
-    let updatedDocs = [];
-
+    let updated = [];
     for (let item of currentBillItems) {
         const row = allDocs.rows.find(r => r.doc.name === item.desc && r.doc.category === 'inventory');
-        if (!row) return alert(`Item "${item.desc}" not found in stock!`);
+        if (!row) return alert(`Item ${item.desc} not found`);
         let d = row.doc;
-        let avail = d.totalIn - (d.totalSold || 0);
-        if (avail < item.qty) return alert(`Insufficient Stock for ${item.desc}! Only ${avail} left.`);
-        d.totalSold = (d.totalSold || 0) + item.qty;
-        updatedDocs.push(d);
+        if ((d.totalIn - d.totalSold) < item.qty) return alert(`Low stock for ${item.desc}`);
+        d.totalSold += item.qty; updated.push(d);
     }
-
-    for (let doc of updatedDocs) await db.put(doc);
+    for (let d of updated) await db.put(d);
     await db.put({ _id: 'ledger_' + Date.now(), customer: cust, amount: parseFloat(document.getElementById('bill-total-display').innerText), items: [...currentBillItems], category: 'ledger', date: new Date().toLocaleString() });
 
     const { jsPDF } = window.jspdf; const doc = new jsPDF();
     doc.text(`Invoice: ${cust}`, 20, 20);
-    let y = 40; currentBillItems.forEach(i => { doc.text(`${i.desc} x${i.qty} = Rs. ${i.price * i.qty}`, 20, y); y += 10; });
-    doc.text(`Total: Rs. ${document.getElementById('bill-total-display').innerText}`, 20, y + 10);
     doc.save(`Bill_${cust}.pdf`);
-    alert("Bill Finalized!"); clearAndBack(); uploadToDrive();
+    alert("Bill Done!"); clearAndBack(); uploadToDrive();
 }
 
-// UI UPDATES & EXPORT
+function addItemToCurrentBill() {
+    const d = document.getElementById('bill-desc').value, p = parseFloat(document.getElementById('bill-price').value) || 0, q = parseInt(document.getElementById('bill-qty').value) || 1;
+    if (!d) return;
+    currentBillItems.push({ desc: d, price: p, qty: q });
+    let t = 0; const body = document.getElementById('current-bill-body'); body.innerHTML = "";
+    currentBillItems.forEach(i => { t += (i.price * i.qty); body.innerHTML += `<tr><td>${i.desc}</td><td>${i.qty}</td><td>₹${i.price * i.qty}</td></tr>`; });
+    document.getElementById('bill-total-display').innerText = t.toFixed(2);
+    document.getElementById('current-items-section').style.display = 'block';
+    ['bill-desc', 'bill-price', 'bill-item-id'].forEach(k => document.getElementById(k).value = "");
+}
+
+function changeQty(id, n) { let el = document.getElementById(id), v = parseInt(el.value) || 1; if (v + n >= 1) el.value = v + n; }
+
 function updateInventoryUI() {
-    const query = document.getElementById('stock-search').value.toLowerCase();
     db.allDocs({ include_docs: true }).then(res => {
         const list = document.getElementById('inventory-list-table'); list.innerHTML = "";
         res.rows.forEach(r => {
-            const d = r.doc;
-            if (d.category === 'inventory' && d.name.toLowerCase().includes(query)) {
-                const stockLeft = Math.max(0, d.totalIn - d.totalSold);
-                const rowStyle = stockLeft <= 5 ? 'style="color: #ef4444; font-weight: bold;"' : '';
-                list.innerHTML += `<tr ${rowStyle}><td>${d.name}</td><td>${d.totalIn}</td><td>${stockLeft}</td><td><button onclick="deleteStock('${d._id}')" class="del-btn">✕</button></td></tr>`;
+            if (r.doc.category === 'inventory') {
+                const stock = r.doc.totalIn - r.doc.totalSold;
+                list.innerHTML += `<tr><td>${r.doc.name}</td><td>${r.doc.totalIn}</td><td>${stock}</td><td><button onclick="delDoc('${r.doc._id}')" class="del-btn">✕</button></td></tr>`;
             }
         });
     });
 }
+async function delDoc(id) { if (confirm("Delete?")) { const d = await db.get(id); await db.remove(d); updateInventoryUI(); uploadToDrive(); } }
 
 function updateLedgerUI() {
-    const query = document.getElementById('ledger-search').value.toLowerCase();
     db.allDocs({ include_docs: true }).then(res => {
-        const hist = document.getElementById('bill-history-list'); hist.innerHTML = "";
-        res.rows.forEach(r => {
-            if (r.doc.category === 'ledger' && r.doc.customer.toLowerCase().includes(query)) {
-                hist.innerHTML += `<div class="ledger-card"><strong>${r.doc.date}</strong><br>${r.doc.customer}: ₹${r.doc.amount}</div>`;
-            }
-        });
+        const list = document.getElementById('bill-history-list'); list.innerHTML = "";
+        res.rows.forEach(r => { if (r.doc.category === 'ledger') list.innerHTML += `<div class="ledger-card"><b>${r.doc.customer}</b>: ₹${r.doc.amount} <br><small>${r.doc.date}</small></div>`; });
     });
 }
 
 async function exportStockCSV() {
     const res = await db.allDocs({ include_docs: true });
-    let csv = "Item Name,Total In,Total Sold,Remaining\n";
+    let csv = "Item,Total In,Total Sold,Left\n";
     res.rows.forEach(r => {
-        if (r.doc.category === 'inventory') {
-            csv += `"${r.doc.name}",${r.doc.totalIn},${r.doc.totalSold},${Math.max(0, r.doc.totalIn - r.doc.totalSold)}\n`;
-        }
+        if (r.doc.category === 'inventory') csv += `"${r.doc.name}",${r.doc.totalIn},${r.doc.totalSold},${r.doc.totalIn - r.doc.totalSold}\n`;
     });
     const blob = new Blob([csv], { type: 'text/csv' });
     const url = window.URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url; a.download = `Stock_Report.csv`; a.click();
+    const a = document.createElement('a'); a.href = url; a.download = "Stock.csv"; a.click();
 }
 
-// SAFE CLOUD SYNC
+// --- SYNC ---
 async function uploadToDrive() {
     if (!navigator.onLine || !accessToken) return;
-    document.getElementById('sync-status').innerText = "Status: Checking Cloud...";
     try {
         const search = await fetch(`https://www.googleapis.com/drive/v3/files?q=name='workshop_db_backup.json'&fields=files(id)`, { headers: { 'Authorization': 'Bearer ' + accessToken } });
         const sRes = await search.json();
@@ -199,29 +171,21 @@ async function uploadToDrive() {
         if (driveFile) {
             const download = await fetch(`https://www.googleapis.com/drive/v3/files/${driveFile.id}?alt=media`, { headers: { 'Authorization': 'Bearer ' + accessToken } });
             const driveData = await download.json();
-            for (let doc of driveData) {
-                try { await db.put(doc); } catch (e) { } // PouchDB handles conflict
-            }
+            for (let doc of driveData) { try { await db.put(doc); } catch (e) { } }
         }
 
         const local = await db.allDocs({ include_docs: true });
         const content = JSON.stringify(local.rows.map(r => r.doc));
         let url = driveFile ? `https://www.googleapis.com/upload/drive/v3/files/${driveFile.id}?uploadType=media` : 'https://www.googleapis.com/upload/drive/v3/files?uploadType=media';
-
-        await fetch(url, { method: driveFile ? 'PATCH' : 'POST', headers: { 'Authorization': 'Bearer ' + accessToken, 'Content-Type': 'application/json' }, body: new Blob([content], { type: 'application/json' }) });
-        document.getElementById('sync-status').innerText = "Status: Cloud Synced " + new Date().toLocaleTimeString();
+        await fetch(url, { method: driveFile ? 'PATCH' : 'POST', headers: { 'Authorization': 'Bearer ' + accessToken, 'Content-Type': 'application/json' }, body: new Blob([content]) });
+        document.getElementById('sync-status').innerText = "Status: Synced " + new Date().toLocaleTimeString();
     } catch (e) { document.getElementById('sync-status').innerText = "Status: Sync Error"; }
-}
-
-async function deleteStock(id) {
-    if (confirm("Delete item?")) { const doc = await db.get(id); await db.remove(doc); updateInventoryUI(); uploadToDrive(); }
 }
 
 window.addEventListener('online', uploadToDrive);
 function handleSync() { if (!accessToken) tokenClient.requestAccessToken({ prompt: 'consent' }); else uploadToDrive(); }
-function playBeep() { const ctx = new AudioContext(), osc = ctx.createOscillator(); osc.connect(ctx.destination); osc.start(); osc.stop(ctx.currentTime + 0.1); }
 
 window.onload = () => {
     gapi.load('client', () => gapi.client.init({ discoveryDocs: ["https://www.googleapis.com/discovery/v1/apis/drive/v3/rest"] }));
-    tokenClient = google.accounts.oauth2.initTokenClient({ client_id: CLIENT_ID, scope: SCOPES, callback: (res) => { accessToken = res.access_token; sessionStorage.setItem('drive_token', accessToken); uploadToDrive(); } });
+    tokenClient = google.accounts.oauth2.initTokenClient({ client_id: CLIENT_ID, scope: SCOPES, callback: (res) => { accessToken = res.access_token; uploadToDrive(); } });
 };
