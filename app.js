@@ -2,172 +2,226 @@ const db = new PouchDB('workshop_db');
 const CLIENT_ID = '265618310384-mvgcqs0j7tk1fvi6k1b902s8batrehmj.apps.googleusercontent.com';
 const SCOPES = 'https://www.googleapis.com/auth/drive.file';
 
-let tokenClient, accessToken = sessionStorage.getItem('drive_token'), html5QrCode, billQrCode, currentBillItems = [];
+let tokenClient, accessToken = sessionStorage.getItem('drive_token'), html5QrCode, currentBillItems = [];
 
-// MOBILE BACK BUTTON & ROBUST AUTO SYNC
-window.addEventListener('popstate', () => {
-    if (document.querySelector('.screen[style*="block"]').id !== 'main-menu') {
-        history.pushState(null, null, window.location.pathname);
-        clearAndBack();
-    }
-});
+// NAVIGATION
+window.addEventListener('load', () => window.history.replaceState({ screen: 'main-menu' }, ''));
+window.onpopstate = () => clearAndBack(true);
 
-window.addEventListener('online', () => { if (accessToken) uploadToDrive(); });
-
-function gapiLoaded() { gapi.load('client', async () => { await gapi.client.init({ discoveryDocs: ["https://www.googleapis.com/discovery/v1/apis/drive/v3/rest"] }); }); }
-function gsiLoaded() { tokenClient = google.accounts.oauth2.initTokenClient({ client_id: CLIENT_ID, scope: SCOPES, callback: (res) => { accessToken = res.access_token; sessionStorage.setItem('drive_token', accessToken); uploadToDrive(); } }); }
-window.onload = () => { gapiLoaded(); gsiLoaded(); updateLedgerUI(); history.pushState(null, null, window.location.pathname); };
-
-function clearAndBack() {
-    if (html5QrCode) html5QrCode.stop().catch(() => { });
-    if (billQrCode) billQrCode.stop().catch(() => { });
-    clearAllInputs();
-    showScreen('main-menu');
-}
-
-function clearAllInputs() {
-    document.querySelectorAll('input').forEach(input => {
-        if (input.id === 'part-qty' || input.id === 'bill-qty') input.value = "1";
-        else if (input.type !== 'file') input.value = "";
-    });
-    currentBillItems = [];
-    document.getElementById('current-items-section').style.display = 'none';
-    document.getElementById('start-scan-manual').style.display = 'block';
-    document.getElementById('restart-scan').style.display = 'none';
-    document.getElementById('bill-start-scan').style.display = 'block';
-    document.getElementById('bill-restart-scan').style.display = 'none';
-}
-
-function showScreen(screenId) {
+function showScreen(id) {
     document.querySelectorAll('.screen').forEach(s => s.style.display = 'none');
-    document.getElementById(screenId).style.display = 'block';
-    if (screenId === 'stock-list-screen') updateInventoryUI();
-    if (screenId === 'ledger-screen') updateLedgerUI();
+    document.getElementById(id).style.display = 'block';
+    window.history.pushState({ screen: id }, '');
+    if (id === 'stock-list-screen') updateInventoryUI();
+    if (id === 'ledger-screen') updateLedgerUI();
 }
 
-// --- SCANNER LOGIC (Fixed Button Reset) ---
-function startScanner() {
-    document.getElementById('part-id').value = ""; document.getElementById('part-name').value = ""; document.getElementById('part-price').value = "";
-    document.getElementById('start-scan-manual').style.display = 'none';
-    document.getElementById('restart-scan').style.display = 'none';
-    if (!html5QrCode) html5QrCode = new Html5Qrcode("reader");
-    html5QrCode.start({ facingMode: "environment" }, { fps: 20, qrbox: { width: 250, height: 150 } },
-        (text) => onScanSuccess(text, 'part-id', 'part-name', 'part-price', html5QrCode, 'restart-scan', 'start-scan-manual'));
+function clearAndBack(isHardwareBack = false) {
+    if (html5QrCode) html5QrCode.stop().catch(() => { });
+    document.querySelectorAll('input').forEach(i => {
+        if (i.type !== 'file') i.value = i.id.includes('qty') ? "1" : "";
+    });
+    document.getElementById('bill-stock-warning').style.display = 'none';
+    currentBillItems = [];
+    const billSection = document.getElementById('current-items-section');
+    if (billSection) billSection.style.display = 'none';
+    document.getElementById('inv-cam-btn').innerText = "Start Camera";
+    document.getElementById('bill-cam-btn').innerText = "Start Camera";
+    document.querySelectorAll('.screen').forEach(s => s.style.display = 'none');
+    document.getElementById('main-menu').style.display = 'block';
+    if (!isHardwareBack) window.history.pushState({ screen: 'main-menu' }, '');
 }
 
-function startBillScanner() {
-    document.getElementById('bill-item-id').value = ""; document.getElementById('bill-desc').value = ""; document.getElementById('bill-price').value = "";
-    document.getElementById('bill-start-scan').style.display = 'none';
-    document.getElementById('bill-restart-scan').style.display = 'none';
-    if (!billQrCode) billQrCode = new Html5Qrcode("bill-reader");
-    billQrCode.start({ facingMode: "environment" }, { fps: 20, qrbox: { width: 250, height: 150 } },
-        (text) => onScanSuccess(text, 'bill-item-id', 'bill-desc', 'bill-price', billQrCode, 'bill-restart-scan', 'bill-start-scan'));
+// SCANNER LOGIC
+async function toggleScanner(type) {
+    const btnId = type === 'inventory' ? 'inv-cam-btn' : 'bill-cam-btn';
+    const readerId = type === 'inventory' ? 'reader' : 'bill-reader';
+    const btn = document.getElementById(btnId);
+    if (btn.innerText.includes("Start") || btn.innerText.includes("Another")) {
+        if (!html5QrCode) html5QrCode = new Html5Qrcode(readerId);
+        html5QrCode.start({ facingMode: "environment" }, { fps: 10, qrbox: 250 }, (text) => {
+            playBeep(); handleScanResult(text, type);
+            html5QrCode.stop().then(() => { btn.innerText = "Scan Another"; });
+        }).catch(() => { btn.innerText = "Start Camera"; });
+        btn.innerText = "Stop Camera";
+    } else {
+        if (html5QrCode) await html5QrCode.stop();
+        btn.innerText = "Start Camera";
+    }
 }
 
-function onScanSuccess(text, idField, nameField, priceField, scannerObj, restartBtn, startBtn) {
-    playBeep(); document.getElementById(idField).value = text;
-    db.get(text).then(doc => { document.getElementById(nameField).value = doc.name; document.getElementById(priceField).value = doc.price; }).catch(() => { });
-    scannerObj.stop().then(() => {
-        document.getElementById(restartBtn).style.display = 'block';
-        document.getElementById(startBtn).style.display = 'block';
+function scanFile(input, type) {
+    if (input.files.length === 0) return;
+    if (!html5QrCode) html5QrCode = new Html5Qrcode(type === 'inventory' ? "reader" : "bill-reader");
+    html5QrCode.scanFile(input.files[0], true).then(text => {
+        playBeep(); handleScanResult(text, type);
+    }).catch(() => alert("No barcode found."));
+}
+
+function handleScanResult(text, type) {
+    const idF = type === 'inventory' ? 'part-id' : 'bill-item-id';
+    const nameF = type === 'inventory' ? 'part-name' : 'bill-desc';
+    const priceF = type === 'inventory' ? 'part-price' : 'bill-price';
+    document.getElementById(idF).value = text;
+
+    db.get(text).then(doc => {
+        document.getElementById(nameF).value = doc.name;
+        document.getElementById(priceF).value = doc.price;
+        if (type === 'bill') {
+            const left = doc.totalIn - (doc.totalSold || 0);
+            const warn = document.getElementById('bill-stock-warning');
+            warn.innerText = `Current Stock Left: ${left}`;
+            warn.style.display = 'block';
+            warn.style.color = left <= 5 ? '#ef4444' : '#fbbf24';
+        }
+    }).catch(() => {
+        if (type === 'bill') document.getElementById('bill-stock-warning').style.display = 'none';
     });
 }
 
-function scanImageFile(e) { if (!html5QrCode) html5QrCode = new Html5Qrcode("reader"); html5QrCode.scanFile(e.target.files[0], true).then(t => onScanSuccess(t, 'part-id', 'part-name', 'part-price', html5QrCode, 'restart-scan', 'start-scan-manual')).catch(() => alert("No barcode found")); }
-function scanBillImageFile(e) { if (!billQrCode) billQrCode = new Html5Qrcode("bill-reader"); billQrCode.scanFile(e.target.files[0], true).then(t => onScanSuccess(t, 'bill-item-id', 'bill-desc', 'bill-price', billQrCode, 'bill-restart-scan', 'bill-start-scan')).catch(() => alert("No barcode found")); }
-
-// --- BILLING & PDF ---
-function addItemToCurrentBill() {
-    const desc = document.getElementById('bill-desc').value, price = parseFloat(document.getElementById('bill-price').value) || 0, qty = parseInt(document.getElementById('bill-qty').value) || 1;
-    if (!desc || price <= 0) return alert("Enter item and price");
-    currentBillItems.push({ id: document.getElementById('bill-item-id').value, desc, price, qty });
-    document.getElementById('bill-item-id').value = ""; document.getElementById('bill-desc').value = ""; document.getElementById('bill-price').value = ""; document.getElementById('bill-qty').value = "1";
-    renderBillTable();
+function changeQty(id, n) {
+    const el = document.getElementById(id);
+    let val = parseInt(el.value) || 1;
+    if (val + n >= 1) el.value = val + n;
 }
 
-function renderBillTable() {
-    const body = document.getElementById('current-bill-body'), sect = document.getElementById('current-items-section');
-    body.innerHTML = ""; let total = 0;
-    if (currentBillItems.length > 0) {
-        sect.style.display = 'block';
-        currentBillItems.forEach((item, index) => { total += (item.price * item.qty); body.innerHTML += `<tr><td>${item.desc}</td><td>${item.qty}</td><td>₹${(item.price * item.qty).toFixed(2)}</td><td><button class="del-btn" onclick="removeItem(${index})">X</button></td></tr>`; });
-        document.getElementById('bill-total-display').innerText = total.toFixed(2);
-    } else sect.style.display = 'none';
-}
-
-function removeItem(index) { currentBillItems.splice(index, 1); renderBillTable(); }
-
-async function finalizeBill() {
-    const cust = document.getElementById('bill-cust-name').value;
-    if (!cust || currentBillItems.length === 0) return alert("Missing Info");
-    let total = 0; const date = new Date().toLocaleString();
-    for (let item of currentBillItems) {
-        total += (item.price * item.qty);
-        if (item.id) { try { let p = await db.get(item.id); p.totalSold = (p.totalSold || 0) + item.qty; await db.put(p); } catch (e) { } }
-    }
-    await db.put({ _id: 'ledger_' + Date.now(), customer: cust, amount: total, items: [...currentBillItems], type: 'invoice', category: 'ledger', date });
-    generatePDF(cust, date, currentBillItems, total);
-    alert("Bill Saved & PDF Generated!"); clearAndBack(); uploadToDrive();
-}
-
-function generatePDF(cust, date, items, total) {
-    const { jsPDF } = window.jspdf; const doc = new jsPDF();
-    doc.setFontSize(22); doc.text("WORKSHOP INVOICE", 105, 20, { align: "center" });
-    doc.setFontSize(12); doc.text(`Customer: ${cust}`, 20, 40); doc.text(`Date: ${date}`, 20, 50);
-    doc.line(20, 55, 190, 55); let y = 65;
-    doc.text("Item Description", 20, y); doc.text("Qty", 120, y); doc.text("Total (Rs)", 160, y);
-    y += 10; items.forEach(i => { doc.text(i.desc, 20, y); doc.text(i.qty.toString(), 120, y); doc.text((i.price * i.qty).toFixed(2), 160, y); y += 10; });
-    doc.line(20, y, 190, y); doc.setFontSize(14); doc.text(`Grand Total: Rs. ${total.toFixed(2)}`, 140, y + 15);
-    doc.save(`Invoice_${cust}.pdf`);
-}
-
-// --- DATA HANDLERS ---
+// INVENTORY LOGIC
 async function savePart() {
     const id = document.getElementById('part-id').value, name = document.getElementById('part-name').value;
     const price = parseFloat(document.getElementById('part-price').value) || 0, qty = parseInt(document.getElementById('part-qty').value) || 0;
-    if (!id || !name) return alert("Details missing");
-    let doc = { _id: id, name, price, totalIn: qty, totalSold: 0, category: 'inventory' };
-    try { const ex = await db.get(id); doc._rev = ex._rev; doc.totalIn = (ex.totalIn || 0) + qty; doc.totalSold = ex.totalSold || 0; } catch (e) { }
-    await db.put(doc); uploadToDrive(); alert("Stock Updated"); clearAndBack();
+    if (!id || !name) return alert("Fill ID and Name");
+    try {
+        const doc = await db.get(id);
+        await db.put({ ...doc, name, price, totalIn: (doc.totalIn || 0) + qty });
+    } catch {
+        await db.put({ _id: id, name, price, totalIn: qty, totalSold: 0, category: 'inventory' });
+    }
+    alert("Saved!"); clearAndBack(); uploadToDrive();
 }
 
-async function updateInventoryUI() {
-    const res = await db.allDocs({ include_docs: true }), list = document.getElementById('inventory-list-table'), q = (document.getElementById('stock-search')?.value || "").toLowerCase();
-    list.innerHTML = ""; res.rows.forEach(r => { const d = r.doc; if (d.category === 'inventory' && (d.name.toLowerCase().includes(q) || d._id.toLowerCase().includes(q))) list.innerHTML += `<tr><td>${d.name}</td><td>${d.totalIn}</td><td>${d.totalSold}</td><td><strong>${d.totalIn - d.totalSold}</strong></td></tr>`; });
+// BILLING LOGIC
+function addItemToCurrentBill() {
+    const desc = document.getElementById('bill-desc').value, price = parseFloat(document.getElementById('bill-price').value) || 0, qty = parseInt(document.getElementById('bill-qty').value) || 1;
+    if (!desc) return;
+    currentBillItems.push({ desc, price, qty });
+    renderBillTable();
+    ['bill-desc', 'bill-price', 'bill-item-id'].forEach(k => document.getElementById(k).value = "");
+    document.getElementById('bill-qty').value = "1";
+    document.getElementById('bill-stock-warning').style.display = 'none';
 }
 
-async function updateLedgerUI() {
-    const res = await db.allDocs({ include_docs: true }), bals = {}, hist = document.getElementById('bill-history-list'), q = (document.getElementById('history-search')?.value || "").toLowerCase();
-    hist.innerHTML = "";
-    res.rows.forEach(r => {
-        const d = r.doc;
-        if (d.category === 'ledger') {
-            bals[d.customer] = (bals[d.customer] || 0) + (d.type === 'invoice' ? d.amount : -d.amount);
-            if (d.type === 'invoice' && (d.customer.toLowerCase().includes(q) || d.items.some(i => i.desc.toLowerCase().includes(q)))) {
-                hist.innerHTML += `<div class="ledger-card"><strong>${d.date}</strong><br>Cust: ${d.customer}<br>Items: ${d.items.map(i => i.desc).join(", ")}<br>Total: ₹${d.amount.toFixed(2)}</div>`;
+function renderBillTable() {
+    const body = document.getElementById('current-bill-body'); body.innerHTML = ""; let t = 0;
+    currentBillItems.forEach(i => { t += (i.price * i.qty); body.innerHTML += `<tr><td>${i.desc}</td><td>${i.qty}</td><td>₹${i.price * i.qty}</td></tr>`; });
+    document.getElementById('bill-total-display').innerText = t.toFixed(2);
+    document.getElementById('current-items-section').style.display = 'block';
+}
+
+async function finalizeBill() {
+    const cust = document.getElementById('bill-cust-name').value;
+    if (!cust || currentBillItems.length === 0) return alert("Missing Customer or Items");
+
+    const allDocs = await db.allDocs({ include_docs: true });
+    let updatedDocs = [];
+
+    for (let item of currentBillItems) {
+        const row = allDocs.rows.find(r => r.doc.name === item.desc && r.doc.category === 'inventory');
+        if (!row) return alert(`Item "${item.desc}" not found in stock!`);
+        let d = row.doc;
+        let avail = d.totalIn - (d.totalSold || 0);
+        if (avail < item.qty) return alert(`Insufficient Stock for ${item.desc}! Only ${avail} left.`);
+        d.totalSold = (d.totalSold || 0) + item.qty;
+        updatedDocs.push(d);
+    }
+
+    for (let doc of updatedDocs) await db.put(doc);
+    await db.put({ _id: 'ledger_' + Date.now(), customer: cust, amount: parseFloat(document.getElementById('bill-total-display').innerText), items: [...currentBillItems], category: 'ledger', date: new Date().toLocaleString() });
+
+    const { jsPDF } = window.jspdf; const doc = new jsPDF();
+    doc.text(`Invoice: ${cust}`, 20, 20);
+    let y = 40; currentBillItems.forEach(i => { doc.text(`${i.desc} x${i.qty} = Rs. ${i.price * i.qty}`, 20, y); y += 10; });
+    doc.text(`Total: Rs. ${document.getElementById('bill-total-display').innerText}`, 20, y + 10);
+    doc.save(`Bill_${cust}.pdf`);
+    alert("Bill Finalized!"); clearAndBack(); uploadToDrive();
+}
+
+// UI UPDATES & EXPORT
+function updateInventoryUI() {
+    const query = document.getElementById('stock-search').value.toLowerCase();
+    db.allDocs({ include_docs: true }).then(res => {
+        const list = document.getElementById('inventory-list-table'); list.innerHTML = "";
+        res.rows.forEach(r => {
+            const d = r.doc;
+            if (d.category === 'inventory' && d.name.toLowerCase().includes(query)) {
+                const stockLeft = Math.max(0, d.totalIn - d.totalSold);
+                const rowStyle = stockLeft <= 5 ? 'style="color: #ef4444; font-weight: bold;"' : '';
+                list.innerHTML += `<tr ${rowStyle}><td>${d.name}</td><td>${d.totalIn}</td><td>${stockLeft}</td><td><button onclick="deleteStock('${d._id}')" class="del-btn">✕</button></td></tr>`;
             }
+        });
+    });
+}
+
+function updateLedgerUI() {
+    const query = document.getElementById('ledger-search').value.toLowerCase();
+    db.allDocs({ include_docs: true }).then(res => {
+        const hist = document.getElementById('bill-history-list'); hist.innerHTML = "";
+        res.rows.forEach(r => {
+            if (r.doc.category === 'ledger' && r.doc.customer.toLowerCase().includes(query)) {
+                hist.innerHTML += `<div class="ledger-card"><strong>${r.doc.date}</strong><br>${r.doc.customer}: ₹${r.doc.amount}</div>`;
+            }
+        });
+    });
+}
+
+async function exportStockCSV() {
+    const res = await db.allDocs({ include_docs: true });
+    let csv = "Item Name,Total In,Total Sold,Remaining\n";
+    res.rows.forEach(r => {
+        if (r.doc.category === 'inventory') {
+            csv += `"${r.doc.name}",${r.doc.totalIn},${r.doc.totalSold},${Math.max(0, r.doc.totalIn - r.doc.totalSold)}\n`;
         }
     });
-    const list = document.getElementById('customer-list'); list.innerHTML = "";
-    for (let c in bals) { list.innerHTML += `<div class="ledger-card"><strong>${c}</strong>: ₹${Math.abs(bals[c]).toFixed(2)}</div>`; }
+    const blob = new Blob([csv], { type: 'text/csv' });
+    const url = window.URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url; a.download = `Stock_Report.csv`; a.click();
 }
 
-// --- CLOUD SYNC ---
-function handleSync() { if (!accessToken) tokenClient.requestAccessToken({ prompt: 'consent' }); else uploadToDrive(); }
-
+// SAFE CLOUD SYNC
 async function uploadToDrive() {
-    if (!navigator.onLine || !accessToken) { document.getElementById('sync-status').innerText = "Offline - Pending Sync"; return; }
-    document.getElementById('sync-status').innerText = "Syncing...";
+    if (!navigator.onLine || !accessToken) return;
+    document.getElementById('sync-status').innerText = "Status: Checking Cloud...";
     try {
-        const res = await db.allDocs({ include_docs: true }), content = JSON.stringify(res.rows.map(r => r.doc));
-        const search = await fetch(`https://www.googleapis.com/drive/v3/files?q=name='workshop_db_backup.json'`, { headers: { 'Authorization': 'Bearer ' + accessToken } });
-        const sRes = await search.json(), exist = sRes.files && sRes.files[0];
-        let url = exist ? `https://www.googleapis.com/upload/drive/v3/files/${exist.id}?uploadType=media` : 'https://www.googleapis.com/upload/drive/v3/files?uploadType=media';
-        const response = await fetch(url, { method: exist ? 'PATCH' : 'POST', headers: { 'Authorization': 'Bearer ' + accessToken, 'Content-Type': 'application/json' }, body: new Blob([content], { type: 'application/json' }) });
-        if (response.ok) document.getElementById('sync-status').innerText = "Synced: " + new Date().toLocaleTimeString();
-        else throw new Error();
-    } catch (e) { document.getElementById('sync-status').innerText = "Sync Failed - Will retry"; }
+        const search = await fetch(`https://www.googleapis.com/drive/v3/files?q=name='workshop_db_backup.json'&fields=files(id)`, { headers: { 'Authorization': 'Bearer ' + accessToken } });
+        const sRes = await search.json();
+        const driveFile = sRes.files && sRes.files[0];
+
+        if (driveFile) {
+            const download = await fetch(`https://www.googleapis.com/drive/v3/files/${driveFile.id}?alt=media`, { headers: { 'Authorization': 'Bearer ' + accessToken } });
+            const driveData = await download.json();
+            for (let doc of driveData) {
+                try { await db.put(doc); } catch (e) { } // PouchDB handles conflict
+            }
+        }
+
+        const local = await db.allDocs({ include_docs: true });
+        const content = JSON.stringify(local.rows.map(r => r.doc));
+        let url = driveFile ? `https://www.googleapis.com/upload/drive/v3/files/${driveFile.id}?uploadType=media` : 'https://www.googleapis.com/upload/drive/v3/files?uploadType=media';
+
+        await fetch(url, { method: driveFile ? 'PATCH' : 'POST', headers: { 'Authorization': 'Bearer ' + accessToken, 'Content-Type': 'application/json' }, body: new Blob([content], { type: 'application/json' }) });
+        document.getElementById('sync-status').innerText = "Status: Cloud Synced " + new Date().toLocaleTimeString();
+    } catch (e) { document.getElementById('sync-status').innerText = "Status: Sync Error"; }
 }
 
-function changeQty(id, n) { const q = document.getElementById(id); let v = parseInt(q.value) || 1; if (v + n >= 1) q.value = v + n; }
-function playBeep() { const ctx = new AudioContext(), osc = ctx.createOscillator(); osc.connect(ctx.destination); osc.frequency.value = 1000; osc.start(); osc.stop(ctx.currentTime + 0.1); }
+async function deleteStock(id) {
+    if (confirm("Delete item?")) { const doc = await db.get(id); await db.remove(doc); updateInventoryUI(); uploadToDrive(); }
+}
+
+window.addEventListener('online', uploadToDrive);
+function handleSync() { if (!accessToken) tokenClient.requestAccessToken({ prompt: 'consent' }); else uploadToDrive(); }
+function playBeep() { const ctx = new AudioContext(), osc = ctx.createOscillator(); osc.connect(ctx.destination); osc.start(); osc.stop(ctx.currentTime + 0.1); }
+
+window.onload = () => {
+    gapi.load('client', () => gapi.client.init({ discoveryDocs: ["https://www.googleapis.com/discovery/v1/apis/drive/v3/rest"] }));
+    tokenClient = google.accounts.oauth2.initTokenClient({ client_id: CLIENT_ID, scope: SCOPES, callback: (res) => { accessToken = res.access_token; sessionStorage.setItem('drive_token', accessToken); uploadToDrive(); } });
+};
