@@ -21,7 +21,7 @@
         <h2 onclick="clearAndBack()">Workshop<span>Pro</span></h2>
         <button id="sync-btn" onclick="handleSync()">Login/Sync</button>
     </nav>
-    <div id="sync-status">Status: Ready (Offline OK)</div>
+    <div id="sync-status">Status: Waiting for Login</div>
 
     <div class="container">
         <div id="main-menu" class="screen">
@@ -97,13 +97,6 @@
             </section>
             <section id="current-items-section" class="glass-card" style="display:none;">
                 <table>
-                    <thead>
-                        <tr>
-                            <th>Item</th>
-                            <th>Qty</th>
-                            <th>Total</th>
-                        </tr>
-                    </thead>
                     <tbody id="current-bill-body"></tbody>
                 </table>
                 <div class="total-bar" style="text-align: right; padding: 10px; font-weight: bold;">Total: ₹<span
@@ -148,11 +141,7 @@
     <script src="app.js"></script>
     <script>
         if ('serviceWorker' in navigator) {
-            window.addEventListener('load', () => {
-                navigator.serviceWorker.register('./sw.js')
-                    .then(reg => console.log('SW Registered'))
-                    .catch(err => console.log('SW Error', err));
-            });
+            navigator.serviceWorker.register('./sw.js').catch(err => console.log(err));
         }
     </script>
 </body>

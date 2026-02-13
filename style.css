@@ -86,6 +86,7 @@ body {
   margin-top: 15px;
 }
 
+/* DARK PLACEHOLDERS */
 input {
   width: 100%;
   background: #ffffff;
@@ -100,7 +101,7 @@ input {
 input::placeholder {
   color: #000000 !important;
   opacity: 1 !important;
-  font-weight: 700;
+  font-weight: 800;
 }
 
 .stepper-container {
@@ -172,15 +173,6 @@ input::placeholder {
   background: #f59e0b;
 }
 
-.cam-btn-active {
-  background: var(--amber);
-  color: black;
-  width: 100%;
-  padding: 12px;
-  border-radius: 10px;
-  border: none;
-  font-weight: bold;
-}
 .back-menu-btn {
   background: #64748b;
   color: white;
@@ -189,7 +181,6 @@ input::placeholder {
   border-radius: 20px;
   margin: 10px 0;
 }
-
 .table-scroll {
   overflow-x: auto;
 }
