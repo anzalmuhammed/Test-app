@@ -30,52 +30,50 @@ window.onload = () => {
     }
 };
 
+// FORCE MERGE HELPER
+async function forcePut(doc) {
+    try {
+        const local = await db.get(doc._id);
+        return await db.put({ ...doc, _rev: local._rev });
+    } catch (e) {
+        if (e.status === 404) return await db.put(doc);
+        if (e.status === 409) {
+            const latest = await db.get(doc._id);
+            return await db.put({ ...doc, _rev: latest._rev });
+        }
+        throw e;
+    }
+}
+
 async function uploadToDrive() {
     if (!navigator.onLine || !accessToken) return;
     document.getElementById('sync-status').innerText = "Status: Connecting...";
 
     try {
         const headers = { 'Authorization': `Bearer ${accessToken}` };
-
-        // 1. Search for existing file
-        const searchUrl = `https://www.googleapis.com/drive/v3/files?q=name='workshop_db_backup.json' and trashed=false&fields=files(id)`;
-        const searchRes = await fetch(searchUrl, { headers });
+        const searchRes = await fetch(`https://www.googleapis.com/drive/v3/files?q=name='workshop_db_backup.json' and trashed=false&fields=files(id)`, { headers });
         const searchData = await searchRes.json();
         const fileId = searchData.files?.[0]?.id;
 
-        // 2. Download and Merge (HANDLING CONFLICTS)
         if (fileId) {
-            document.getElementById('sync-status').innerText = "Status: Merging...";
+            document.getElementById('sync-status').innerText = "Status: Downloading...";
             const download = await fetch(`https://www.googleapis.com/drive/v3/files/${fileId}?alt=media`, { headers });
             const cloudData = await download.json();
 
+            // USE FORCE PUT TO HANDLE CONFLICTS LIKE 8901030814778
             for (let doc of cloudData) {
-                try {
-                    const local = await db.get(doc._id);
-                    // Merge cloud data with local _rev to avoid 409
-                    await db.put({ ...doc, _rev: local._rev });
-                } catch (e) {
-                    if (e.status === 404) {
-                        await db.put(doc);
-                    } else if (e.status === 409) {
-                        // If still a conflict, get latest rev again and force it
-                        const latest = await db.get(doc._id);
-                        await db.put({ ...doc, _rev: latest._rev });
-                    }
-                }
+                await forcePut(doc);
             }
             updateInventoryUI();
             updateLedgerUI();
         }
 
-        // 3. Prepare Upload
         document.getElementById('sync-status').innerText = "Status: Uploading...";
         const localDocs = await db.allDocs({ include_docs: true });
         const jsonData = JSON.stringify(localDocs.rows.map(r => r.doc));
         const metadata = { name: 'workshop_db_backup.json', mimeType: 'application/json' };
 
         let url, method, body;
-
         if (fileId) {
             url = `https://www.googleapis.com/upload/drive/v3/files/${fileId}?uploadType=media`;
             method = 'PATCH';
@@ -96,13 +94,12 @@ async function uploadToDrive() {
         }
     } catch (e) {
         console.error("Sync error:", e);
-        document.getElementById('sync-status').innerText = "Sync Failed: Conflict Handled";
-        // Attempt a retry if it was just a transient conflict
-        if (e.status === 409) setTimeout(uploadToDrive, 1000);
+        document.getElementById('sync-status').innerText = "Sync Error: retrying...";
+        setTimeout(uploadToDrive, 3000);
     }
 }
 
-// --- SCANNER FUNCTIONS ---
+// --- SCANNER & FILE ---
 function scanFile(input, type) {
     if (input.files.length === 0) return;
     const readerId = type === 'inventory' ? 'reader' : 'bill-reader';
@@ -135,7 +132,7 @@ async function toggleScanner(type) {
     });
 }
 
-// --- UI / NAVIGATION ---
+// --- NAVIGATION & UI ---
 function showScreen(id) {
     document.querySelectorAll('.screen').forEach(s => s.style.display = 'none');
     document.getElementById(id).style.display = 'block';
@@ -154,17 +151,14 @@ async function savePart() {
     const price = parseFloat(document.getElementById('part-price').value) || 0, qty = parseInt(document.getElementById('part-qty').value) || 0;
     if (!id || !name) return alert("Fill all fields");
 
-    const runSave = async () => {
-        try {
-            let doc;
-            try { doc = await db.get(id); } catch (e) { doc = { _id: id, totalIn: 0, totalSold: 0, category: 'inventory' }; }
-            doc.name = name; doc.price = price; doc.totalIn += qty;
-            await db.put(doc);
-            alert("Saved");
-            uploadToDrive();
-        } catch (e) { if (e.status === 409) return runSave(); }
-    };
-    runSave();
+    try {
+        let doc;
+        try { doc = await db.get(id); } catch (e) { doc = { _id: id, totalIn: 0, totalSold: 0, category: 'inventory' }; }
+        doc.name = name; doc.price = price; doc.totalIn += qty;
+        await forcePut(doc);
+        alert("Saved");
+        uploadToDrive();
+    } catch (e) { alert("Save error"); }
 }
 
 function addItemToCurrentBill() {
@@ -189,14 +183,11 @@ async function finalizeBill() {
     const cust = document.getElementById('bill-cust-name').value;
     if (!cust || currentBillItems.length === 0) return alert("Details missing");
     for (let item of currentBillItems) {
-        const updateStock = async () => {
-            try {
-                const res = await db.allDocs({ include_docs: true });
-                const row = res.rows.find(r => r.doc.name === item.desc && r.doc.category === 'inventory');
-                if (row) { let doc = row.doc; doc.totalSold += item.qty; await db.put(doc); }
-            } catch (e) { if (e.status === 409) return updateStock(); }
-        };
-        await updateStock();
+        try {
+            const res = await db.allDocs({ include_docs: true });
+            const row = res.rows.find(r => r.doc.name === item.desc && r.doc.category === 'inventory');
+            if (row) { let doc = row.doc; doc.totalSold += item.qty; await forcePut(doc); }
+        } catch (e) { }
     }
     await db.put({ _id: 'ledger_' + Date.now(), customer: cust, amount: parseFloat(document.getElementById('bill-total-display').innerText), date: new Date().toLocaleString(), category: 'ledger' });
     alert("Bill Finalized");
