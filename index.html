@@ -8,8 +8,6 @@
     <link rel="manifest" href="manifest.json">
     <script src="https://cdn.jsdelivr.net/npm/pouchdb@8.0.1/dist/pouchdb.min.js"></script>
     <script src="https://unpkg.com/html5-qrcode"></script>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
-    <script src="https://accounts.google.com/gsi/client" async defer></script>
     <script src="https://apis.google.com/js/api.js"></script>
     <link rel="stylesheet" href="style.css">
     <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;600&display=swap" rel="stylesheet">
@@ -21,7 +19,7 @@
         <h2 onclick="clearAndBack()">Workshop<span>Pro</span></h2>
         <button id="sync-btn" onclick="handleSync()">Login/Sync</button>
     </nav>
-    <div id="sync-status">Status: Checking Session...</div>
+    <div id="sync-status">Status: Offline</div>
 
     <div class="container">
         <div id="main-menu" class="screen">
@@ -48,17 +46,12 @@
                 <div class="scanner-controls">
                     <button id="inv-cam-btn" class="cam-btn-active" onclick="toggleScanner('inventory')">Start
                         Camera</button>
-                    <label class="file-label" for="inv-file-input">scan an image file</label>
-                    <input type="file" id="inv-file-input" accept="image/*" style="display:none"
-                        onchange="scanFile(this, 'inventory')">
                 </div>
             </section>
             <section class="glass-card">
                 <input type="text" id="part-id" placeholder="Barcode ID">
                 <input type="text" id="part-name" placeholder="Part Name">
                 <input type="number" id="part-price" placeholder="Price (₹)">
-                <div class="stepper-label" style="text-align:center; margin-bottom:5px; font-weight:bold;">Quantity
-                </div>
                 <div class="stepper-container">
                     <button type="button" class="step-btn" onclick="changeQty('part-qty', -1)">−</button>
                     <input type="number" id="part-qty" value="1">
@@ -75,20 +68,13 @@
                 <div class="scanner-controls">
                     <button id="bill-cam-btn" class="cam-btn-active" onclick="toggleScanner('bill')">Start
                         Camera</button>
-                    <label class="file-label" for="bill-file-input">scan an image file</label>
-                    <input type="file" id="bill-file-input" accept="image/*" style="display:none"
-                        onchange="scanFile(this, 'bill')">
                 </div>
             </section>
             <section class="glass-card">
                 <input type="text" id="bill-cust-name" placeholder="Customer Name">
-                <hr style="border:0; border-top:1px solid var(--glass-border); margin:10px 0;">
                 <input type="text" id="bill-item-id" placeholder="Barcode ID">
                 <input type="text" id="bill-desc" placeholder="Item Name">
                 <input type="number" id="bill-price" placeholder="Price (₹)">
-                <div id="bill-stock-warning"
-                    style="display:none; color: var(--amber); text-align:center; font-weight:bold; margin-bottom:10px;">
-                </div>
                 <div class="stepper-container">
                     <button type="button" class="step-btn" onclick="changeQty('bill-qty', -1)">−</button>
                     <input type="number" id="bill-qty" value="1">
@@ -129,17 +115,11 @@
         <div id="ledger-screen" class="screen" style="display:none">
             <button class="back-menu-btn" onclick="clearAndBack()">← Back</button>
             <section class="glass-card">
-                <input type="text" id="ledger-search" placeholder="Search Ledger..." onkeyup="updateLedgerUI()">
                 <div id="bill-history-list"></div>
             </section>
         </div>
     </div>
     <script src="app.js"></script>
-    <script>
-        if ('serviceWorker' in navigator) {
-            navigator.serviceWorker.register('sw.js');
-        }
-    </script>
 </body>
 
 </html>
