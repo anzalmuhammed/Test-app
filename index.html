@@ -8,7 +8,6 @@
     <link rel="manifest" href="manifest.json">
     <script src="https://cdn.jsdelivr.net/npm/pouchdb@8.0.1/dist/pouchdb.min.js"></script>
     <script src="https://unpkg.com/html5-qrcode"></script>
-    <script src="https://apis.google.com/js/api.js"></script>
     <link rel="stylesheet" href="style.css">
     <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;600&display=swap" rel="stylesheet">
 </head>
@@ -46,6 +45,9 @@
                 <div class="scanner-controls">
                     <button id="inv-cam-btn" class="cam-btn-active" onclick="toggleScanner('inventory')">Start
                         Camera</button>
+                    <label class="file-label" for="inv-file-input">Scan an image file</label>
+                    <input type="file" id="inv-file-input" accept="image/*" style="display:none"
+                        onchange="scanFile(this, 'inventory')">
                 </div>
             </section>
             <section class="glass-card">
@@ -68,6 +70,9 @@
                 <div class="scanner-controls">
                     <button id="bill-cam-btn" class="cam-btn-active" onclick="toggleScanner('bill')">Start
                         Camera</button>
+                    <label class="file-label" for="bill-file-input">Scan an image file</label>
+                    <input type="file" id="bill-file-input" accept="image/*" style="display:none"
+                        onchange="scanFile(this, 'bill')">
                 </div>
             </section>
             <section class="glass-card">

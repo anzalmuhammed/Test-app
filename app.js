@@ -4,29 +4,24 @@ const SCOPES = 'https://www.googleapis.com/auth/drive.file';
 
 let accessToken = localStorage.getItem('drive_token'), html5QrCode, currentBillItems = [];
 
-// --- MANUAL REDIRECT (THE FIX) ---
+// --- LOGIN FLOW ---
 function handleSync() {
     if (accessToken) {
         uploadToDrive();
     } else {
-        // We use a raw URL. This is the only way to be 100% sure NO popup code runs.
         const redirectUri = window.location.origin + window.location.pathname;
         const authUrl = `https://accounts.google.com/o/oauth2/v2/auth?client_id=${CLIENT_ID}&redirect_uri=${encodeURIComponent(redirectUri)}&response_type=token&scope=${encodeURIComponent(SCOPES)}&include_granted_scopes=true&prompt=consent`;
-
         window.location.href = authUrl;
     }
 }
 
-// --- APP INITIALIZATION ---
 window.onload = () => {
-    // 1. Capture token from URL after redirect
     if (window.location.hash) {
         const params = new URLSearchParams(window.location.hash.substring(1));
         const token = params.get("access_token");
         if (token) {
             accessToken = token;
             localStorage.setItem('drive_token', token);
-            // Remove token from URL for security/cleanliness
             window.history.replaceState(null, null, window.location.pathname);
         }
     }
@@ -37,20 +32,17 @@ window.onload = () => {
     }
 };
 
-// --- SYNC LOGIC ---
+// --- SYNC ---
 async function uploadToDrive() {
     if (!navigator.onLine || !accessToken) return;
     document.getElementById('sync-status').innerText = "Status: Syncing...";
 
     try {
         const headers = { 'Authorization': `Bearer ${accessToken}` };
-
-        // Find existing backup
         const searchRes = await fetch(`https://www.googleapis.com/drive/v3/files?q=name='workshop_db_backup.json'&fields=files(id)`, { headers });
         const { files } = await searchRes.json();
         const fileId = files?.[0]?.id;
 
-        // Download & Merge
         if (fileId) {
             const download = await fetch(`https://www.googleapis.com/drive/v3/files/${fileId}?alt=media`, { headers });
             const cloudData = await download.json();
@@ -58,37 +50,65 @@ async function uploadToDrive() {
                 try {
                     const local = await db.get(doc._id);
                     await db.put({ ...doc, _rev: local._rev });
-                } catch (e) { if (e.status !== 409) await db.put(doc); }
+                } catch (e) { if (e.status === 404) await db.put(doc); }
             }
+            updateInventoryUI();
+            updateLedgerUI();
         }
 
-        // Upload
         const localDocs = await db.allDocs({ include_docs: true });
-        const blob = new Blob([JSON.stringify(localDocs.rows.map(r => r.doc))], { type: 'application/json' });
-
-        const url = fileId
-            ? `https://www.googleapis.com/upload/drive/v3/files/${fileId}?uploadType=media`
-            : 'https://www.googleapis.com/upload/drive/v3/files?uploadType=media';
+        const jsonData = JSON.stringify(localDocs.rows.map(r => r.doc));
+        const url = fileId ? `https://www.googleapis.com/upload/drive/v3/files/${fileId}?uploadType=media` : 'https://www.googleapis.com/upload/drive/v3/files?uploadType=media';
 
         const upRes = await fetch(url, {
             method: fileId ? 'PATCH' : 'POST',
             headers: { ...headers, 'Content-Type': 'application/json' },
-            body: blob
+            body: jsonData
         });
 
-        if (upRes.ok) {
-            document.getElementById('sync-status').innerText = "Status: Synced " + new Date().toLocaleTimeString();
-        } else if (upRes.status === 401) {
-            localStorage.removeItem('drive_token');
-            accessToken = null;
-            document.getElementById('sync-status').innerText = "Status: Session Expired. Login again.";
-        }
+        if (upRes.ok) document.getElementById('sync-status').innerText = "Status: Synced " + new Date().toLocaleTimeString();
     } catch (e) {
         document.getElementById('sync-status').innerText = "Status: Sync Failed";
     }
 }
 
-// --- REST OF THE APP LOGIC ---
+// --- SCANNER FUNCTIONS (RE-ADDED FILE SCAN) ---
+function scanFile(input, type) {
+    if (input.files.length === 0) return;
+    const readerId = type === 'inventory' ? 'reader' : 'bill-reader';
+    const scanner = new Html5Qrcode(readerId);
+
+    scanner.scanFile(input.files[0], true)
+        .then(text => handleScanResult(text, type))
+        .catch(() => alert("No barcode found in image."));
+}
+
+function handleScanResult(text, type) {
+    const idField = type === 'inventory' ? 'part-id' : 'bill-item-id';
+    document.getElementById(idField).value = text;
+
+    // Auto-fill if exists in DB
+    db.get(text).then(doc => {
+        if (type === 'bill') {
+            document.getElementById('bill-desc').value = doc.name;
+            document.getElementById('bill-price').value = doc.price;
+        } else {
+            document.getElementById('part-name').value = doc.name;
+            document.getElementById('part-price').value = doc.price;
+        }
+    }).catch(() => { });
+}
+
+async function toggleScanner(type) {
+    const id = type === 'inventory' ? 'reader' : 'bill-reader';
+    if (!html5QrCode) html5QrCode = new Html5Qrcode(id);
+    html5QrCode.start({ facingMode: "environment" }, { fps: 10, qrbox: 250 }, (text) => {
+        handleScanResult(text, type);
+        html5QrCode.stop();
+    });
+}
+
+// --- CORE APP ---
 function showScreen(id) {
     document.querySelectorAll('.screen').forEach(s => s.style.display = 'none');
     document.getElementById(id).style.display = 'block';
@@ -107,6 +127,7 @@ async function savePart() {
     const name = document.getElementById('part-name').value;
     const price = parseFloat(document.getElementById('part-price').value) || 0;
     const qty = parseInt(document.getElementById('part-qty').value) || 0;
+    if (!id || !name) return alert("Fill all fields");
 
     const runSave = async () => {
         try {
@@ -114,7 +135,7 @@ async function savePart() {
             try { doc = await db.get(id); } catch (e) { doc = { _id: id, totalIn: 0, totalSold: 0, category: 'inventory' }; }
             doc.name = name; doc.price = price; doc.totalIn += qty;
             await db.put(doc);
-            alert("Stock Updated");
+            alert("Saved");
             uploadToDrive();
         } catch (e) { if (e.status === 409) return runSave(); }
     };
@@ -143,13 +164,12 @@ function renderBillList() {
 
 async function finalizeBill() {
     const cust = document.getElementById('bill-cust-name').value;
-    if (!cust) return alert("Customer name required");
-
+    if (!cust || currentBillItems.length === 0) return alert("Details missing");
     for (let item of currentBillItems) {
         const updateStock = async () => {
             try {
                 const res = await db.allDocs({ include_docs: true });
-                const row = res.rows.find(r => r.doc.name === item.desc);
+                const row = res.rows.find(r => r.doc.name === item.desc && r.doc.category === 'inventory');
                 if (row) {
                     let doc = row.doc;
                     doc.totalSold += item.qty;
@@ -159,42 +179,21 @@ async function finalizeBill() {
         };
         await updateStock();
     }
-
-    await db.put({
-        _id: 'bill_' + Date.now(),
-        customer: cust,
-        amount: parseFloat(document.getElementById('bill-total-display').innerText),
-        date: new Date().toLocaleString(),
-        category: 'ledger'
-    });
-    alert("Bill Saved");
+    await db.put({ _id: 'ledger_' + Date.now(), customer: cust, amount: parseFloat(document.getElementById('bill-total-display').innerText), date: new Date().toLocaleString(), category: 'ledger' });
+    alert("Bill Finalized");
     currentBillItems = [];
     document.getElementById('current-items-section').style.display = 'none';
     uploadToDrive();
 }
 
-async function toggleScanner(type) {
-    const id = type === 'inventory' ? 'reader' : 'bill-reader';
-    if (!html5QrCode) html5QrCode = new Html5Qrcode(id);
-    html5QrCode.start({ facingMode: "environment" }, { fps: 10, qrbox: 250 }, (text) => {
-        document.getElementById(type === 'inventory' ? 'part-id' : 'bill-item-id').value = text;
-        html5QrCode.stop();
-    });
-}
-
-function changeQty(id, n) {
-    let el = document.getElementById(id);
-    let v = parseInt(el.value) || 1;
-    if (v + n >= 1) el.value = v + n;
-}
-
 function updateInventoryUI() {
     db.allDocs({ include_docs: true }).then(res => {
         const table = document.getElementById('inventory-list-table');
+        if (!table) return;
         table.innerHTML = "";
         res.rows.forEach(r => {
             if (r.doc.category === 'inventory') {
-                table.innerHTML += `<tr><td>${r.doc.name}</td><td>${r.doc.totalIn}</td><td>${r.doc.totalIn - r.doc.totalSold}</td><td><button onclick="delDoc('${r.doc._id}')">✕</button></td></tr>`;
+                table.innerHTML += `<tr><td>${r.doc.name}</td><td>${r.doc.totalIn}</td><td>${r.doc.totalIn - r.doc.totalSold}</td><td><button onclick="delDoc('${r.doc._id}')" class="del-btn">✕</button></td></tr>`;
             }
         });
     });
@@ -203,6 +202,7 @@ function updateInventoryUI() {
 function updateLedgerUI() {
     db.allDocs({ include_docs: true }).then(res => {
         const list = document.getElementById('bill-history-list');
+        if (!list) return;
         list.innerHTML = "";
         res.rows.forEach(r => {
             if (r.doc.category === 'ledger') {
@@ -217,5 +217,12 @@ async function delDoc(id) {
         const doc = await db.get(id);
         await db.remove(doc);
         updateInventoryUI();
+        uploadToDrive();
     }
+}
+
+function changeQty(id, n) {
+    let el = document.getElementById(id);
+    let v = parseInt(el.value) || 1;
+    if (v + n >= 1) el.value = v + n;
 }
