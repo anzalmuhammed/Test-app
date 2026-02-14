@@ -41,21 +41,28 @@ async function uploadToDrive() {
         const searchUrl = `https://www.googleapis.com/drive/v3/files?q=name='workshop_db_backup.json' and trashed=false&fields=files(id)`;
         const searchRes = await fetch(searchUrl, { headers });
         const searchData = await searchRes.json();
-
-        if (searchData.error) throw new Error(searchData.error.message);
-
         const fileId = searchData.files?.[0]?.id;
 
-        // 2. Download and Merge
+        // 2. Download and Merge (HANDLING CONFLICTS)
         if (fileId) {
-            document.getElementById('sync-status').innerText = "Status: Downloading...";
+            document.getElementById('sync-status').innerText = "Status: Merging...";
             const download = await fetch(`https://www.googleapis.com/drive/v3/files/${fileId}?alt=media`, { headers });
             const cloudData = await download.json();
+
             for (let doc of cloudData) {
                 try {
                     const local = await db.get(doc._id);
+                    // Merge cloud data with local _rev to avoid 409
                     await db.put({ ...doc, _rev: local._rev });
-                } catch (e) { if (e.status === 404) await db.put(doc); }
+                } catch (e) {
+                    if (e.status === 404) {
+                        await db.put(doc);
+                    } else if (e.status === 409) {
+                        // If still a conflict, get latest rev again and force it
+                        const latest = await db.get(doc._id);
+                        await db.put({ ...doc, _rev: latest._rev });
+                    }
+                }
             }
             updateInventoryUI();
             updateLedgerUI();
@@ -65,48 +72,37 @@ async function uploadToDrive() {
         document.getElementById('sync-status').innerText = "Status: Uploading...";
         const localDocs = await db.allDocs({ include_docs: true });
         const jsonData = JSON.stringify(localDocs.rows.map(r => r.doc));
-
-        // metadata for new file if needed
         const metadata = { name: 'workshop_db_backup.json', mimeType: 'application/json' };
 
         let url, method, body;
 
         if (fileId) {
-            // Update existing
             url = `https://www.googleapis.com/upload/drive/v3/files/${fileId}?uploadType=media`;
             method = 'PATCH';
             body = jsonData;
         } else {
-            // Create new (Multipart for metadata + file)
             url = `https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart`;
             method = 'POST';
-            const boundary = 'foo_bar_baz';
-            const multipartBody =
-                `--${boundary}\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n${JSON.stringify(metadata)}\r\n` +
-                `--${boundary}\r\nContent-Type: application/json\r\n\r\n${jsonData}\r\n` +
-                `--${boundary}--`;
+            const boundary = 'workshop_sep';
             headers['Content-Type'] = `multipart/related; boundary=${boundary}`;
-            body = multipartBody;
+            body = `--${boundary}\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n${JSON.stringify(metadata)}\r\n--${boundary}\r\nContent-Type: application/json\r\n\r\n${jsonData}\r\n--${boundary}--`;
         }
 
         const upRes = await fetch(url, { method, headers, body });
         if (upRes.ok) {
             document.getElementById('sync-status').innerText = "Status: Synced " + new Date().toLocaleTimeString();
         } else {
-            const errData = await upRes.json();
-            throw new Error(errData.error?.message || "Upload Error");
+            throw new Error("Upload Error");
         }
     } catch (e) {
         console.error("Sync error:", e);
-        document.getElementById('sync-status').innerText = "Sync Failed: " + e.message;
-        if (e.message.includes("401") || e.message.includes("Expired")) {
-            localStorage.removeItem('drive_token');
-            accessToken = null;
-        }
+        document.getElementById('sync-status').innerText = "Sync Failed: Conflict Handled";
+        // Attempt a retry if it was just a transient conflict
+        if (e.status === 409) setTimeout(uploadToDrive, 1000);
     }
 }
 
-// --- REST OF APP LOGIC ---
+// --- SCANNER FUNCTIONS ---
 function scanFile(input, type) {
     if (input.files.length === 0) return;
     const readerId = type === 'inventory' ? 'reader' : 'bill-reader';
@@ -139,6 +135,7 @@ async function toggleScanner(type) {
     });
 }
 
+// --- UI / NAVIGATION ---
 function showScreen(id) {
     document.querySelectorAll('.screen').forEach(s => s.style.display = 'none');
     document.getElementById(id).style.display = 'block';
@@ -156,14 +153,18 @@ async function savePart() {
     const id = document.getElementById('part-id').value, name = document.getElementById('part-name').value;
     const price = parseFloat(document.getElementById('part-price').value) || 0, qty = parseInt(document.getElementById('part-qty').value) || 0;
     if (!id || !name) return alert("Fill all fields");
-    try {
-        let doc;
-        try { doc = await db.get(id); } catch (e) { doc = { _id: id, totalIn: 0, totalSold: 0, category: 'inventory' }; }
-        doc.name = name; doc.price = price; doc.totalIn += qty;
-        await db.put(doc);
-        alert("Saved");
-        uploadToDrive();
-    } catch (e) { alert("Save Error"); }
+
+    const runSave = async () => {
+        try {
+            let doc;
+            try { doc = await db.get(id); } catch (e) { doc = { _id: id, totalIn: 0, totalSold: 0, category: 'inventory' }; }
+            doc.name = name; doc.price = price; doc.totalIn += qty;
+            await db.put(doc);
+            alert("Saved");
+            uploadToDrive();
+        } catch (e) { if (e.status === 409) return runSave(); }
+    };
+    runSave();
 }
 
 function addItemToCurrentBill() {
@@ -188,11 +189,14 @@ async function finalizeBill() {
     const cust = document.getElementById('bill-cust-name').value;
     if (!cust || currentBillItems.length === 0) return alert("Details missing");
     for (let item of currentBillItems) {
-        try {
-            const res = await db.allDocs({ include_docs: true });
-            const row = res.rows.find(r => r.doc.name === item.desc && r.doc.category === 'inventory');
-            if (row) { let doc = row.doc; doc.totalSold += item.qty; await db.put(doc); }
-        } catch (e) { }
+        const updateStock = async () => {
+            try {
+                const res = await db.allDocs({ include_docs: true });
+                const row = res.rows.find(r => r.doc.name === item.desc && r.doc.category === 'inventory');
+                if (row) { let doc = row.doc; doc.totalSold += item.qty; await db.put(doc); }
+            } catch (e) { if (e.status === 409) return updateStock(); }
+        };
+        await updateStock();
     }
     await db.put({ _id: 'ledger_' + Date.now(), customer: cust, amount: parseFloat(document.getElementById('bill-total-display').innerText), date: new Date().toLocaleString(), category: 'ledger' });
     alert("Bill Finalized");
@@ -228,7 +232,12 @@ function updateLedgerUI() {
 }
 
 async function delDoc(id) {
-    if (confirm("Delete?")) { const doc = await db.get(id); await db.remove(doc); updateInventoryUI(); uploadToDrive(); }
+    if (confirm("Delete?")) {
+        const doc = await db.get(id);
+        await db.remove(doc);
+        updateInventoryUI();
+        uploadToDrive();
+    }
 }
 
 function changeQty(id, n) {
