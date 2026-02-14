@@ -30,18 +30,18 @@ window.onload = () => {
     }
 };
 
-// FORCE MERGE HELPER
-async function forcePut(doc) {
+// SIMPLIFIED CONFLICT KILLER
+async function forceSave(doc) {
     try {
-        const local = await db.get(doc._id);
-        return await db.put({ ...doc, _rev: local._rev });
-    } catch (e) {
-        if (e.status === 404) return await db.put(doc);
-        if (e.status === 409) {
-            const latest = await db.get(doc._id);
-            return await db.put({ ...doc, _rev: latest._rev });
+        await db.put(doc);
+    } catch (err) {
+        if (err.status === 409) {
+            const existingDoc = await db.get(doc._id);
+            doc._rev = existingDoc._rev;
+            await db.put(doc);
+        } else {
+            throw err;
         }
-        throw e;
     }
 }
 
@@ -51,23 +51,28 @@ async function uploadToDrive() {
 
     try {
         const headers = { 'Authorization': `Bearer ${accessToken}` };
+
+        // 1. Search
         const searchRes = await fetch(`https://www.googleapis.com/drive/v3/files?q=name='workshop_db_backup.json' and trashed=false&fields=files(id)`, { headers });
         const searchData = await searchRes.json();
         const fileId = searchData.files?.[0]?.id;
 
+        // 2. Download and Merge
         if (fileId) {
-            document.getElementById('sync-status').innerText = "Status: Downloading...";
+            document.getElementById('sync-status').innerText = "Status: Merging...";
             const download = await fetch(`https://www.googleapis.com/drive/v3/files/${fileId}?alt=media`, { headers });
             const cloudData = await download.json();
 
-            // USE FORCE PUT TO HANDLE CONFLICTS LIKE 8901030814778
             for (let doc of cloudData) {
-                await forcePut(doc);
+                // Remove existing _rev from cloud data to let forceSave handle it
+                delete doc._rev;
+                await forceSave(doc);
             }
             updateInventoryUI();
             updateLedgerUI();
         }
 
+        // 3. Upload
         document.getElementById('sync-status').innerText = "Status: Uploading...";
         const localDocs = await db.allDocs({ include_docs: true });
         const jsonData = JSON.stringify(localDocs.rows.map(r => r.doc));
@@ -90,16 +95,17 @@ async function uploadToDrive() {
         if (upRes.ok) {
             document.getElementById('sync-status').innerText = "Status: Synced " + new Date().toLocaleTimeString();
         } else {
-            throw new Error("Upload Error");
+            throw new Error("Upload Failed");
         }
     } catch (e) {
-        console.error("Sync error:", e);
-        document.getElementById('sync-status').innerText = "Sync Error: retrying...";
-        setTimeout(uploadToDrive, 3000);
+        console.error("Sync Error:", e);
+        document.getElementById('sync-status').innerText = "Sync Error: Auto-retrying...";
+        // If it was a token error, clear it
+        if (e.message.includes("401")) localStorage.removeItem('drive_token');
     }
 }
 
-// --- SCANNER & FILE ---
+// --- SCANNER ---
 function scanFile(input, type) {
     if (input.files.length === 0) return;
     const readerId = type === 'inventory' ? 'reader' : 'bill-reader';
@@ -132,7 +138,7 @@ async function toggleScanner(type) {
     });
 }
 
-// --- NAVIGATION & UI ---
+// --- UI ---
 function showScreen(id) {
     document.querySelectorAll('.screen').forEach(s => s.style.display = 'none');
     document.getElementById(id).style.display = 'block';
@@ -147,18 +153,20 @@ function clearAndBack() {
 }
 
 async function savePart() {
-    const id = document.getElementById('part-id').value, name = document.getElementById('part-name').value;
-    const price = parseFloat(document.getElementById('part-price').value) || 0, qty = parseInt(document.getElementById('part-qty').value) || 0;
+    const id = document.getElementById('part-id').value;
+    const name = document.getElementById('part-name').value;
+    const price = parseFloat(document.getElementById('part-price').value) || 0;
+    const qty = parseInt(document.getElementById('part-qty').value) || 0;
     if (!id || !name) return alert("Fill all fields");
 
     try {
         let doc;
         try { doc = await db.get(id); } catch (e) { doc = { _id: id, totalIn: 0, totalSold: 0, category: 'inventory' }; }
         doc.name = name; doc.price = price; doc.totalIn += qty;
-        await forcePut(doc);
+        await forceSave(doc);
         alert("Saved");
         uploadToDrive();
-    } catch (e) { alert("Save error"); }
+    } catch (e) { alert("Save Error"); }
 }
 
 function addItemToCurrentBill() {
@@ -186,7 +194,7 @@ async function finalizeBill() {
         try {
             const res = await db.allDocs({ include_docs: true });
             const row = res.rows.find(r => r.doc.name === item.desc && r.doc.category === 'inventory');
-            if (row) { let doc = row.doc; doc.totalSold += item.qty; await forcePut(doc); }
+            if (row) { let doc = row.doc; doc.totalSold += item.qty; await forceSave(doc); }
         } catch (e) { }
     }
     await db.put({ _id: 'ledger_' + Date.now(), customer: cust, amount: parseFloat(document.getElementById('bill-total-display').innerText), date: new Date().toLocaleString(), category: 'ledger' });
