@@ -4,19 +4,35 @@ const SCOPES = 'https://www.googleapis.com/auth/drive.file';
 
 let tokenClient, accessToken = localStorage.getItem('drive_token'), html5QrCode, currentBillItems = [];
 
-// NAVIGATION & RESET
+// NAVIGATION & BACK BUTTON FIX
+window.addEventListener('load', () => {
+    window.history.replaceState({ screen: 'main-menu' }, '');
+});
+
+window.onpopstate = (event) => {
+    if (event.state && event.state.screen) {
+        switchToScreenLogic(event.state.screen);
+    } else {
+        clearAndBack();
+    }
+};
+
 function showScreen(id) {
+    switchToScreenLogic(id);
+    window.history.pushState({ screen: id }, '');
+}
+
+function switchToScreenLogic(id) {
     document.querySelectorAll('.screen').forEach(s => s.style.display = 'none');
     document.getElementById(id).style.display = 'block';
     if (id === 'stock-list-screen') updateInventoryUI();
     if (id === 'ledger-screen') updateLedgerUI();
-    window.history.pushState({ screen: id }, '');
 }
 
 function clearAndBack() {
     if (html5QrCode) html5QrCode.stop().catch(() => { });
     hardResetFields();
-    showScreen('main-menu');
+    switchToScreenLogic('main-menu');
 }
 
 function hardResetFields() {
@@ -104,7 +120,7 @@ async function finalizeBill() {
 
 function changeQty(id, n) { let el = document.getElementById(id), v = parseInt(el.value) || 1; if (v + n >= 1) el.value = v + n; }
 
-// SYNC ENGINE
+// SYNC ENGINE - LOGIN FIX
 async function uploadToDrive() {
     if (!navigator.onLine || !accessToken) {
         document.getElementById('sync-status').innerText = "Status: Offline/No Login";
@@ -133,7 +149,11 @@ async function uploadToDrive() {
         await fetch(url, { method: driveFile ? 'PATCH' : 'POST', headers: { 'Authorization': 'Bearer ' + accessToken, 'Content-Type': 'application/json' }, body: new Blob([content]) });
         document.getElementById('sync-status').innerText = "Status: Cloud Synced " + new Date().toLocaleTimeString();
     } catch (e) {
-        if (e.status === 401) handleSync();
+        if (e.status === 401) {
+            localStorage.removeItem('drive_token');
+            accessToken = null;
+            document.getElementById('sync-status').innerText = "Status: Session Expired";
+        }
     }
 }
 
@@ -158,8 +178,14 @@ function updateLedgerUI() {
     });
 }
 
-// BOOTSTRAP
-function handleSync() { tokenClient.requestAccessToken({ prompt: 'consent' }); }
+// BOOTSTRAP & SYNC BUTTON FIX
+function handleSync() {
+    if (accessToken) {
+        uploadToDrive(); // If token exists, just sync.
+    } else {
+        tokenClient.requestAccessToken({ prompt: 'consent' }); // If no token, ask for login.
+    }
+}
 
 window.onload = () => {
     gapi.load('client', () => gapi.client.init({ discoveryDocs: ["https://www.googleapis.com/discovery/v1/apis/drive/v3/rest"] }));
