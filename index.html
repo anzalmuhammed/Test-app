@@ -21,7 +21,7 @@
         <h2 onclick="clearAndBack()">Workshop<span>Pro</span></h2>
         <button id="sync-btn" onclick="handleSync()">Login/Sync</button>
     </nav>
-    <div id="sync-status">Status: Waiting for Login</div>
+    <div id="sync-status">Status: Checking Session...</div>
 
     <div class="container">
         <div id="main-menu" class="screen">
@@ -48,7 +48,7 @@
                 <div class="scanner-controls">
                     <button id="inv-cam-btn" class="cam-btn-active" onclick="toggleScanner('inventory')">Start
                         Camera</button>
-                    <label class="file-label" for="inv-file-input">Scan from Image File</label>
+                    <label class="file-label" for="inv-file-input">Scan Image</label>
                     <input type="file" id="inv-file-input" accept="image/*" style="display:none"
                         onchange="scanFile(this, 'inventory')">
                 </div>
@@ -57,13 +57,14 @@
                 <input type="text" id="part-id" placeholder="Barcode ID">
                 <input type="text" id="part-name" placeholder="Part Name">
                 <input type="number" id="part-price" placeholder="Price (₹)">
-                <div class="stepper-label">Set Quantity</div>
+                <div class="stepper-label" style="text-align:center; margin-bottom:5px; font-weight:bold;">Quantity
+                </div>
                 <div class="stepper-container">
                     <button type="button" class="step-btn" onclick="changeQty('part-qty', -1)">−</button>
-                    <input type="number" id="part-qty" value="1" inputmode="numeric">
+                    <input type="number" id="part-qty" value="1">
                     <button type="button" class="step-btn" onclick="changeQty('part-qty', 1)">+</button>
                 </div>
-                <button onclick="savePart()" class="action-btn save">Save to Stock</button>
+                <button onclick="savePart()" class="action-btn save">Save Stock</button>
             </section>
         </div>
 
@@ -74,46 +75,41 @@
                 <div class="scanner-controls">
                     <button id="bill-cam-btn" class="cam-btn-active" onclick="toggleScanner('bill')">Start
                         Camera</button>
-                    <label class="file-label" for="bill-file-input">Scan from Image File</label>
+                    <label class="file-label" for="bill-file-input">Scan Image</label>
                     <input type="file" id="bill-file-input" accept="image/*" style="display:none"
                         onchange="scanFile(this, 'bill')">
                 </div>
             </section>
             <section class="glass-card">
                 <input type="text" id="bill-cust-name" placeholder="Customer Name">
-                <div class="divider"></div>
+                <hr style="border:0; border-top:1px solid var(--glass-border); margin:10px 0;">
                 <input type="text" id="bill-item-id" placeholder="Barcode ID">
                 <input type="text" id="bill-desc" placeholder="Item Name">
                 <input type="number" id="bill-price" placeholder="Price (₹)">
                 <div id="bill-stock-warning"
-                    style="display:none; color: #fbbf24; font-weight: bold; margin-bottom: 10px; text-align: center;">
+                    style="display:none; color: var(--amber); text-align:center; font-weight:bold; margin-bottom:10px;">
                 </div>
                 <div class="stepper-container">
                     <button type="button" class="step-btn" onclick="changeQty('bill-qty', -1)">−</button>
-                    <input type="number" id="bill-qty" value="1" inputmode="numeric">
+                    <input type="number" id="bill-qty" value="1">
                     <button type="button" class="step-btn" onclick="changeQty('bill-qty', 1)">+</button>
                 </div>
-                <button onclick="addItemToCurrentBill()" class="action-btn add">+ Add Item</button>
+                <button onclick="addItemToCurrentBill()" class="action-btn add">+ Add to List</button>
             </section>
             <section id="current-items-section" class="glass-card" style="display:none;">
-                <table>
+                <table style="width:100%">
                     <tbody id="current-bill-body"></tbody>
                 </table>
-                <div class="total-bar" style="text-align: right; padding: 10px; font-weight: bold;">Total: ₹<span
-                        id="bill-total-display">0.00</span></div>
-                <button onclick="finalizeBill()" class="action-btn finalize">Finalize & PDF</button>
+                <div style="text-align:right; font-weight:bold; margin:10px 0;">Total: ₹<span
+                        id="bill-total-display">0</span></div>
+                <button onclick="finalizeBill()" class="action-btn finalize">Finalize Bill</button>
             </section>
         </div>
 
         <div id="stock-list-screen" class="screen" style="display:none">
             <button class="back-menu-btn" onclick="showScreen('main-menu')">← Back</button>
             <section class="glass-card">
-                <div style="display: flex; gap: 10px; margin-bottom: 10px;">
-                    <input type="text" id="stock-search" placeholder="Search stock..." onkeyup="updateInventoryUI()"
-                        style="margin-bottom:0;">
-                    <button onclick="exportStockCSV()"
-                        style="width: auto; padding: 0 15px; background: var(--amber); color: black; border-radius: 8px; font-weight: bold; border: none;">CSV</button>
-                </div>
+                <input type="text" id="stock-search" placeholder="Search..." onkeyup="updateInventoryUI()">
                 <div class="table-scroll">
                     <table>
                         <thead>
@@ -133,7 +129,7 @@
         <div id="ledger-screen" class="screen" style="display:none">
             <button class="back-menu-btn" onclick="showScreen('main-menu')">← Back</button>
             <section class="glass-card">
-                <input type="text" id="ledger-search" placeholder="Search Customer..." onkeyup="updateLedgerUI()">
+                <input type="text" id="ledger-search" placeholder="Search Ledger..." onkeyup="updateLedgerUI()">
                 <div id="bill-history-list"></div>
             </section>
         </div>
@@ -141,7 +137,7 @@
     <script src="app.js"></script>
     <script>
         if ('serviceWorker' in navigator) {
-            navigator.serviceWorker.register('./sw.js').catch(err => console.log(err));
+            navigator.serviceWorker.register('sw.js');
         }
     </script>
 </body>
