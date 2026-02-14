@@ -1,4 +1,4 @@
-const CACHE_NAME = 'workshop-final-v2';
+const CACHE_NAME = 'workshop-final-v3';
 const ASSETS = ['./', './index.html', './style.css', './app.js'];
 
 self.addEventListener('install', (e) => {

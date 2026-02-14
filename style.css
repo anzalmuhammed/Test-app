@@ -149,7 +149,7 @@ input::placeholder {
   color: var(--amber);
   font-weight: bold;
   cursor: pointer;
-  text-decoration: underline;
+  text-decoration: none;
   font-size: 14px;
 }
 
@@ -172,6 +172,15 @@ input::placeholder {
   background: #f59e0b;
 }
 
+.cam-btn-active {
+  background: var(--amber) !important;
+  color: black !important;
+  width: 100%;
+  padding: 12px;
+  border-radius: 10px;
+  border: none;
+  font-weight: bold;
+}
 .back-menu-btn {
   background: #64748b;
   color: white;
