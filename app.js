@@ -5,18 +5,20 @@ const SCOPES = 'https://www.googleapis.com/auth/drive.file';
 let tokenClient, accessToken = localStorage.getItem('drive_token'), html5QrCode, currentBillItems = [];
 let lastBackPress = 0;
 
-// NAVIGATION & DOUBLE TAP EXIT
+// --- NAVIGATION & BACK BUTTON FIX ---
 window.addEventListener('load', () => {
-    window.history.replaceState({ screen: 'main-menu' }, '');
+    window.history.pushState({ screen: 'main-menu' }, '');
 });
 
 window.onpopstate = (event) => {
-    const currentScreen = document.querySelector('.screen[style*="block"]')?.id || 'main-menu';
+    const screens = document.querySelectorAll('.screen');
+    let activeId = 'main-menu';
+    screens.forEach(s => { if (s.style.display === 'block') activeId = s.id; });
 
-    if (currentScreen === 'main-menu') {
+    if (activeId === 'main-menu') {
         const now = Date.now();
         if (now - lastBackPress < 2000) {
-            // Exit handled by browser default after double tap
+            // Exit happens here
         } else {
             lastBackPress = now;
             alert("Press back again to exit");
@@ -28,21 +30,19 @@ window.onpopstate = (event) => {
 };
 
 function showScreen(id) {
-    switchToScreenLogic(id);
-    window.history.pushState({ screen: id }, '');
-}
-
-function switchToScreenLogic(id) {
     document.querySelectorAll('.screen').forEach(s => s.style.display = 'none');
     document.getElementById(id).style.display = 'block';
     if (id === 'stock-list-screen') updateInventoryUI();
     if (id === 'ledger-screen') updateLedgerUI();
+    window.history.pushState({ screen: id }, '');
 }
 
 function clearAndBack() {
     if (html5QrCode) html5QrCode.stop().catch(() => { });
     hardResetFields();
-    switchToScreenLogic('main-menu');
+    document.querySelectorAll('.screen').forEach(s => s.style.display = 'none');
+    document.getElementById('main-menu').style.display = 'block';
+    window.history.pushState({ screen: 'main-menu' }, '');
 }
 
 function hardResetFields() {
@@ -54,7 +54,7 @@ function hardResetFields() {
     currentBillItems = [];
 }
 
-// SCANNER LOGIC
+// --- SCANNER LOGIC ---
 async function toggleScanner(type) {
     const readerId = type === 'inventory' ? 'reader' : 'bill-reader';
     const btnId = type === 'inventory' ? 'inv-cam-btn' : 'bill-cam-btn';
@@ -91,7 +91,7 @@ function handleScanResult(text, type) {
     }).catch(() => { });
 }
 
-// DATA OPERATIONS
+// --- DATA OPERATIONS ---
 async function savePart() {
     const id = document.getElementById('part-id').value, name = document.getElementById('part-name').value;
     const price = parseFloat(document.getElementById('part-price').value) || 0, qty = parseInt(document.getElementById('part-qty').value) || 0;
@@ -130,28 +130,28 @@ async function finalizeBill() {
 
 function changeQty(id, n) { let el = document.getElementById(id), v = parseInt(el.value) || 1; if (v + n >= 1) el.value = v + n; }
 
-// SYNC ENGINE - FIXED DRIVE UPDATES
+// --- SYNC ENGINE - IMPROVED DRIVE LOGIC ---
 async function uploadToDrive() {
     if (!navigator.onLine || !accessToken) {
-        document.getElementById('sync-status').innerText = "Status: Offline/No Login";
+        document.getElementById('sync-status').innerText = "Status: No Login";
         return;
     }
-    document.getElementById('sync-status').innerText = "Status: Auto-Syncing...";
+    document.getElementById('sync-status').innerText = "Status: Syncing...";
     try {
-        // Find existing file
-        const search = await fetch(`https://www.googleapis.com/drive/v3/files?q=name='workshop_db_backup.json' and trashed=false&fields=files(id)`, {
+        // Step 1: Find File
+        const search = await fetch(`https://www.googleapis.com/drive/v3/files?q=name='workshop_db_backup.json'&fields=files(id)`, {
             headers: { 'Authorization': 'Bearer ' + accessToken }
         });
-        const sRes = await search.json();
-        const driveFileId = sRes.files && sRes.files[0] ? sRes.files[0].id : null;
+        const sData = await search.json();
+        const driveFileId = (sData.files && sData.files.length > 0) ? sData.files[0].id : null;
 
-        // Download and Merge
+        // Step 2: Download & Merge (Pull from Drive)
         if (driveFileId) {
             const download = await fetch(`https://www.googleapis.com/drive/v3/files/${driveFileId}?alt=media`, {
                 headers: { 'Authorization': 'Bearer ' + accessToken }
             });
-            const driveData = await download.json();
-            for (let doc of driveData) {
+            const driveDocs = await download.json();
+            for (let doc of driveDocs) {
                 try {
                     const local = await db.get(doc._id);
                     await db.put({ ...doc, _rev: local._rev });
@@ -159,36 +159,37 @@ async function uploadToDrive() {
             }
         }
 
-        // Final local data to upload
-        const localDocs = await db.allDocs({ include_docs: true });
-        const content = JSON.stringify(localDocs.rows.map(r => r.doc));
+        // Step 3: Upload Local to Drive
+        const allLocal = await db.allDocs({ include_docs: true });
+        const content = JSON.stringify(allLocal.rows.map(r => r.doc));
 
-        // Upload logic
         if (driveFileId) {
+            // Update existing
             await fetch(`https://www.googleapis.com/upload/drive/v3/files/${driveFileId}?uploadType=media`, {
                 method: 'PATCH',
                 headers: { 'Authorization': 'Bearer ' + accessToken, 'Content-Type': 'application/json' },
                 body: content
             });
         } else {
+            // Create new
             const metadata = { name: 'workshop_db_backup.json', mimeType: 'application/json' };
-            const form = new FormData();
-            form.append('metadata', new Blob([JSON.stringify(metadata)], { type: 'application/json' }));
-            form.append('file', new Blob([content], { type: 'application/json' }));
+            const formData = new FormData();
+            formData.append('metadata', new Blob([JSON.stringify(metadata)], { type: 'application/json' }));
+            formData.append('file', new Blob([content], { type: 'application/json' }));
             await fetch('https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart', {
                 method: 'POST',
                 headers: { 'Authorization': 'Bearer ' + accessToken },
-                body: form
+                body: formData
             });
         }
-        document.getElementById('sync-status').innerText = "Status: Cloud Synced " + new Date().toLocaleTimeString();
+        document.getElementById('sync-status').innerText = "Status: Synced " + new Date().toLocaleTimeString();
     } catch (e) {
-        console.error(e);
+        console.log(e);
         document.getElementById('sync-status').innerText = "Status: Sync Error";
     }
 }
 
-// UI UPDATES
+// --- UI UPDATES ---
 function updateInventoryUI() {
     db.allDocs({ include_docs: true }).then(res => {
         const list = document.getElementById('inventory-list-table'); list.innerHTML = "";
@@ -209,7 +210,7 @@ function updateLedgerUI() {
     });
 }
 
-// BOOTSTRAP
+// --- BOOTSTRAP ---
 function handleSync() {
     if (accessToken) uploadToDrive();
     else tokenClient.requestAccessToken({ prompt: 'consent' });
