@@ -107,7 +107,7 @@
         </div>
 
         <div id="stock-list-screen" class="screen" style="display:none">
-            <button class="back-menu-btn" onclick="showScreen('main-menu')">← Back</button>
+            <button class="back-menu-btn" onclick="clearAndBack()">← Back</button>
             <section class="glass-card">
                 <input type="text" id="stock-search" placeholder="Search..." onkeyup="updateInventoryUI()">
                 <div class="table-scroll">
@@ -127,7 +127,7 @@
         </div>
 
         <div id="ledger-screen" class="screen" style="display:none">
-            <button class="back-menu-btn" onclick="showScreen('main-menu')">← Back</button>
+            <button class="back-menu-btn" onclick="clearAndBack()">← Back</button>
             <section class="glass-card">
                 <input type="text" id="ledger-search" placeholder="Search Ledger..." onkeyup="updateLedgerUI()">
                 <div id="bill-history-list"></div>

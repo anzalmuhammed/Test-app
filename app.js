@@ -5,20 +5,17 @@ const SCOPES = 'https://www.googleapis.com/auth/drive.file';
 let tokenClient, accessToken = localStorage.getItem('drive_token'), html5QrCode, currentBillItems = [];
 let lastBackPress = 0;
 
-// --- NAVIGATION & BACK BUTTON FIX ---
+// --- NAVIGATION & DOUBLE TAP EXIT ---
 window.addEventListener('load', () => {
-    window.history.pushState({ screen: 'main-menu' }, '');
+    window.history.replaceState({ screen: 'main-menu' }, '');
 });
 
 window.onpopstate = (event) => {
-    const screens = document.querySelectorAll('.screen');
-    let activeId = 'main-menu';
-    screens.forEach(s => { if (s.style.display === 'block') activeId = s.id; });
-
-    if (activeId === 'main-menu') {
+    const activeScreen = document.querySelector('.screen[style*="display: block"]')?.id;
+    if (!activeScreen || activeScreen === 'main-menu') {
         const now = Date.now();
         if (now - lastBackPress < 2000) {
-            // Exit happens here
+            // Exit handled by OS
         } else {
             lastBackPress = now;
             alert("Press back again to exit");
@@ -42,7 +39,7 @@ function clearAndBack() {
     hardResetFields();
     document.querySelectorAll('.screen').forEach(s => s.style.display = 'none');
     document.getElementById('main-menu').style.display = 'block';
-    window.history.pushState({ screen: 'main-menu' }, '');
+    window.history.replaceState({ screen: 'main-menu' }, '');
 }
 
 function hardResetFields() {
@@ -91,18 +88,25 @@ function handleScanResult(text, type) {
     }).catch(() => { });
 }
 
-// --- DATA OPERATIONS ---
+// --- DATA OPERATIONS (CONFLICT RESISTANT) ---
 async function savePart() {
     const id = document.getElementById('part-id').value, name = document.getElementById('part-name').value;
     const price = parseFloat(document.getElementById('part-price').value) || 0, qty = parseInt(document.getElementById('part-qty').value) || 0;
     if (!id || !name) return alert("Missing fields");
-    try {
-        const doc = await db.get(id);
-        await db.put({ ...doc, name, price, totalIn: (doc.totalIn || 0) + qty });
-    } catch {
-        await db.put({ _id: id, name, price, totalIn: qty, totalSold: 0, category: 'inventory' });
-    }
-    alert("Saved"); hardResetFields(); uploadToDrive();
+
+    const runSave = async () => {
+        try {
+            let doc;
+            try { doc = await db.get(id); } catch (e) { doc = { _id: id, totalIn: 0, totalSold: 0, category: 'inventory' }; }
+            doc.name = name; doc.price = price; doc.totalIn += qty;
+            await db.put(doc);
+            alert("Saved"); hardResetFields(); uploadToDrive();
+        } catch (err) {
+            if (err.status === 409) return runSave();
+            alert("Save Error: " + err.message);
+        }
+    };
+    runSave();
 }
 
 function addItemToCurrentBill() {
@@ -119,10 +123,19 @@ function addItemToCurrentBill() {
 async function finalizeBill() {
     const cust = document.getElementById('bill-cust-name').value;
     if (!cust || currentBillItems.length === 0) return alert("Details missing");
-    const all = await db.allDocs({ include_docs: true });
+
     for (let item of currentBillItems) {
-        const row = all.rows.find(r => r.doc.name === item.desc && r.doc.category === 'inventory');
-        if (row) { row.doc.totalSold += item.qty; await db.put(row.doc); }
+        const updateStock = async () => {
+            try {
+                const res = await db.find({ selector: { name: item.desc, category: 'inventory' } });
+                if (res.docs.length > 0) {
+                    let doc = res.docs[0];
+                    doc.totalSold += item.qty;
+                    await db.put(doc);
+                }
+            } catch (e) { if (e.status === 409) return updateStock(); }
+        };
+        await updateStock();
     }
     await db.put({ _id: 'ledger_' + Date.now(), customer: cust, amount: parseFloat(document.getElementById('bill-total-display').innerText), items: [...currentBillItems], category: 'ledger', date: new Date().toLocaleString() });
     alert("Bill Finalized"); hardResetFields(); uploadToDrive();
@@ -130,7 +143,7 @@ async function finalizeBill() {
 
 function changeQty(id, n) { let el = document.getElementById(id), v = parseInt(el.value) || 1; if (v + n >= 1) el.value = v + n; }
 
-// --- SYNC ENGINE - IMPROVED DRIVE LOGIC ---
+// --- SYNC ENGINE (SMART MERGE) ---
 async function uploadToDrive() {
     if (!navigator.onLine || !accessToken) {
         document.getElementById('sync-status').innerText = "Status: No Login";
@@ -138,53 +151,40 @@ async function uploadToDrive() {
     }
     document.getElementById('sync-status').innerText = "Status: Syncing...";
     try {
-        // Step 1: Find File
         const search = await fetch(`https://www.googleapis.com/drive/v3/files?q=name='workshop_db_backup.json'&fields=files(id)`, {
             headers: { 'Authorization': 'Bearer ' + accessToken }
         });
         const sData = await search.json();
-        const driveFileId = (sData.files && sData.files.length > 0) ? sData.files[0].id : null;
+        const driveFileId = sData.files?.[0]?.id;
 
-        // Step 2: Download & Merge (Pull from Drive)
         if (driveFileId) {
             const download = await fetch(`https://www.googleapis.com/drive/v3/files/${driveFileId}?alt=media`, {
                 headers: { 'Authorization': 'Bearer ' + accessToken }
             });
-            const driveDocs = await download.json();
-            for (let doc of driveDocs) {
+            const cloudDocs = await download.json();
+            for (let cDoc of cloudDocs) {
                 try {
-                    const local = await db.get(doc._id);
-                    await db.put({ ...doc, _rev: local._rev });
-                } catch { await db.put(doc); }
+                    const local = await db.get(cDoc._id);
+                    await db.put({ ...cDoc, _rev: local._rev });
+                } catch (e) { if (e.status !== 409) await db.put(cDoc); }
             }
         }
 
-        // Step 3: Upload Local to Drive
-        const allLocal = await db.allDocs({ include_docs: true });
-        const content = JSON.stringify(allLocal.rows.map(r => r.doc));
+        const localData = await db.allDocs({ include_docs: true });
+        const body = JSON.stringify(localData.rows.map(r => r.doc));
 
-        if (driveFileId) {
-            // Update existing
-            await fetch(`https://www.googleapis.com/upload/drive/v3/files/${driveFileId}?uploadType=media`, {
-                method: 'PATCH',
-                headers: { 'Authorization': 'Bearer ' + accessToken, 'Content-Type': 'application/json' },
-                body: content
-            });
-        } else {
-            // Create new
-            const metadata = { name: 'workshop_db_backup.json', mimeType: 'application/json' };
-            const formData = new FormData();
-            formData.append('metadata', new Blob([JSON.stringify(metadata)], { type: 'application/json' }));
-            formData.append('file', new Blob([content], { type: 'application/json' }));
-            await fetch('https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart', {
-                method: 'POST',
-                headers: { 'Authorization': 'Bearer ' + accessToken },
-                body: formData
-            });
-        }
+        const url = driveFileId
+            ? `https://www.googleapis.com/upload/drive/v3/files/${driveFileId}?uploadType=media`
+            : 'https://www.googleapis.com/upload/drive/v3/files?uploadType=media';
+
+        await fetch(url, {
+            method: driveFileId ? 'PATCH' : 'POST',
+            headers: { 'Authorization': 'Bearer ' + accessToken, 'Content-Type': 'application/json' },
+            body: body
+        });
+
         document.getElementById('sync-status').innerText = "Status: Synced " + new Date().toLocaleTimeString();
     } catch (e) {
-        console.log(e);
         document.getElementById('sync-status').innerText = "Status: Sync Error";
     }
 }
