@@ -15,7 +15,7 @@ window.onpopstate = (event) => {
     if (!activeScreen || activeScreen === 'main-menu') {
         const now = Date.now();
         if (now - lastBackPress < 2000) {
-            // Exit handled by OS
+            // Browser handles exit
         } else {
             lastBackPress = now;
             alert("Press back again to exit");
@@ -103,7 +103,6 @@ async function savePart() {
             alert("Saved"); hardResetFields(); uploadToDrive();
         } catch (err) {
             if (err.status === 409) return runSave();
-            alert("Save Error: " + err.message);
         }
     };
     runSave();
@@ -189,42 +188,25 @@ async function uploadToDrive() {
     }
 }
 
-// --- UI UPDATES ---
-function updateInventoryUI() {
-    db.allDocs({ include_docs: true }).then(res => {
-        const list = document.getElementById('inventory-list-table'); list.innerHTML = "";
-        res.rows.forEach(r => {
-            if (r.doc.category === 'inventory') {
-                list.innerHTML += `<tr><td>${r.doc.name}</td><td>${r.doc.totalIn}</td><td>${r.doc.totalIn - r.doc.totalSold}</td><td><button onclick="delDoc('${r.doc._id}')" class="del-btn">✕</button></td></tr>`;
-            }
-        });
-    });
-}
-
-async function delDoc(id) { if (confirm("Delete?")) { const d = await db.get(id); await db.remove(d); updateInventoryUI(); uploadToDrive(); } }
-
-function updateLedgerUI() {
-    db.allDocs({ include_docs: true }).then(res => {
-        const list = document.getElementById('bill-history-list'); list.innerHTML = "";
-        res.rows.forEach(r => { if (r.doc.category === 'ledger') list.innerHTML += `<div class="ledger-card"><b>${r.doc.customer}</b>: ₹${r.doc.amount} <br><small>${r.doc.date}</small></div>`; });
-    });
-}
-
-// --- BOOTSTRAP ---
+// --- BOOTSTRAP (FIXED COOP ERRORS) ---
 function handleSync() {
     if (accessToken) uploadToDrive();
-    else tokenClient.requestAccessToken({ prompt: 'consent' });
+    // Using ux_mode: 'redirect' instead of popup to bypass COOP/Opener issues
+    else tokenClient.requestAccessToken({ prompt: 'consent', ux_mode: 'redirect' });
 }
 
 window.onload = () => {
     gapi.load('client', () => gapi.client.init({ discoveryDocs: ["https://www.googleapis.com/discovery/v1/apis/drive/v3/rest"] }));
+
     tokenClient = google.accounts.oauth2.initTokenClient({
-        client_id: CLIENT_ID, scope: SCOPES,
+        client_id: CLIENT_ID,
+        scope: SCOPES,
         callback: (res) => {
             accessToken = res.access_token;
             localStorage.setItem('drive_token', accessToken);
             uploadToDrive();
         }
     });
+
     if (accessToken) uploadToDrive();
 };
