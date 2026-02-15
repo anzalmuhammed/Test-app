@@ -1,6 +1,5 @@
 <!DOCTYPE html>
 <html lang="en">
-
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
@@ -11,7 +10,6 @@
     <link rel="stylesheet" href="style.css">
     <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;600&display=swap" rel="stylesheet">
 </head>
-
 <body>
     <div class="background-blob"></div>
     <nav class="top-nav">
@@ -43,11 +41,9 @@
             <section class="glass-card">
                 <div id="reader"></div>
                 <div class="scanner-controls">
-                    <button id="inv-cam-btn" class="cam-btn-active" onclick="toggleScanner('inventory')">Start
-                        Camera</button>
+                    <button id="inv-cam-btn" class="cam-btn-active" onclick="toggleScanner('inventory')">Start Camera</button>
                     <label class="file-label" for="inv-file-input">Scan an image file</label>
-                    <input type="file" id="inv-file-input" accept="image/*" style="display:none"
-                        onchange="scanFile(this, 'inventory')">
+                    <input type="file" id="inv-file-input" accept="image/*" style="display:none" onchange="scanFile(this, 'inventory')">
                 </div>
             </section>
             <section class="glass-card">
@@ -68,11 +64,9 @@
             <section class="glass-card">
                 <div id="bill-reader"></div>
                 <div class="scanner-controls">
-                    <button id="bill-cam-btn" class="cam-btn-active" onclick="toggleScanner('bill')">Start
-                        Camera</button>
+                    <button id="bill-cam-btn" class="cam-btn-active" onclick="toggleScanner('bill')">Start Camera</button>
                     <label class="file-label" for="bill-file-input">Scan an image file</label>
-                    <input type="file" id="bill-file-input" accept="image/*" style="display:none"
-                        onchange="scanFile(this, 'bill')">
+                    <input type="file" id="bill-file-input" accept="image/*" style="display:none" onchange="scanFile(this, 'bill')">
                 </div>
             </section>
             <section class="glass-card">
@@ -88,11 +82,8 @@
                 <button onclick="addItemToCurrentBill()" class="action-btn add">+ Add to List</button>
             </section>
             <section id="current-items-section" class="glass-card" style="display:none;">
-                <table style="width:100%">
-                    <tbody id="current-bill-body"></tbody>
-                </table>
-                <div style="text-align:right; font-weight:bold; margin:10px 0;">Total: ₹<span
-                        id="bill-total-display">0</span></div>
+                <table style="width:100%"><tbody id="current-bill-body"></tbody></table>
+                <div style="text-align:right; font-weight:bold; margin:10px 0;">Total: ₹<span id="bill-total-display">0</span></div>
                 <button onclick="finalizeBill()" class="action-btn finalize">Finalize Bill</button>
             </section>
         </div>
@@ -102,17 +93,7 @@
             <section class="glass-card">
                 <input type="text" id="stock-search" placeholder="Search..." onkeyup="updateInventoryUI()">
                 <div class="table-scroll">
-                    <table>
-                        <thead>
-                            <tr>
-                                <th>Item</th>
-                                <th>In</th>
-                                <th>Left</th>
-                                <th>Del</th>
-                            </tr>
-                        </thead>
-                        <tbody id="inventory-list-table"></tbody>
-                    </table>
+                    <table><thead><tr><th>Item</th><th>In</th><th>Left</th><th>Del</th></tr></thead><tbody id="inventory-list-table"></tbody></table>
                 </div>
             </section>
         </div>
@@ -126,5 +107,4 @@
     </div>
     <script src="app.js"></script>
 </body>
-
 </html>

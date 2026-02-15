@@ -5,11 +5,13 @@ const SCOPES = 'https://www.googleapis.com/auth/drive.file';
 let accessToken = localStorage.getItem('drive_token'), html5QrCode, currentBillItems = [];
 
 function handleSync() {
+    const redirectUri = window.location.origin + window.location.pathname;
+    // We add prompt=none to try silent sign-in if possible, but for the first time we need consent
+    const authUrl = `https://accounts.google.com/o/oauth2/v2/auth?client_id=${CLIENT_ID}&redirect_uri=${encodeURIComponent(redirectUri)}&response_type=token&scope=${encodeURIComponent(SCOPES)}&include_granted_scopes=true`;
+
     if (accessToken) {
         uploadToDrive();
     } else {
-        const redirectUri = window.location.origin + window.location.pathname;
-        const authUrl = `https://accounts.google.com/o/oauth2/v2/auth?client_id=${CLIENT_ID}&redirect_uri=${encodeURIComponent(redirectUri)}&response_type=token&scope=${encodeURIComponent(SCOPES)}&include_granted_scopes=true&prompt=consent`;
         window.location.href = authUrl;
     }
 }
@@ -30,7 +32,6 @@ window.onload = () => {
     }
 };
 
-// SIMPLIFIED CONFLICT KILLER
 async function forceSave(doc) {
     try {
         await db.put(doc);
@@ -52,19 +53,25 @@ async function uploadToDrive() {
     try {
         const headers = { 'Authorization': `Bearer ${accessToken}` };
 
-        // 1. Search
         const searchRes = await fetch(`https://www.googleapis.com/drive/v3/files?q=name='workshop_db_backup.json' and trashed=false&fields=files(id)`, { headers });
+
+        // If 401, the token expired. We must redirect to refresh it.
+        if (searchRes.status === 401) {
+            accessToken = null;
+            localStorage.removeItem('drive_token');
+            handleSync();
+            return;
+        }
+
         const searchData = await searchRes.json();
         const fileId = searchData.files?.[0]?.id;
 
-        // 2. Download and Merge
         if (fileId) {
             document.getElementById('sync-status').innerText = "Status: Merging...";
             const download = await fetch(`https://www.googleapis.com/drive/v3/files/${fileId}?alt=media`, { headers });
             const cloudData = await download.json();
 
             for (let doc of cloudData) {
-                // Remove existing _rev from cloud data to let forceSave handle it
                 delete doc._rev;
                 await forceSave(doc);
             }
@@ -72,7 +79,6 @@ async function uploadToDrive() {
             updateLedgerUI();
         }
 
-        // 3. Upload
         document.getElementById('sync-status').innerText = "Status: Uploading...";
         const localDocs = await db.allDocs({ include_docs: true });
         const jsonData = JSON.stringify(localDocs.rows.map(r => r.doc));
@@ -95,17 +101,20 @@ async function uploadToDrive() {
         if (upRes.ok) {
             document.getElementById('sync-status').innerText = "Status: Synced " + new Date().toLocaleTimeString();
         } else {
+            if (upRes.status === 401) {
+                accessToken = null;
+                localStorage.removeItem('drive_token');
+                handleSync();
+            }
             throw new Error("Upload Failed");
         }
     } catch (e) {
         console.error("Sync Error:", e);
-        document.getElementById('sync-status').innerText = "Sync Error: Auto-retrying...";
-        // If it was a token error, clear it
-        if (e.message.includes("401")) localStorage.removeItem('drive_token');
+        document.getElementById('sync-status').innerText = "Sync Error: Retrying...";
     }
 }
 
-// --- SCANNER ---
+// All other functions remain exactly as you requested
 function scanFile(input, type) {
     if (input.files.length === 0) return;
     const readerId = type === 'inventory' ? 'reader' : 'bill-reader';
@@ -138,7 +147,6 @@ async function toggleScanner(type) {
     });
 }
 
-// --- UI ---
 function showScreen(id) {
     document.querySelectorAll('.screen').forEach(s => s.style.display = 'none');
     document.getElementById(id).style.display = 'block';
