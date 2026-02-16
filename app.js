@@ -5,44 +5,65 @@ let currentBillItems = [];
 let accessToken = localStorage.getItem('google_token');
 let tokenExpiry = localStorage.getItem('token_expiry');
 
-// Google Drive Configuration - REPLACE WITH YOUR CLIENT ID
-const CLIENT_ID = '265618310384-mvgcqs0j7tk1fvi6k1b902s8batrehmj.apps.googleusercontent.com'; // Get from Google Cloud Console
-const API_KEY = 'YOUR_API_KEY_HERE'; // Optional but recommended
+// ===== REPLACE WITH YOUR GOOGLE CLIENT ID =====
+const CLIENT_ID = '265618310384-mvgcqs0j7tk1fvi6k1b902s8batrehmj.apps.googleusercontent.com'; // Replace with your actual Client ID
 const BACKUP_FILE_NAME = 'workshop_backup.json';
 
-// ==================== NAVIGATION (FIXED BACK BUTTON) ====================
+// ==================== BEEP AND VIBRATION FUNCTIONS ====================
+function playBeepAndVibrate() {
+    // Try to vibrate (works on mobile)
+    if (navigator.vibrate) {
+        navigator.vibrate(200); // Vibrate for 200ms
+    }
+
+    // Play beep sound using Web Audio API
+    try {
+        const audioContext = new (window.AudioContext || window.webkitAudioContext)();
+        const oscillator = audioContext.createOscillator();
+        const gainNode = audioContext.createGain();
+
+        oscillator.connect(gainNode);
+        gainNode.connect(audioContext.destination);
+
+        oscillator.frequency.setValueAtTime(800, audioContext.currentTime); // 800 Hz
+        gainNode.gain.setValueAtTime(0.5, audioContext.currentTime);
+
+        oscillator.start();
+        oscillator.stop(audioContext.currentTime + 0.1); // 100ms beep
+
+        // Resume audio context if suspended (required by some browsers)
+        if (audioContext.state === 'suspended') {
+            audioContext.resume();
+        }
+    } catch (e) {
+        console.log('Audio beep not supported');
+    }
+}
+
+// ==================== NAVIGATION ====================
 function goToDashboard() {
-    // Stop scanner if running
     if (html5QrCode) {
         html5QrCode.stop().catch(() => { });
         html5QrCode = null;
     }
 
-    // Hide all screens
     document.querySelectorAll('.screen').forEach(s => {
         s.classList.remove('active');
     });
-
-    // Show main menu
     document.getElementById('main-menu').classList.add('active');
 }
 
 function showScreen(screenId) {
-    // Stop scanner if running
     if (html5QrCode) {
         html5QrCode.stop().catch(() => { });
         html5QrCode = null;
     }
 
-    // Hide all screens
     document.querySelectorAll('.screen').forEach(s => {
         s.classList.remove('active');
     });
-
-    // Show selected screen
     document.getElementById(screenId).classList.add('active');
 
-    // Refresh data based on screen
     if (screenId === 'stock-list-screen') updateInventoryUI();
     if (screenId === 'ledger-screen') updateLedgerUI();
     if (screenId === 'customers-screen') updateCustomersUI();
@@ -53,18 +74,14 @@ function showScreen(screenId) {
     }
 }
 
-// Override browser back button
+// Prevent browser back button from leaving app
 window.addEventListener('popstate', function (event) {
-    // Go to dashboard instead of browser back
     goToDashboard();
-    // Push state to prevent leaving app
     history.pushState(null, null, location.href);
 });
-
-// Push initial state
 history.pushState(null, null, location.href);
 
-// ==================== DASHBOARD FUNCTIONS ====================
+// ==================== DASHBOARD ====================
 async function updateDashboard() {
     const allDocs = await db.allDocs({ include_docs: true });
     let totalItems = 0, totalSales = 0, totalCustomers = 0, lowStock = 0;
@@ -105,7 +122,7 @@ async function updateDashboard() {
         });
 }
 
-// ==================== INVENTORY FUNCTIONS ====================
+// ==================== INVENTORY ====================
 async function savePart() {
     const id = document.getElementById('part-id').value.trim();
     const name = document.getElementById('part-name').value.trim();
@@ -147,9 +164,6 @@ async function savePart() {
 
         showToast('Stock saved successfully!', 'success');
         updateInventoryUI();
-
-        // Auto sync after save
-        setTimeout(() => handleSync(), 1000);
     } catch (error) {
         showToast('Error saving stock', 'error');
     }
@@ -207,11 +221,10 @@ async function deleteItem(id) {
         await db.remove(doc);
         updateInventoryUI();
         showToast('Item deleted', 'success');
-        handleSync();
     }
 }
 
-// ==================== BILLING FUNCTIONS ====================
+// ==================== BILLING ====================
 function addItemToCurrentBill() {
     const desc = document.getElementById('bill-desc').value.trim();
     const price = parseFloat(document.getElementById('bill-price').value) || 0;
@@ -303,7 +316,6 @@ async function finalizeBill() {
     const balance = total - paid;
 
     try {
-        // Save ledger entry
         await db.put({
             _id: 'ledger_' + Date.now(),
             type: 'ledger',
@@ -316,7 +328,6 @@ async function finalizeBill() {
             date: new Date().toISOString()
         });
 
-        // Update inventory
         for (const item of currentBillItems) {
             const result = await db.allDocs({ include_docs: true });
             for (const row of result.rows) {
@@ -331,9 +342,6 @@ async function finalizeBill() {
         showBillPreview(customer, total, paid, balance);
         clearBill();
         showToast('Bill saved successfully!', 'success');
-
-        // Auto sync after bill
-        setTimeout(() => handleSync(), 1000);
 
     } catch (error) {
         showToast('Error saving bill', 'error');
@@ -377,7 +385,7 @@ function showBillPreview(customer, total, paid, balance) {
     document.getElementById('bill-preview-modal').classList.add('active');
 }
 
-// ==================== CUSTOMER FUNCTIONS ====================
+// ==================== CUSTOMERS ====================
 async function loadCustomers() {
     const result = await db.allDocs({ include_docs: true });
     return result.rows.map(r => r.doc).filter(d => d.type === 'customer');
@@ -410,7 +418,6 @@ async function saveCustomer() {
     document.getElementById('cust-gst').value = '';
     updateCustomersUI();
     showToast('Customer saved', 'success');
-    handleSync();
 }
 
 async function updateCustomersUI() {
@@ -434,7 +441,7 @@ async function updateCustomersUI() {
     });
 }
 
-// ==================== LEDGER FUNCTIONS ====================
+// ==================== LEDGER ====================
 async function updateLedgerUI() {
     const result = await db.allDocs({ include_docs: true });
     const transactions = result.rows
@@ -493,7 +500,7 @@ async function updateLedgerUI() {
     }
 }
 
-// ==================== BARCODE SCANNER ====================
+// ==================== BARCODE SCANNER (WITH BEEP & VIBRATION) ====================
 async function toggleScanner(type) {
     const readerId = type === 'inventory' ? 'reader' : 'bill-reader';
 
@@ -512,7 +519,11 @@ async function toggleScanner(type) {
                 qrbox: { width: 250, height: 250 },
                 aspectRatio: 1.0
             },
-            (text) => handleScanResult(text, type),
+            (text) => {
+                // Play beep and vibrate when barcode detected
+                playBeepAndVibrate();
+                handleScanResult(text, type);
+            },
             (error) => console.log(error)
         );
         showToast('Scanner started', 'success');
@@ -526,7 +537,10 @@ async function scanFile(input, type) {
 
     const scanner = new Html5Qrcode('reader');
     try {
+        showToast('Processing image...', 'info');
         const result = await scanner.scanFile(input.files[0], true);
+        // Play beep and vibrate when barcode detected from image
+        playBeepAndVibrate();
         handleScanResult(result, type);
     } catch (error) {
         showToast('Could not read barcode', 'error');
@@ -541,8 +555,14 @@ async function handleScanResult(text, type) {
             if (doc.type === 'inventory') {
                 document.getElementById('part-name').value = doc.name || '';
                 document.getElementById('part-price').value = doc.price || '';
+                document.getElementById('part-category').value = doc.category || 'general';
+                document.getElementById('part-location').value = doc.location || '';
+                document.getElementById('part-min-stock').value = doc.minStock || 5;
+                showToast('Item found in inventory!', 'success');
             }
-        } catch (e) { }
+        } catch (e) {
+            showToast('New item - fill details', 'info');
+        }
     } else {
         document.getElementById('bill-item-id').value = text;
         try {
@@ -550,8 +570,13 @@ async function handleScanResult(text, type) {
             if (doc.type === 'inventory') {
                 document.getElementById('bill-desc').value = doc.name || '';
                 document.getElementById('bill-price').value = doc.price || '';
+                showToast('Item added to bill!', 'success');
+            } else {
+                showToast('Item not in inventory', 'warning');
             }
-        } catch (e) { }
+        } catch (e) {
+            showToast('Item not found - enter manually', 'warning');
+        }
     }
 
     if (html5QrCode) {
@@ -559,7 +584,25 @@ async function handleScanResult(text, type) {
         html5QrCode = null;
     }
 
-    showToast('Barcode scanned: ' + text, 'success');
+    // Additional beep for confirmation (shorter)
+    try {
+        const audioContext = new (window.AudioContext || window.webkitAudioContext)();
+        const oscillator = audioContext.createOscillator();
+        const gainNode = audioContext.createGain();
+
+        oscillator.connect(gainNode);
+        gainNode.connect(audioContext.destination);
+
+        oscillator.frequency.setValueAtTime(1200, audioContext.currentTime);
+        gainNode.gain.setValueAtTime(0.3, audioContext.currentTime);
+
+        oscillator.start();
+        oscillator.stop(audioContext.currentTime + 0.05);
+
+        if (audioContext.state === 'suspended') {
+            audioContext.resume();
+        }
+    } catch (e) { }
 }
 
 // ==================== GOOGLE DRIVE SYNC (FULLY WORKING) ====================
@@ -574,17 +617,17 @@ function handleSync() {
     if (!accessToken || accessToken === 'null' || (tokenExpiry && now > parseInt(tokenExpiry))) {
         // Token expired or doesn't exist - do OAuth
         const redirectUri = window.location.origin + window.location.pathname;
-        const state = Math.random().toString(36).substring(7);
-        localStorage.setItem('oauth_state', state);
+
+        // Make sure we're not adding double slashes
+        const baseUri = redirectUri.endsWith('/') ? redirectUri.slice(0, -1) : redirectUri;
 
         const authUrl = `https://accounts.google.com/o/oauth2/v2/auth?` +
             `client_id=${CLIENT_ID}` +
-            `&redirect_uri=${encodeURIComponent(redirectUri)}` +
+            `&redirect_uri=${encodeURIComponent(baseUri)}` +
             `&response_type=token` +
-            `&scope=${encodeURIComponent('https://www.googleapis.com/auth/drive.file https://www.googleapis.com/auth/drive.appdata')}` +
-            `&state=${state}` +
+            `&scope=${encodeURIComponent('https://www.googleapis.com/auth/drive.file')}` +
             `&include_granted_scopes=true` +
-            `&access_type=online`;
+            `&prompt=consent`;
 
         window.location.href = authUrl;
     } else {
@@ -636,16 +679,16 @@ async function uploadToDrive() {
         const searchData = await searchResponse.json();
         const fileId = searchData.files?.[0]?.id;
 
-        // Create multipart request body
+        // Create metadata
+        const metadata = {
+            name: BACKUP_FILE_NAME,
+            mimeType: 'application/json'
+        };
+
+        // Create multipart request
         const boundary = '-------' + Math.random().toString(36).substring(7);
         const delimiter = '\r\n--' + boundary + '\r\n';
         const closeDelimiter = '\r\n--' + boundary + '--';
-
-        const metadata = {
-            name: BACKUP_FILE_NAME,
-            mimeType: 'application/json',
-            parents: ['appDataFolder'] // Store in app data folder
-        };
 
         const multipartRequestBody =
             delimiter +
@@ -687,22 +730,31 @@ async function uploadToDrive() {
         }
 
         if (uploadResponse.ok) {
+            const result = await uploadResponse.json();
+            console.log('Upload successful:', result);
+
             const time = new Date().toLocaleTimeString();
-            if (syncIcon) syncIcon.className = 'fas fa-check-circle';
-            syncIcon.style.color = '#10b981';
+            if (syncIcon) {
+                syncIcon.className = 'fas fa-check-circle';
+                syncIcon.style.color = '#10b981';
+            }
             syncText.textContent = `Synced at ${time}`;
             showToast('Backup successful!', 'success');
 
-            // Also try to download and merge (for restore)
+            // Try to download and merge (optional)
             await downloadFromDrive();
         } else {
-            throw new Error('Upload failed');
+            const errorText = await uploadResponse.text();
+            console.error('Upload failed:', errorText);
+            throw new Error('Upload failed: ' + uploadResponse.status);
         }
     } catch (error) {
         console.error('Sync error:', error);
         const syncIcon = document.querySelector('#sync-status i');
-        if (syncIcon) syncIcon.className = 'fas fa-exclamation-circle';
-        syncIcon.style.color = '#ef4444';
+        if (syncIcon) {
+            syncIcon.className = 'fas fa-exclamation-circle';
+            syncIcon.style.color = '#ef4444';
+        }
         document.getElementById('sync-status-text').textContent = 'Sync failed';
         showToast('Sync failed: ' + error.message, 'error');
     }
@@ -736,16 +788,48 @@ async function downloadFromDrive() {
 
             if (downloadResponse.ok) {
                 const backupData = await downloadResponse.json();
+                console.log('Found cloud backup with', backupData.data?.length || 0, 'records');
 
-                // Merge data (optional - can ask user)
+                // Optional: Show restore option if needed
                 if (backupData.data && backupData.data.length > 0) {
-                    console.log('Found cloud backup with', backupData.data.length, 'records');
-                    // You can implement merge logic here if needed
+                    const localDocs = await db.allDocs({ include_docs: true });
+                    if (localDocs.rows.length === 0) {
+                        // Local is empty, restore from cloud
+                        if (confirm('Local database is empty. Restore from cloud backup?')) {
+                            await restoreFromBackup(backupData.data);
+                        }
+                    }
                 }
             }
         }
     } catch (error) {
-        console.log('No existing backup found or error downloading');
+        console.log('No existing backup found or error downloading:', error);
+    }
+}
+
+async function restoreFromBackup(data) {
+    try {
+        for (const doc of data) {
+            try {
+                await db.put(doc);
+            } catch (e) {
+                // Handle conflicts if any
+                if (e.status === 409) {
+                    const existing = await db.get(doc._id);
+                    doc._rev = existing._rev;
+                    await db.put(doc);
+                }
+            }
+        }
+        showToast('Data restored from cloud!', 'success');
+
+        // Refresh all UIs
+        await updateDashboard();
+        await updateInventoryUI();
+        await updateLedgerUI();
+        await updateCustomersUI();
+    } catch (error) {
+        showToast('Error restoring data', 'error');
     }
 }
 
@@ -756,13 +840,11 @@ window.onload = async () => {
         const params = new URLSearchParams(window.location.hash.substring(1));
         const token = params.get('access_token');
         const expiresIn = params.get('expires_in');
-        const state = params.get('state');
 
         if (token) {
             accessToken = token;
             localStorage.setItem('google_token', token);
 
-            // Set expiry (current time + expires_in seconds - 5 minutes buffer)
             if (expiresIn) {
                 const expiryTime = new Date().getTime() + (parseInt(expiresIn) * 1000) - 300000;
                 localStorage.setItem('token_expiry', expiryTime.toString());
@@ -773,7 +855,7 @@ window.onload = async () => {
 
             showToast('Google Drive connected!', 'success');
 
-            // Trigger sync after successful login
+            // Trigger sync after login
             setTimeout(() => uploadToDrive(), 1000);
         }
     }
@@ -784,7 +866,7 @@ window.onload = async () => {
     await updateLedgerUI();
     await updateCustomersUI();
 
-    // Update sync status based on token
+    // Update sync status
     if (accessToken && accessToken !== 'null') {
         const syncIcon = document.querySelector('#sync-status i');
         if (syncIcon) {
@@ -792,6 +874,9 @@ window.onload = async () => {
             syncIcon.style.color = '#10b981';
         }
         document.getElementById('sync-status-text').textContent = 'Ready to sync';
+
+        // Check if we need to download backup
+        setTimeout(() => downloadFromDrive(), 2000);
     }
 };
 
@@ -816,9 +901,7 @@ function showToast(message, type = 'info') {
     toast.innerHTML = `<i class="fas fa-${icon}"></i> ${message}`;
     container.appendChild(toast);
 
-    setTimeout(() => {
-        toast.remove();
-    }, 3000);
+    setTimeout(() => toast.remove(), 3000);
 }
 
 function toggleQuickMenu() {
