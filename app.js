@@ -11,12 +11,12 @@ const BACKUP_FILE_NAME = 'workshop_backup.json';
 
 // ==================== BEEP AND VIBRATION FUNCTIONS ====================
 function playBeepAndVibrate() {
-    // Try to vibrate (works on mobile)
+    // Vibrate on mobile devices
     if (navigator.vibrate) {
-        navigator.vibrate(200); // Vibrate for 200ms
+        navigator.vibrate(200);
     }
 
-    // Play beep sound using Web Audio API
+    // Play beep sound
     try {
         const audioContext = new (window.AudioContext || window.webkitAudioContext)();
         const oscillator = audioContext.createOscillator();
@@ -25,18 +25,17 @@ function playBeepAndVibrate() {
         oscillator.connect(gainNode);
         gainNode.connect(audioContext.destination);
 
-        oscillator.frequency.setValueAtTime(800, audioContext.currentTime); // 800 Hz
+        oscillator.frequency.setValueAtTime(800, audioContext.currentTime);
         gainNode.gain.setValueAtTime(0.5, audioContext.currentTime);
 
         oscillator.start();
-        oscillator.stop(audioContext.currentTime + 0.1); // 100ms beep
+        oscillator.stop(audioContext.currentTime + 0.1);
 
-        // Resume audio context if suspended (required by some browsers)
         if (audioContext.state === 'suspended') {
             audioContext.resume();
         }
     } catch (e) {
-        console.log('Audio beep not supported');
+        console.log('Beep not supported');
     }
 }
 
@@ -64,6 +63,7 @@ function showScreen(screenId) {
     });
     document.getElementById(screenId).classList.add('active');
 
+    // Refresh data based on screen
     if (screenId === 'stock-list-screen') updateInventoryUI();
     if (screenId === 'ledger-screen') updateLedgerUI();
     if (screenId === 'customers-screen') updateCustomersUI();
@@ -83,43 +83,49 @@ history.pushState(null, null, location.href);
 
 // ==================== DASHBOARD ====================
 async function updateDashboard() {
-    const allDocs = await db.allDocs({ include_docs: true });
-    let totalItems = 0, totalSales = 0, totalCustomers = 0, lowStock = 0;
-    let recentTransactions = [];
+    try {
+        const allDocs = await db.allDocs({ include_docs: true });
+        let totalItems = 0, totalSales = 0, totalCustomers = 0, lowStock = 0;
+        let recentTransactions = [];
 
-    allDocs.rows.forEach(row => {
-        const doc = row.doc;
-        if (doc.type === 'inventory') {
-            totalItems++;
-            const available = (doc.totalIn || 0) - (doc.totalSold || 0);
-            if (available < (doc.minStock || 5)) lowStock++;
-        } else if (doc.type === 'ledger') {
-            totalSales += doc.total || 0;
-            recentTransactions.push(doc);
-        } else if (doc.type === 'customer') {
-            totalCustomers++;
-        }
-    });
-
-    document.getElementById('dash-total-items').textContent = totalItems;
-    document.getElementById('dash-total-sales').textContent = '₹' + totalSales.toFixed(2);
-    document.getElementById('dash-total-customers').textContent = totalCustomers;
-    document.getElementById('dash-low-stock').textContent = lowStock;
-
-    const recentDiv = document.getElementById('dash-recent');
-    recentDiv.innerHTML = '';
-    recentTransactions.sort((a, b) => new Date(b.date) - new Date(a.date))
-        .slice(0, 5).forEach(t => {
-            recentDiv.innerHTML += `
-                <div style="padding: 8px; border-bottom: 1px solid var(--glass-border);">
-                    <div style="display: flex; justify-content: space-between;">
-                        <span>${t.customer || 'Customer'}</span>
-                        <span>₹${(t.total || 0).toFixed(2)}</span>
-                    </div>
-                    <div style="font-size: 12px; opacity:0.7;">${new Date(t.date).toLocaleString()}</div>
-                </div>
-            `;
+        allDocs.rows.forEach(row => {
+            const doc = row.doc;
+            if (doc && doc.type === 'inventory') {
+                totalItems++;
+                const available = (doc.totalIn || 0) - (doc.totalSold || 0);
+                if (available < (doc.minStock || 5)) lowStock++;
+            } else if (doc && doc.type === 'ledger') {
+                totalSales += doc.total || 0;
+                recentTransactions.push(doc);
+            } else if (doc && doc.type === 'customer') {
+                totalCustomers++;
+            }
         });
+
+        document.getElementById('dash-total-items').textContent = totalItems;
+        document.getElementById('dash-total-sales').textContent = '₹' + totalSales.toFixed(2);
+        document.getElementById('dash-total-customers').textContent = totalCustomers;
+        document.getElementById('dash-low-stock').textContent = lowStock;
+
+        const recentDiv = document.getElementById('dash-recent');
+        if (recentDiv) {
+            recentDiv.innerHTML = '';
+            recentTransactions.sort((a, b) => new Date(b.date) - new Date(a.date))
+                .slice(0, 5).forEach(t => {
+                    recentDiv.innerHTML += `
+                        <div style="padding: 8px; border-bottom: 1px solid var(--glass-border);">
+                            <div style="display: flex; justify-content: space-between;">
+                                <span>${t.customer || 'Customer'}</span>
+                                <span>₹${(t.total || 0).toFixed(2)}</span>
+                            </div>
+                            <div style="font-size: 12px; opacity:0.7;">${new Date(t.date).toLocaleString()}</div>
+                        </div>
+                    `;
+                });
+        }
+    } catch (error) {
+        console.log('Dashboard update error:', error);
+    }
 }
 
 // ==================== INVENTORY ====================
@@ -147,9 +153,9 @@ async function savePart() {
                 price: price,
                 totalIn: qty,
                 totalSold: 0,
-                category: document.getElementById('part-category').value,
-                location: document.getElementById('part-location').value,
-                minStock: parseInt(document.getElementById('part-min-stock').value) || 5,
+                category: document.getElementById('part-category')?.value || 'general',
+                location: document.getElementById('part-location')?.value || '',
+                minStock: parseInt(document.getElementById('part-min-stock')?.value) || 5,
                 createdAt: new Date().toISOString()
             };
         }
@@ -166,61 +172,72 @@ async function savePart() {
         updateInventoryUI();
     } catch (error) {
         showToast('Error saving stock', 'error');
+        console.error(error);
     }
 }
 
 async function updateInventoryUI() {
-    const result = await db.allDocs({ include_docs: true });
-    const items = result.rows.map(r => r.doc).filter(d => d.type === 'inventory');
-    const search = document.getElementById('stock-search')?.value.toLowerCase() || '';
-    const filter = document.getElementById('stock-filter')?.value || 'all';
+    try {
+        const result = await db.allDocs({ include_docs: true });
+        const items = result.rows.map(r => r.doc).filter(d => d && d.type === 'inventory');
+        const search = document.getElementById('stock-search')?.value.toLowerCase() || '';
+        const filter = document.getElementById('stock-filter')?.value || 'all';
 
-    let filtered = items.filter(item =>
-        item.name.toLowerCase().includes(search) ||
-        item._id.toLowerCase().includes(search)
-    );
+        let filtered = items.filter(item =>
+            item.name.toLowerCase().includes(search) ||
+            (item._id && item._id.toLowerCase().includes(search))
+        );
 
-    if (filter === 'low') {
-        filtered = filtered.filter(item =>
-            (item.totalIn - item.totalSold) < (item.minStock || 5)
-        );
-    } else if (filter === 'out') {
-        filtered = filtered.filter(item =>
-            (item.totalIn - item.totalSold) <= 0
-        );
+        if (filter === 'low') {
+            filtered = filtered.filter(item =>
+                (item.totalIn - item.totalSold) < (item.minStock || 5)
+            );
+        } else if (filter === 'out') {
+            filtered = filtered.filter(item =>
+                (item.totalIn - item.totalSold) <= 0
+            );
+        }
+
+        let totalValue = 0;
+        filtered.forEach(item => {
+            totalValue += ((item.totalIn || 0) - (item.totalSold || 0)) * (item.price || 0);
+        });
+
+        document.getElementById('total-value').textContent = '₹' + totalValue.toFixed(2);
+        document.getElementById('total-items-count').textContent = filtered.length;
+
+        const tbody = document.getElementById('inventory-list-table');
+        if (tbody) {
+            tbody.innerHTML = '';
+
+            filtered.sort((a, b) => a.name.localeCompare(b.name)).forEach(item => {
+                const available = (item.totalIn || 0) - (item.totalSold || 0);
+                tbody.innerHTML += `
+                    <tr>
+                        <td>${item.name}</td>
+                        <td>${item.totalIn || 0}</td>
+                        <td><strong>${available}</strong></td>
+                        <td>₹${(item.price || 0).toFixed(2)}</td>
+                        <td><button class="del-btn" onclick="deleteItem('${item._id}')"><i class="fas fa-trash"></i></button></td>
+                    </tr>
+                `;
+            });
+        }
+    } catch (error) {
+        console.log('Inventory update error:', error);
     }
-
-    let totalValue = 0;
-    filtered.forEach(item => {
-        totalValue += ((item.totalIn || 0) - (item.totalSold || 0)) * (item.price || 0);
-    });
-
-    document.getElementById('total-value').textContent = '₹' + totalValue.toFixed(2);
-    document.getElementById('total-items-count').textContent = filtered.length;
-
-    const tbody = document.getElementById('inventory-list-table');
-    tbody.innerHTML = '';
-
-    filtered.sort((a, b) => a.name.localeCompare(b.name)).forEach(item => {
-        const available = (item.totalIn || 0) - (item.totalSold || 0);
-        tbody.innerHTML += `
-            <tr>
-                <td>${item.name}</td>
-                <td>${item.totalIn || 0}</td>
-                <td><strong>${available}</strong></td>
-                <td>₹${(item.price || 0).toFixed(2)}</td>
-                <td><button class="del-btn" onclick="deleteItem('${item._id}')"><i class="fas fa-trash"></i></button></td>
-            </tr>
-        `;
-    });
 }
 
 async function deleteItem(id) {
     if (confirm('Delete this item?')) {
-        const doc = await db.get(id);
-        await db.remove(doc);
-        updateInventoryUI();
-        showToast('Item deleted', 'success');
+        try {
+            const doc = await db.get(id);
+            await db.remove(doc);
+            updateInventoryUI();
+            showToast('Item deleted', 'success');
+        } catch (error) {
+            showToast('Error deleting item', 'error');
+        }
     }
 }
 
@@ -252,6 +269,8 @@ function addItemToCurrentBill() {
 
 function renderBillList() {
     const tbody = document.getElementById('current-bill-body');
+    if (!tbody) return;
+
     let subtotal = 0;
     tbody.innerHTML = '';
 
@@ -292,15 +311,17 @@ function calculateBalance() {
     const balance = total - paid;
     const el = document.getElementById('balance-due');
 
-    if (balance > 0) {
-        el.textContent = `Balance Due: ₹${balance.toFixed(2)}`;
-        el.style.color = '#ef4444';
-    } else if (balance < 0) {
-        el.textContent = `Change: ₹${Math.abs(balance).toFixed(2)}`;
-        el.style.color = '#10b981';
-    } else {
-        el.textContent = 'Balance: ₹0.00';
-        el.style.color = 'white';
+    if (el) {
+        if (balance > 0) {
+            el.textContent = `Balance Due: ₹${balance.toFixed(2)}`;
+            el.style.color = '#ef4444';
+        } else if (balance < 0) {
+            el.textContent = `Change: ₹${Math.abs(balance).toFixed(2)}`;
+            el.style.color = '#10b981';
+        } else {
+            el.textContent = 'Balance: ₹0.00';
+            el.style.color = 'white';
+        }
     }
 }
 
@@ -316,6 +337,7 @@ async function finalizeBill() {
     const balance = total - paid;
 
     try {
+        // Save ledger entry
         await db.put({
             _id: 'ledger_' + Date.now(),
             type: 'ledger',
@@ -324,14 +346,15 @@ async function finalizeBill() {
             total: total,
             paid: paid,
             balance: balance,
-            paymentMethod: document.getElementById('payment-method').value,
+            paymentMethod: document.getElementById('payment-method')?.value || 'cash',
             date: new Date().toISOString()
         });
 
+        // Update inventory
         for (const item of currentBillItems) {
             const result = await db.allDocs({ include_docs: true });
             for (const row of result.rows) {
-                if (row.doc.type === 'inventory' && row.doc.name === item.desc) {
+                if (row.doc && row.doc.type === 'inventory' && row.doc.name === item.desc) {
                     row.doc.totalSold = (row.doc.totalSold || 0) + item.qty;
                     await db.put(row.doc);
                     break;
@@ -345,6 +368,7 @@ async function finalizeBill() {
 
     } catch (error) {
         showToast('Error saving bill', 'error');
+        console.error(error);
     }
 }
 
@@ -360,7 +384,7 @@ function clearBill() {
 function showBillPreview(customer, total, paid, balance) {
     let itemsHtml = '';
     currentBillItems.forEach(item => {
-        itemsHtml += `<tr><td>${item.desc}</td><td>${item.qty}</td><td>₹${item.price}</td><td>₹${item.total}</td></tr>`;
+        itemsHtml += `<tr><td>${item.desc}</td><td>${item.qty}</td><td>₹${item.price.toFixed(2)}</td><td>₹${item.total.toFixed(2)}</td></tr>`;
     });
 
     const content = `
@@ -387,8 +411,12 @@ function showBillPreview(customer, total, paid, balance) {
 
 // ==================== CUSTOMERS ====================
 async function loadCustomers() {
-    const result = await db.allDocs({ include_docs: true });
-    return result.rows.map(r => r.doc).filter(d => d.type === 'customer');
+    try {
+        const result = await db.allDocs({ include_docs: true });
+        return result.rows.map(r => r.doc).filter(d => d && d.type === 'customer');
+    } catch (error) {
+        return [];
+    }
 }
 
 async function saveCustomer() {
@@ -398,26 +426,31 @@ async function saveCustomer() {
         return;
     }
 
-    await db.put({
-        _id: 'cust_' + Date.now(),
-        type: 'customer',
-        name: name,
-        phone: document.getElementById('cust-phone').value,
-        email: document.getElementById('cust-email').value,
-        address: document.getElementById('cust-address').value,
-        gst: document.getElementById('cust-gst').value,
-        balance: 0,
-        createdAt: new Date().toISOString()
-    });
+    try {
+        await db.put({
+            _id: 'cust_' + Date.now(),
+            type: 'customer',
+            name: name,
+            phone: document.getElementById('cust-phone')?.value || '',
+            email: document.getElementById('cust-email')?.value || '',
+            address: document.getElementById('cust-address')?.value || '',
+            gst: document.getElementById('cust-gst')?.value || '',
+            balance: 0,
+            createdAt: new Date().toISOString()
+        });
 
-    closeCustomerModal();
-    document.getElementById('cust-name').value = '';
-    document.getElementById('cust-phone').value = '';
-    document.getElementById('cust-email').value = '';
-    document.getElementById('cust-address').value = '';
-    document.getElementById('cust-gst').value = '';
-    updateCustomersUI();
-    showToast('Customer saved', 'success');
+        closeCustomerModal();
+        document.getElementById('cust-name').value = '';
+        document.getElementById('cust-phone').value = '';
+        document.getElementById('cust-email').value = '';
+        document.getElementById('cust-address').value = '';
+        document.getElementById('cust-gst').value = '';
+
+        await updateCustomersUI();
+        showToast('Customer saved', 'success');
+    } catch (error) {
+        showToast('Error saving customer', 'error');
+    }
 }
 
 async function updateCustomersUI() {
@@ -426,83 +459,96 @@ async function updateCustomersUI() {
     const filtered = customers.filter(c => c.name.toLowerCase().includes(search));
 
     const container = document.getElementById('customers-list');
-    container.innerHTML = '';
+    if (container) {
+        container.innerHTML = '';
 
-    filtered.forEach(c => {
-        container.innerHTML += `
-            <div class="customer-card">
-                <strong>${c.name}</strong>
-                <div style="font-size:12px;">${c.phone || 'No phone'}</div>
-                <div style="color:${c.balance > 0 ? '#ef4444' : '#10b981'};">
-                    Balance: ₹${(c.balance || 0).toFixed(2)}
+        filtered.forEach(c => {
+            container.innerHTML += `
+                <div class="customer-card">
+                    <strong>${c.name}</strong>
+                    <div style="font-size:12px;">${c.phone || 'No phone'}</div>
+                    <div style="color:${c.balance > 0 ? '#ef4444' : '#10b981'};">
+                        Balance: ₹${(c.balance || 0).toFixed(2)}
+                    </div>
                 </div>
-            </div>
-        `;
-    });
+            `;
+        });
+    }
 }
 
 // ==================== LEDGER ====================
 async function updateLedgerUI() {
-    const result = await db.allDocs({ include_docs: true });
-    const transactions = result.rows
-        .map(r => r.doc)
-        .filter(d => d.type === 'ledger')
-        .sort((a, b) => new Date(b.date) - new Date(a.date));
+    try {
+        const result = await db.allDocs({ include_docs: true });
+        const transactions = result.rows
+            .map(r => r.doc)
+            .filter(d => d && d.type === 'ledger')
+            .sort((a, b) => new Date(b.date) - new Date(a.date));
 
-    let totalSales = 0;
-    let creditDue = 0;
-    const balances = {};
+        let totalSales = 0;
+        let creditDue = 0;
+        const balances = {};
 
-    transactions.forEach(t => {
-        totalSales += t.total || 0;
-        if (t.balance > 0) {
-            creditDue += t.balance;
-            balances[t.customer] = (balances[t.customer] || 0) + t.balance;
+        transactions.forEach(t => {
+            totalSales += t.total || 0;
+            if (t.balance > 0) {
+                creditDue += t.balance;
+                balances[t.customer] = (balances[t.customer] || 0) + t.balance;
+            }
+        });
+
+        document.getElementById('ledger-total').textContent = '₹' + totalSales.toFixed(2);
+        document.getElementById('credit-due').textContent = '₹' + creditDue.toFixed(2);
+
+        const balancesDiv = document.getElementById('customer-balances-list');
+        if (balancesDiv) {
+            balancesDiv.innerHTML = '';
+
+            if (Object.keys(balances).length === 0) {
+                balancesDiv.innerHTML = '<p style="text-align: center; opacity: 0.7;">No pending balances</p>';
+            } else {
+                Object.entries(balances).forEach(([cust, amt]) => {
+                    balancesDiv.innerHTML += `
+                        <div style="padding:8px; background:rgba(0,0,0,0.2); border-radius:8px; margin-bottom:5px;">
+                            <strong>${cust}</strong>: ₹${amt.toFixed(2)}
+                        </div>
+                    `;
+                });
+            }
         }
-    });
 
-    document.getElementById('ledger-total').textContent = '₹' + totalSales.toFixed(2);
-    document.getElementById('credit-due').textContent = '₹' + creditDue.toFixed(2);
+        const historyDiv = document.getElementById('bill-history-list');
+        if (historyDiv) {
+            historyDiv.innerHTML = '';
 
-    const balancesDiv = document.getElementById('customer-balances-list');
-    balancesDiv.innerHTML = '';
-
-    if (Object.keys(balances).length === 0) {
-        balancesDiv.innerHTML = '<p style="text-align: center; opacity: 0.7;">No pending balances</p>';
-    } else {
-        Object.entries(balances).forEach(([cust, amt]) => {
-            balancesDiv.innerHTML += `
-                <div style="padding:8px; background:rgba(0,0,0,0.2); border-radius:8px; margin-bottom:5px;">
-                    <strong>${cust}</strong>: ₹${amt.toFixed(2)}
-                </div>
-            `;
-        });
-    }
-
-    const historyDiv = document.getElementById('bill-history-list');
-    historyDiv.innerHTML = '';
-
-    if (transactions.length === 0) {
-        historyDiv.innerHTML = '<p style="text-align: center; opacity: 0.7;">No transactions yet</p>';
-    } else {
-        transactions.slice(0, 20).forEach(t => {
-            historyDiv.innerHTML += `
-                <div class="ledger-card">
-                    <div style="display:flex; justify-content:space-between;">
-                        <strong>${t.customer}</strong>
-                        <span>₹${(t.total || 0).toFixed(2)}</span>
-                    </div>
-                    <div style="font-size:12px;">${new Date(t.date).toLocaleString()}</div>
-                    ${t.balance > 0 ? `<div style="color:#ef4444;">Due: ₹${t.balance.toFixed(2)}</div>` : ''}
-                </div>
-            `;
-        });
+            if (transactions.length === 0) {
+                historyDiv.innerHTML = '<p style="text-align: center; opacity: 0.7;">No transactions yet</p>';
+            } else {
+                transactions.slice(0, 20).forEach(t => {
+                    historyDiv.innerHTML += `
+                        <div class="ledger-card">
+                            <div style="display:flex; justify-content:space-between;">
+                                <strong>${t.customer}</strong>
+                                <span>₹${(t.total || 0).toFixed(2)}</span>
+                            </div>
+                            <div style="font-size:12px;">${new Date(t.date).toLocaleString()}</div>
+                            ${t.balance > 0 ? `<div style="color:#ef4444;">Due: ₹${t.balance.toFixed(2)}</div>` : ''}
+                        </div>
+                    `;
+                });
+            }
+        }
+    } catch (error) {
+        console.log('Ledger update error:', error);
     }
 }
 
-// ==================== BARCODE SCANNER (WITH BEEP & VIBRATION) ====================
+// ==================== BARCODE SCANNER ====================
 async function toggleScanner(type) {
     const readerId = type === 'inventory' ? 'reader' : 'bill-reader';
+    const element = document.getElementById(readerId);
+
+    if (!element) return;
 
     if (html5QrCode) {
         await html5QrCode.stop();
@@ -516,12 +562,10 @@ async function toggleScanner(type) {
             { facingMode: "environment" },
             {
                 fps: 10,
-                qrbox: { width: 250, height: 250 },
-                aspectRatio: 1.0
+                qrbox: { width: 250, height: 250 }
             },
             (text) => {
-                // Play beep and vibrate when barcode detected
-                playBeepAndVibrate();
+                playBeepAndVibrate(); // BEEP AND VIBRATE HERE!
                 handleScanResult(text, type);
             },
             (error) => console.log(error)
@@ -529,18 +573,18 @@ async function toggleScanner(type) {
         showToast('Scanner started', 'success');
     } catch (error) {
         showToast('Camera access denied', 'error');
+        console.error(error);
     }
 }
 
 async function scanFile(input, type) {
-    if (!input.files.length) return;
+    if (!input || !input.files || !input.files.length) return;
 
     const scanner = new Html5Qrcode('reader');
     try {
         showToast('Processing image...', 'info');
         const result = await scanner.scanFile(input.files[0], true);
-        // Play beep and vibrate when barcode detected from image
-        playBeepAndVibrate();
+        playBeepAndVibrate(); // BEEP AND VIBRATE HERE!
         handleScanResult(result, type);
     } catch (error) {
         showToast('Could not read barcode', 'error');
@@ -552,7 +596,7 @@ async function handleScanResult(text, type) {
         document.getElementById('part-id').value = text;
         try {
             const doc = await db.get(text);
-            if (doc.type === 'inventory') {
+            if (doc && doc.type === 'inventory') {
                 document.getElementById('part-name').value = doc.name || '';
                 document.getElementById('part-price').value = doc.price || '';
                 document.getElementById('part-category').value = doc.category || 'general';
@@ -567,7 +611,7 @@ async function handleScanResult(text, type) {
         document.getElementById('bill-item-id').value = text;
         try {
             const doc = await db.get(text);
-            if (doc.type === 'inventory') {
+            if (doc && doc.type === 'inventory') {
                 document.getElementById('bill-desc').value = doc.name || '';
                 document.getElementById('bill-price').value = doc.price || '';
                 showToast('Item added to bill!', 'success');
@@ -583,42 +627,19 @@ async function handleScanResult(text, type) {
         await html5QrCode.stop();
         html5QrCode = null;
     }
-
-    // Additional beep for confirmation (shorter)
-    try {
-        const audioContext = new (window.AudioContext || window.webkitAudioContext)();
-        const oscillator = audioContext.createOscillator();
-        const gainNode = audioContext.createGain();
-
-        oscillator.connect(gainNode);
-        gainNode.connect(audioContext.destination);
-
-        oscillator.frequency.setValueAtTime(1200, audioContext.currentTime);
-        gainNode.gain.setValueAtTime(0.3, audioContext.currentTime);
-
-        oscillator.start();
-        oscillator.stop(audioContext.currentTime + 0.05);
-
-        if (audioContext.state === 'suspended') {
-            audioContext.resume();
-        }
-    } catch (e) { }
 }
 
-// ==================== GOOGLE DRIVE SYNC (FULLY WORKING) ====================
+// ==================== GOOGLE DRIVE SYNC ====================
 function handleSync() {
     if (!navigator.onLine) {
         showToast('No internet connection', 'error');
         return;
     }
 
-    // Check if token exists and is valid
     const now = new Date().getTime();
     if (!accessToken || accessToken === 'null' || (tokenExpiry && now > parseInt(tokenExpiry))) {
-        // Token expired or doesn't exist - do OAuth
+        // Redirect to Google OAuth
         const redirectUri = window.location.origin + window.location.pathname;
-
-        // Make sure we're not adding double slashes
         const baseUri = redirectUri.endsWith('/') ? redirectUri.slice(0, -1) : redirectUri;
 
         const authUrl = `https://accounts.google.com/o/oauth2/v2/auth?` +
@@ -631,32 +652,28 @@ function handleSync() {
 
         window.location.href = authUrl;
     } else {
-        // Token exists - upload to Drive
         uploadToDrive();
     }
 }
 
 async function uploadToDrive() {
-    const syncStatus = document.getElementById('sync-status');
     const syncText = document.getElementById('sync-status-text');
     const syncIcon = document.querySelector('#sync-status i');
 
     if (syncIcon) syncIcon.className = 'fas fa-sync fa-spin';
-    syncText.textContent = 'Syncing...';
+    if (syncText) syncText.textContent = 'Syncing...';
 
     try {
-        // Get all data from database
         const allDocs = await db.allDocs({ include_docs: true });
         const data = allDocs.rows.map(r => r.doc);
 
-        // Create backup content
         const backupData = {
             timestamp: new Date().toISOString(),
             version: '1.0',
             data: data
         };
 
-        // Search for existing backup file in Drive
+        // Search for existing file
         const searchResponse = await fetch(
             `https://www.googleapis.com/drive/v3/files?q=name='${BACKUP_FILE_NAME}' and trashed=false&fields=files(id,name)`,
             {
@@ -667,7 +684,6 @@ async function uploadToDrive() {
         );
 
         if (searchResponse.status === 401) {
-            // Token expired
             localStorage.removeItem('google_token');
             localStorage.removeItem('token_expiry');
             accessToken = null;
@@ -679,74 +695,51 @@ async function uploadToDrive() {
         const searchData = await searchResponse.json();
         const fileId = searchData.files?.[0]?.id;
 
-        // Create metadata
         const metadata = {
             name: BACKUP_FILE_NAME,
             mimeType: 'application/json'
         };
 
-        // Create multipart request
-        const boundary = '-------' + Math.random().toString(36).substring(7);
-        const delimiter = '\r\n--' + boundary + '\r\n';
-        const closeDelimiter = '\r\n--' + boundary + '--';
-
-        const multipartRequestBody =
-            delimiter +
-            'Content-Type: application/json\r\n\r\n' +
-            JSON.stringify(metadata) +
-            delimiter +
-            'Content-Type: application/json\r\n\r\n' +
-            JSON.stringify(backupData) +
-            closeDelimiter;
+        const formData = new FormData();
+        formData.append('metadata', new Blob([JSON.stringify(metadata)], { type: 'application/json' }));
+        formData.append('file', new Blob([JSON.stringify(backupData)], { type: 'application/json' }));
 
         let uploadResponse;
 
         if (fileId) {
-            // Update existing file
             uploadResponse = await fetch(
                 `https://www.googleapis.com/upload/drive/v3/files/${fileId}?uploadType=multipart`,
                 {
                     method: 'PATCH',
                     headers: {
-                        'Authorization': `Bearer ${accessToken}`,
-                        'Content-Type': 'multipart/related; boundary=' + boundary
+                        'Authorization': `Bearer ${accessToken}`
                     },
-                    body: multipartRequestBody
+                    body: formData
                 }
             );
         } else {
-            // Create new file
             uploadResponse = await fetch(
                 'https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart',
                 {
                     method: 'POST',
                     headers: {
-                        'Authorization': `Bearer ${accessToken}`,
-                        'Content-Type': 'multipart/related; boundary=' + boundary
+                        'Authorization': `Bearer ${accessToken}`
                     },
-                    body: multipartRequestBody
+                    body: formData
                 }
             );
         }
 
         if (uploadResponse.ok) {
-            const result = await uploadResponse.json();
-            console.log('Upload successful:', result);
-
             const time = new Date().toLocaleTimeString();
             if (syncIcon) {
                 syncIcon.className = 'fas fa-check-circle';
                 syncIcon.style.color = '#10b981';
             }
-            syncText.textContent = `Synced at ${time}`;
+            if (syncText) syncText.textContent = `Synced at ${time}`;
             showToast('Backup successful!', 'success');
-
-            // Try to download and merge (optional)
-            await downloadFromDrive();
         } else {
-            const errorText = await uploadResponse.text();
-            console.error('Upload failed:', errorText);
-            throw new Error('Upload failed: ' + uploadResponse.status);
+            throw new Error('Upload failed');
         }
     } catch (error) {
         console.error('Sync error:', error);
@@ -760,82 +753,8 @@ async function uploadToDrive() {
     }
 }
 
-async function downloadFromDrive() {
-    try {
-        // Search for backup file
-        const searchResponse = await fetch(
-            `https://www.googleapis.com/drive/v3/files?q=name='${BACKUP_FILE_NAME}' and trashed=false&fields=files(id)`,
-            {
-                headers: {
-                    'Authorization': `Bearer ${accessToken}`
-                }
-            }
-        );
-
-        const searchData = await searchResponse.json();
-        const fileId = searchData.files?.[0]?.id;
-
-        if (fileId) {
-            // Download the file
-            const downloadResponse = await fetch(
-                `https://www.googleapis.com/drive/v3/files/${fileId}?alt=media`,
-                {
-                    headers: {
-                        'Authorization': `Bearer ${accessToken}`
-                    }
-                }
-            );
-
-            if (downloadResponse.ok) {
-                const backupData = await downloadResponse.json();
-                console.log('Found cloud backup with', backupData.data?.length || 0, 'records');
-
-                // Optional: Show restore option if needed
-                if (backupData.data && backupData.data.length > 0) {
-                    const localDocs = await db.allDocs({ include_docs: true });
-                    if (localDocs.rows.length === 0) {
-                        // Local is empty, restore from cloud
-                        if (confirm('Local database is empty. Restore from cloud backup?')) {
-                            await restoreFromBackup(backupData.data);
-                        }
-                    }
-                }
-            }
-        }
-    } catch (error) {
-        console.log('No existing backup found or error downloading:', error);
-    }
-}
-
-async function restoreFromBackup(data) {
-    try {
-        for (const doc of data) {
-            try {
-                await db.put(doc);
-            } catch (e) {
-                // Handle conflicts if any
-                if (e.status === 409) {
-                    const existing = await db.get(doc._id);
-                    doc._rev = existing._rev;
-                    await db.put(doc);
-                }
-            }
-        }
-        showToast('Data restored from cloud!', 'success');
-
-        // Refresh all UIs
-        await updateDashboard();
-        await updateInventoryUI();
-        await updateLedgerUI();
-        await updateCustomersUI();
-    } catch (error) {
-        showToast('Error restoring data', 'error');
-    }
-}
-
 // Handle OAuth redirect
 window.onload = async () => {
-    // Check for OAuth response in URL hash
     if (window.location.hash) {
         const params = new URLSearchParams(window.location.hash.substring(1));
         const token = params.get('access_token');
@@ -850,23 +769,17 @@ window.onload = async () => {
                 localStorage.setItem('token_expiry', expiryTime.toString());
             }
 
-            // Clear hash from URL
             window.history.replaceState(null, null, window.location.pathname);
-
             showToast('Google Drive connected!', 'success');
-
-            // Trigger sync after login
             setTimeout(() => uploadToDrive(), 1000);
         }
     }
 
-    // Initial data load
     await updateDashboard();
     await updateInventoryUI();
     await updateLedgerUI();
     await updateCustomersUI();
 
-    // Update sync status
     if (accessToken && accessToken !== 'null') {
         const syncIcon = document.querySelector('#sync-status i');
         if (syncIcon) {
@@ -874,22 +787,23 @@ window.onload = async () => {
             syncIcon.style.color = '#10b981';
         }
         document.getElementById('sync-status-text').textContent = 'Ready to sync';
-
-        // Check if we need to download backup
-        setTimeout(() => downloadFromDrive(), 2000);
     }
 };
 
 // ==================== UTILITY FUNCTIONS ====================
 function changeQty(id, delta) {
     const input = document.getElementById(id);
-    let val = parseInt(input.value) || 1;
-    val = Math.max(1, val + delta);
-    input.value = val;
+    if (input) {
+        let val = parseInt(input.value) || 1;
+        val = Math.max(1, val + delta);
+        input.value = val;
+    }
 }
 
 function showToast(message, type = 'info') {
     const container = document.getElementById('toast-container');
+    if (!container) return;
+
     const toast = document.createElement('div');
     toast.className = `toast ${type}`;
 
@@ -925,38 +839,46 @@ function printBill() {
 }
 
 async function exportInventory() {
-    showToast('Exporting inventory...', 'info');
+    try {
+        showToast('Exporting inventory...', 'info');
 
-    const result = await db.allDocs({ include_docs: true });
-    const items = result.rows.map(r => r.doc).filter(d => d.type === 'inventory');
+        const result = await db.allDocs({ include_docs: true });
+        const items = result.rows.map(r => r.doc).filter(d => d && d.type === 'inventory');
 
-    let csv = 'Item Name,Price,Total In,Total Sold,Available,Category,Location\n';
+        let csv = 'Item Name,Price,Total In,Total Sold,Available,Category,Location\n';
 
-    items.forEach(item => {
-        const available = (item.totalIn || 0) - (item.totalSold || 0);
-        csv += `"${item.name}",${item.price || 0},${item.totalIn || 0},${item.totalSold || 0},${available},"${item.category || ''}","${item.location || ''}"\n`;
-    });
+        items.forEach(item => {
+            const available = (item.totalIn || 0) - (item.totalSold || 0);
+            csv += `"${item.name}",${item.price || 0},${item.totalIn || 0},${item.totalSold || 0},${available},"${item.category || ''}","${item.location || ''}"\n`;
+        });
 
-    downloadFile(csv, 'inventory_export.csv', 'text/csv');
-    showToast('Inventory exported', 'success');
+        downloadFile(csv, 'inventory_export.csv', 'text/csv');
+        showToast('Inventory exported', 'success');
+    } catch (error) {
+        showToast('Export failed', 'error');
+    }
 }
 
 async function exportLedger() {
-    showToast('Exporting ledger...', 'info');
+    try {
+        showToast('Exporting ledger...', 'info');
 
-    const result = await db.allDocs({ include_docs: true });
-    const transactions = result.rows
-        .map(r => r.doc)
-        .filter(d => d.type === 'ledger');
+        const result = await db.allDocs({ include_docs: true });
+        const transactions = result.rows
+            .map(r => r.doc)
+            .filter(d => d && d.type === 'ledger');
 
-    let csv = 'Date,Customer,Total,Paid,Balance,Payment Method\n';
+        let csv = 'Date,Customer,Total,Paid,Balance,Payment Method\n';
 
-    transactions.forEach(t => {
-        csv += `"${new Date(t.date).toLocaleString()}","${t.customer}",${t.total || 0},${t.paid || 0},${t.balance || 0},"${t.paymentMethod || 'Cash'}"\n`;
-    });
+        transactions.forEach(t => {
+            csv += `"${new Date(t.date).toLocaleString()}","${t.customer}",${t.total || 0},${t.paid || 0},${t.balance || 0},"${t.paymentMethod || 'Cash'}"\n`;
+        });
 
-    downloadFile(csv, 'ledger_export.csv', 'text/csv');
-    showToast('Ledger exported', 'success');
+        downloadFile(csv, 'ledger_export.csv', 'text/csv');
+        showToast('Ledger exported', 'success');
+    } catch (error) {
+        showToast('Export failed', 'error');
+    }
 }
 
 function downloadFile(content, fileName, contentType) {
