@@ -3,449 +3,488 @@
 
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=yes">
-    <title>Workshop Manager Pro</title>
-    <link rel="stylesheet" href="style.css">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Workshop Pro</title>
     <link rel="manifest" href="manifest.json">
-    <link rel="apple-touch-icon" href="icon-192.png">
-    <meta name="theme-color" content="#2c3e50">
-    <meta name="apple-mobile-web-app-capable" content="yes">
+
     <!-- Libraries -->
     <script src="https://cdn.jsdelivr.net/npm/pouchdb@8.0.1/dist/pouchdb.min.js"></script>
-    <script src="https://unpkg.com/html5-qrcode@2.3.8/minified/html5-qrcode.min.js"></script>
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <script src="https://unpkg.com/html5-qrcode"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+
+    <!-- Fonts & Icons -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
+    <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700&display=swap" rel="stylesheet">
+
+    <!-- Custom CSS -->
+    <link rel="stylesheet" href="style.css">
 </head>
 
 <body>
-    <!-- Toast Notifications -->
-    <div id="toast-container" class="toast-container"></div>
+    <div class="background-blob"></div>
 
-    <!-- Quick Actions Menu -->
-    <div class="quick-menu" id="quick-actions-menu">
-        <button onclick="showScreen('add-inventory-screen')"><i class="fas fa-box"></i> Add Stock</button>
-        <button onclick="showScreen('billing-screen')"><i class="fas fa-receipt"></i> New Bill</button>
-        <button onclick="showScreen('scan-screen')"><i class="fas fa-camera"></i> Scan Barcode</button>
-        <button onclick="exportInventory()"><i class="fas fa-download"></i> Export Data</button>
-        <button onclick="handleSync()"><i class="fas fa-cloud-upload-alt"></i> Sync to Drive</button>
-        <button onclick="toggleQuickMenu()"><i class="fas fa-times"></i> Close</button>
+    <!-- Top Navigation -->
+    <nav class="top-nav">
+        <h2 onclick="goToDashboard()">Workshop<span>Pro</span></h2>
+        <button id="sync-btn" onclick="handleSync()">
+            <i class="fas fa-cloud-upload-alt"></i> Sync
+        </button>
+    </nav>
+
+    <div id="sync-status">
+        <i class="fas fa-circle" style="color: #fbbf24; font-size: 8px;"></i>
+        <span id="sync-status-text">Offline Mode</span>
     </div>
 
-    <!-- Main App Container -->
-    <div class="app-container">
-        <!-- Header -->
-        <div class="header">
-            <div class="header-left">
-                <button class="menu-btn" onclick="toggleQuickMenu()"><i class="fas fa-bars"></i></button>
-                <h1><i class="fas fa-tools"></i> Workshop Pro</h1>
+    <!-- Main Menu Screen -->
+    <div id="main-menu" class="screen active">
+        <div class="menu-grid">
+            <div class="menu-box" onclick="showScreen('inventory-screen')">
+                <div class="icon">📦</div>
+                <span>Add Stock</span>
             </div>
-            <div class="header-right">
-                <span class="online-indicator" id="online-indicator"><i class="fas fa-wifi"></i></span>
-                <span class="sync-indicator" onclick="handleSync()"><i class="fas fa-cloud-upload-alt"></i></span>
+            <div class="menu-box" onclick="showScreen('quick-bill-screen')">
+                <div class="icon">🧾</div>
+                <span>Quick Bill</span>
+            </div>
+            <div class="menu-box" onclick="showScreen('stock-list-screen')">
+                <div class="icon">📊</div>
+                <span>Reports</span>
+            </div>
+            <div class="menu-box" onclick="showScreen('ledger-screen')">
+                <div class="icon">📋</div>
+                <span>Ledger</span>
+            </div>
+            <div class="menu-box" onclick="showScreen('customers-screen')">
+                <div class="icon">👥</div>
+                <span>Customers</span>
+            </div>
+            <div class="menu-box" onclick="showScreen('dashboard-screen')">
+                <div class="icon">📈</div>
+                <span>Dashboard</span>
+            </div>
+        </div>
+    </div>
+
+    <!-- Dashboard Screen -->
+    <div id="dashboard-screen" class="screen">
+        <button class="back-menu-btn" onclick="goToDashboard()">
+            <i class="fas fa-arrow-left"></i> Back to Menu
+        </button>
+
+        <div class="glass-card">
+            <h3>Dashboard Overview</h3>
+            <div class="stats-grid">
+                <div class="stat-card">
+                    <div class="stat-label">Total Items</div>
+                    <div class="stat-value" id="dash-total-items">0</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-label">Total Sales</div>
+                    <div class="stat-value" id="dash-total-sales">₹0</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-label">Customers</div>
+                    <div class="stat-value" id="dash-total-customers">0</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-label">Low Stock</div>
+                    <div class="stat-value" id="dash-low-stock">0</div>
+                </div>
             </div>
         </div>
 
-        <!-- Bottom Navigation -->
-        <nav class="bottom-nav">
-            <button onclick="showScreen('dashboard-screen')" class="nav-item active" id="nav-dashboard">
-                <i class="fas fa-chart-pie"></i>
-                <span>Dashboard</span>
-            </button>
-            <button onclick="showScreen('stock-list-screen')" class="nav-item" id="nav-stock">
-                <i class="fas fa-boxes"></i>
-                <span>Stock</span>
-            </button>
-            <button onclick="showScreen('billing-screen')" class="nav-item" id="nav-billing">
-                <i class="fas fa-receipt"></i>
-                <span>Billing</span>
-            </button>
-            <button onclick="showScreen('ledger-screen')" class="nav-item" id="nav-ledger">
-                <i class="fas fa-book"></i>
-                <span>Ledger</span>
-            </button>
-            <button onclick="showScreen('customers-screen')" class="nav-item" id="nav-customers">
-                <i class="fas fa-users"></i>
-                <span>Customers</span>
-            </button>
-        </nav>
+        <div class="glass-card">
+            <h4>Recent Transactions</h4>
+            <div id="dash-recent" class="recent-list"></div>
+        </div>
+    </div>
 
-        <!-- Main Content Area -->
-        <div class="content">
-            <!-- DASHBOARD SCREEN -->
-            <div id="dashboard-screen" class="screen active">
-                <div class="screen-header">
-                    <h2>Dashboard</h2>
-                    <button class="btn-refresh" onclick="updateDashboard()"><i class="fas fa-sync-alt"></i></button>
-                </div>
+    <!-- Inventory Screen (Add Stock) -->
+    <div id="inventory-screen" class="screen">
+        <button class="back-menu-btn" onclick="goToDashboard()">
+            <i class="fas fa-arrow-left"></i> Back to Menu
+        </button>
 
-                <div class="metrics-grid">
-                    <div class="metric-card">
-                        <i class="fas fa-boxes"></i>
-                        <div class="metric-info">
-                            <span class="metric-label">Total Items</span>
-                            <span class="metric-value" id="total-items">0</span>
-                        </div>
-                    </div>
-                    <div class="metric-card">
-                        <i class="fas fa-cubes"></i>
-                        <div class="metric-info">
-                            <span class="metric-label">In Stock</span>
-                            <span class="metric-value" id="total-stock">0</span>
-                        </div>
-                    </div>
-                    <div class="metric-card warning">
-                        <i class="fas fa-exclamation-triangle"></i>
-                        <div class="metric-info">
-                            <span class="metric-label">Low Stock</span>
-                            <span class="metric-value" id="low-stock">0</span>
-                        </div>
-                    </div>
-                    <div class="metric-card success">
-                        <i class="fas fa-rupee-sign"></i>
-                        <div class="metric-info">
-                            <span class="metric-label">Today's Sales</span>
-                            <span class="metric-value" id="today-sales">₹0</span>
-                        </div>
-                    </div>
-                    <div class="metric-card info">
-                        <i class="fas fa-credit-card"></i>
-                        <div class="metric-info">
-                            <span class="metric-label">Outstanding</span>
-                            <span class="metric-value" id="outstanding">₹0</span>
-                        </div>
-                    </div>
-                </div>
+        <section class="glass-card">
+            <div id="reader"></div>
+            <div class="scanner-controls">
+                <button class="cam-btn-active" onclick="toggleScanner('inventory')">
+                    <i class="fas fa-camera"></i> Start Camera
+                </button>
+                <label class="file-label">
+                    <i class="fas fa-file-image"></i> Scan Image File
+                    <input type="file" id="inv-file-input" accept="image/*" style="display:none"
+                        onchange="scanFile(this, 'inventory')">
+                </label>
+            </div>
+        </section>
 
-                <div class="section">
-                    <h3><i class="fas fa-history"></i> Recent Transactions</h3>
-                    <div id="recent-transactions" class="recent-list"></div>
-                </div>
-
-                <div class="section">
-                    <h3><i class="fas fa-exclamation-circle"></i> Low Stock Alerts</h3>
-                    <div id="stock-alerts" class="alert-list"></div>
-                </div>
+        <section class="glass-card">
+            <div class="form-group">
+                <label><i class="fas fa-barcode"></i> Barcode ID</label>
+                <input type="text" id="part-id" placeholder="Enter or scan barcode">
             </div>
 
-            <!-- STOCK LIST SCREEN -->
-            <div id="stock-list-screen" class="screen">
-                <div class="screen-header">
-                    <h2>Inventory Stock</h2>
-                    <button class="btn-add" onclick="showScreen('add-inventory-screen')">
-                        <i class="fas fa-plus"></i>
-                    </button>
-                </div>
-
-                <div class="search-bar">
-                    <i class="fas fa-search"></i>
-                    <input type="text" id="search-inventory" placeholder="Search items..." onkeyup="searchInventory()">
-                </div>
-
-                <div id="inventory-list" class="inventory-grid"></div>
+            <div class="form-group">
+                <label><i class="fas fa-tag"></i> Part Name</label>
+                <input type="text" id="part-name" placeholder="Enter part name">
             </div>
 
-            <!-- ADD INVENTORY SCREEN -->
-            <div id="add-inventory-screen" class="screen">
-                <div class="screen-header">
-                    <button class="btn-back" onclick="showScreen('stock-list-screen')">
-                        <i class="fas fa-arrow-left"></i>
-                    </button>
-                    <h2>Add / Edit Item</h2>
+            <div class="form-row">
+                <div class="form-group half">
+                    <label><i class="fas fa-rupee-sign"></i> Price (₹)</label>
+                    <input type="number" id="part-price" placeholder="0.00" step="0.01" min="0">
                 </div>
 
-                <div class="form-card">
-                    <div class="form-group">
-                        <label><i class="fas fa-barcode"></i> Barcode / Part ID *</label>
-                        <div class="input-with-scan">
-                            <input type="text" id="part-id" placeholder="Scan or type barcode" readonly>
-                            <button class="btn-scan" onclick="toggleScanner('inventory')">
-                                <i class="fas fa-camera"></i> Scan
-                            </button>
-                        </div>
-                    </div>
-
-                    <div id="reader" class="scanner-container" style="display: none;"></div>
-
-                    <div class="form-group">
-                        <label><i class="fas fa-tag"></i> Part Name *</label>
-                        <input type="text" id="part-name" placeholder="Enter part name">
-                    </div>
-
-                    <div class="form-row">
-                        <div class="form-group half">
-                            <label><i class="fas fa-rupee-sign"></i> Price *</label>
-                            <input type="number" id="part-price" placeholder="0.00" step="0.01">
-                        </div>
-                        <div class="form-group half">
-                            <label><i class="fas fa-hashtag"></i> Quantity</label>
-                            <input type="number" id="part-quantity" placeholder="0" value="0">
-                        </div>
-                    </div>
-
-                    <div class="form-row">
-                        <div class="form-group half">
-                            <label><i class="fas fa-folder"></i> Category</label>
-                            <select id="part-category">
-                                <option value="General">General</option>
-                                <option value="Engine">Engine</option>
-                                <option value="Electrical">Electrical</option>
-                                <option value="Brakes">Brakes</option>
-                                <option value="Suspension">Suspension</option>
-                            </select>
-                        </div>
-                        <div class="form-group half">
-                            <label><i class="fas fa-map-marker-alt"></i> Location</label>
-                            <input type="text" id="part-location" placeholder="Shelf A-12">
-                        </div>
-                    </div>
-
-                    <button class="btn-primary btn-large" onclick="addInventoryItem()">
-                        <i class="fas fa-save"></i> Save Item
-                    </button>
-                </div>
-            </div>
-
-            <!-- BILLING SCREEN -->
-            <div id="billing-screen" class="screen">
-                <div class="screen-header">
-                    <h2>Create New Bill</h2>
-                    <button class="btn-clear" onclick="clearBill()">
-                        <i class="fas fa-trash"></i>
-                    </button>
-                </div>
-
-                <div class="customer-section">
-                    <div class="form-row">
-                        <div class="form-group half">
-                            <label>Customer Name</label>
-                            <input type="text" id="bill-customer-name" placeholder="Walk-in Customer">
-                        </div>
-                        <div class="form-group half">
-                            <label>Phone</label>
-                            <input type="tel" id="bill-customer-phone" placeholder="Optional">
-                        </div>
-                    </div>
-                </div>
-
-                <div class="add-item-section">
-                    <h3>Add Item to Bill</h3>
-
-                    <div class="form-group">
-                        <label>Scan Barcode</label>
-                        <div class="input-with-scan">
-                            <input type="text" id="bill-item-id" placeholder="Scan or type barcode" readonly>
-                            <button class="btn-scan" onclick="toggleScanner('bill')">
-                                <i class="fas fa-camera"></i> Scan
-                            </button>
-                        </div>
-                    </div>
-
-                    <div id="bill-reader" class="scanner-container" style="display: none;"></div>
-
-                    <div class="form-group">
-                        <label>Description</label>
-                        <input type="text" id="bill-desc" placeholder="Item description">
-                    </div>
-
-                    <div class="form-row">
-                        <div class="form-group half">
-                            <label>Price (₹)</label>
-                            <input type="number" id="bill-price" placeholder="0.00" step="0.01">
-                        </div>
-                        <div class="form-group half">
-                            <label>Quantity</label>
-                            <div class="qty-controls">
-                                <button class="qty-btn" onclick="changeQty('bill-qty', -1)">-</button>
-                                <input type="number" id="bill-qty" value="1" min="1">
-                                <button class="qty-btn" onclick="changeQty('bill-qty', 1)">+</button>
-                            </div>
-                        </div>
-                    </div>
-
-                    <button class="btn-secondary btn-large" onclick="addToBill()">
-                        <i class="fas fa-cart-plus"></i> Add to Bill
-                    </button>
-                </div>
-
-                <div class="current-bill">
-                    <h3>Current Bill Items</h3>
-                    <div class="bill-items-container">
-                        <table class="bill-table">
-                            <thead>
-                                <tr>
-                                    <th>Item</th>
-                                    <th>Qty</th>
-                                    <th>Price</th>
-                                    <th>Total</th>
-                                    <th></th>
-                                </tr>
-                            </thead>
-                            <tbody id="bill-items-list"></tbody>
-                        </table>
-                    </div>
-
-                    <div class="bill-summary">
-                        <div class="summary-row">
-                            <span>Subtotal:</span>
-                            <span id="bill-subtotal">₹0.00</span>
-                        </div>
-                        <div class="summary-row">
-                            <span>Tax (18%):</span>
-                            <span id="bill-tax">₹0.00</span>
-                        </div>
-                        <div class="summary-row total">
-                            <span>Total:</span>
-                            <span id="bill-total">₹0.00</span>
-                        </div>
-                    </div>
-
-                    <div class="payment-section">
-                        <div class="form-group">
-                            <label>Payment Method</label>
-                            <select id="payment-method">
-                                <option value="Cash">Cash</option>
-                                <option value="Card">Card</option>
-                                <option value="UPI">UPI</option>
-                            </select>
-                        </div>
-
-                        <button class="btn-success btn-large" onclick="completeBill()">
-                            <i class="fas fa-check-circle"></i> Complete Bill
-                        </button>
+                <div class="form-group half">
+                    <label><i class="fas fa-cubes"></i> Quantity</label>
+                    <div class="stepper-container">
+                        <button type="button" class="step-btn" onclick="changeQty('part-qty', -1)">−</button>
+                        <input type="number" id="part-qty" value="1" min="1">
+                        <button type="button" class="step-btn" onclick="changeQty('part-qty', 1)">+</button>
                     </div>
                 </div>
             </div>
 
-            <!-- LEDGER SCREEN -->
-            <div id="ledger-screen" class="screen">
-                <div class="screen-header">
-                    <h2>Ledger Book</h2>
-                    <button class="btn-export" onclick="exportLedger()">
-                        <i class="fas fa-download"></i>
+            <div class="form-group">
+                <label><i class="fas fa-layer-group"></i> Category</label>
+                <select id="part-category">
+                    <option value="general">General</option>
+                    <option value="brake">Brake System</option>
+                    <option value="engine">Engine</option>
+                    <option value="electrical">Electrical</option>
+                    <option value="body">Body Parts</option>
+                </select>
+            </div>
+
+            <div class="form-row">
+                <div class="form-group half">
+                    <label><i class="fas fa-map-marker-alt"></i> Location</label>
+                    <input type="text" id="part-location" placeholder="Shelf / Rack">
+                </div>
+
+                <div class="form-group half">
+                    <label><i class="fas fa-exclamation-triangle"></i> Min Stock</label>
+                    <input type="number" id="part-min-stock" value="5" min="0">
+                </div>
+            </div>
+
+            <button onclick="savePart()" class="action-btn save">
+                <i class="fas fa-save"></i> Save Stock
+            </button>
+        </section>
+    </div>
+
+    <!-- Quick Bill Screen -->
+    <div id="quick-bill-screen" class="screen">
+        <button class="back-menu-btn" onclick="goToDashboard()">
+            <i class="fas fa-arrow-left"></i> Back to Menu
+        </button>
+
+        <section class="glass-card">
+            <div id="bill-reader"></div>
+            <div class="scanner-controls">
+                <button class="cam-btn-active" onclick="toggleScanner('bill')">
+                    <i class="fas fa-camera"></i> Start Camera
+                </button>
+                <label class="file-label">
+                    <i class="fas fa-file-image"></i> Scan Image File
+                    <input type="file" id="bill-file-input" accept="image/*" style="display:none"
+                        onchange="scanFile(this, 'bill')">
+                </label>
+            </div>
+        </section>
+
+        <section class="glass-card">
+            <div class="form-group">
+                <label><i class="fas fa-user"></i> Customer Name *</label>
+                <input type="text" id="bill-cust-name" placeholder="Enter customer name" required>
+            </div>
+
+            <div class="form-row">
+                <div class="form-group half">
+                    <label><i class="fas fa-barcode"></i> Barcode</label>
+                    <input type="text" id="bill-item-id" placeholder="Scan barcode">
+                </div>
+                <div class="form-group half">
+                    <label><i class="fas fa-box"></i> Item Name</label>
+                    <input type="text" id="bill-desc" placeholder="Item description">
+                </div>
+            </div>
+
+            <div class="form-row">
+                <div class="form-group third">
+                    <label><i class="fas fa-rupee-sign"></i> Price</label>
+                    <input type="number" id="bill-price" placeholder="0.00" step="0.01">
+                </div>
+                <div class="form-group third">
+                    <label><i class="fas fa-sort-amount-up"></i> Qty</label>
+                    <div class="stepper-container small">
+                        <button type="button" class="step-btn" onclick="changeQty('bill-qty', -1)">−</button>
+                        <input type="number" id="bill-qty" value="1" min="1">
+                        <button type="button" class="step-btn" onclick="changeQty('bill-qty', 1)">+</button>
+                    </div>
+                </div>
+                <div class="form-group third">
+                    <label>&nbsp;</label>
+                    <button onclick="addItemToCurrentBill()" class="action-btn add small">
+                        <i class="fas fa-plus"></i> Add
                     </button>
                 </div>
+            </div>
+        </section>
 
-                <div class="ledger-summary">
-                    <div class="summary-card">
-                        <span class="label">Total Sales</span>
-                        <span class="value" id="total-sales">₹0</span>
-                    </div>
-                    <div class="summary-card">
-                        <span class="label">Outstanding</span>
-                        <span class="value" id="total-outstanding">₹0</span>
-                    </div>
+        <section id="current-items-section" class="glass-card" style="display:none;">
+            <h4>Current Bill</h4>
+            <div class="table-scroll">
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Item</th>
+                            <th>Qty</th>
+                            <th>Price</th>
+                            <th>Total</th>
+                            <th></th>
+                        </tr>
+                    </thead>
+                    <tbody id="current-bill-body"></tbody>
+                </table>
+            </div>
+
+            <div class="bill-summary">
+                <div class="summary-row">
+                    <span>Subtotal:</span>
+                    <span>₹<span id="bill-subtotal">0</span></span>
                 </div>
+                <div class="summary-row">
+                    <span>Discount:</span>
+                    <span>
+                        <input type="number" id="bill-discount" value="0" min="0" class="discount-input"
+                            onchange="updateBillTotal()">
+                    </span>
+                </div>
+                <div class="summary-row total">
+                    <span>Total:</span>
+                    <span>₹<span id="bill-total">0</span></span>
+                </div>
+            </div>
 
-                <div class="filter-bar">
-                    <select id="ledger-filter" onchange="filterLedger()">
-                        <option value="all">All Transactions</option>
-                        <option value="due">Due Payments</option>
-                        <option value="paid">Paid</option>
+            <div class="form-row">
+                <div class="form-group half">
+                    <label><i class="fas fa-credit-card"></i> Payment</label>
+                    <select id="payment-method">
+                        <option value="cash">Cash</option>
+                        <option value="card">Card</option>
+                        <option value="upi">UPI</option>
+                        <option value="credit">Credit</option>
                     </select>
                 </div>
-
-                <div id="ledger-entries" class="ledger-list"></div>
+                <div class="form-group half">
+                    <label><i class="fas fa-money-bill"></i> Amount Paid</label>
+                    <input type="number" id="amount-paid" placeholder="0.00" onkeyup="calculateBalance()">
+                </div>
             </div>
 
-            <!-- CUSTOMERS SCREEN -->
-            <div id="customers-screen" class="screen">
-                <div class="screen-header">
-                    <h2>Customers</h2>
-                    <button class="btn-add" onclick="showAddCustomerForm()">
-                        <i class="fas fa-user-plus"></i>
-                    </button>
-                </div>
+            <div id="balance-due"></div>
 
-                <div class="search-bar">
-                    <i class="fas fa-search"></i>
-                    <input type="text" id="search-customer" placeholder="Search customers..."
-                        onkeyup="searchCustomers()">
-                </div>
+            <button onclick="finalizeBill()" class="action-btn finalize">
+                <i class="fas fa-check-circle"></i> Finalize Bill
+            </button>
 
-                <div id="customers-list" class="customers-grid"></div>
+            <button onclick="clearBill()" class="action-btn secondary">
+                <i class="fas fa-trash"></i> Clear Bill
+            </button>
+        </section>
+    </div>
+
+    <!-- Reports Screen (Stock List) -->
+    <div id="stock-list-screen" class="screen">
+        <button class="back-menu-btn" onclick="goToDashboard()">
+            <i class="fas fa-arrow-left"></i> Back to Menu
+        </button>
+
+        <section class="glass-card">
+            <div class="form-group">
+                <label><i class="fas fa-search"></i> Search Items</label>
+                <input type="text" id="stock-search" placeholder="Search by name or barcode..."
+                    onkeyup="updateInventoryUI()">
             </div>
 
-            <!-- SCAN SCREEN -->
-            <div id="scan-screen" class="screen">
-                <div class="screen-header">
-                    <h2>Barcode Scanner</h2>
-                </div>
+            <div class="form-group">
+                <label><i class="fas fa-filter"></i> Filter</label>
+                <select id="stock-filter" onchange="updateInventoryUI()">
+                    <option value="all">All Items</option>
+                    <option value="low">Low Stock</option>
+                    <option value="out">Out of Stock</option>
+                </select>
+            </div>
 
-                <div class="scanner-full" id="full-scanner"></div>
-
-                <div class="scan-options">
-                    <button class="btn-primary" onclick="startFullScanner('inventory')">
-                        <i class="fas fa-box"></i> Scan for Stock
-                    </button>
-                    <button class="btn-secondary" onclick="startFullScanner('bill')">
-                        <i class="fas fa-receipt"></i> Scan for Bill
-                    </button>
+            <div class="stats-grid small">
+                <div class="stat-mini">
+                    <span class="label">Total Value</span>
+                    <span class="value" id="total-value">₹0</span>
                 </div>
-
-                <div class="manual-entry">
-                    <p>Or enter barcode manually:</p>
-                    <div class="input-group">
-                        <input type="text" id="manual-barcode" placeholder="Enter barcode">
-                        <button onclick="lookupBarcode(document.getElementById('manual-barcode').value)">
-                            <i class="fas fa-arrow-right"></i>
-                        </button>
-                    </div>
+                <div class="stat-mini">
+                    <span class="label">Items</span>
+                    <span class="value" id="total-items-count">0</span>
                 </div>
+            </div>
+
+            <div class="table-scroll">
+                <table class="inventory-table">
+                    <thead>
+                        <tr>
+                            <th>Item</th>
+                            <th>In</th>
+                            <th>Left</th>
+                            <th>Price</th>
+                            <th>Action</th>
+                        </tr>
+                    </thead>
+                    <tbody id="inventory-list-table"></tbody>
+                </table>
+            </div>
+
+            <button onclick="exportInventory()" class="action-btn export">
+                <i class="fas fa-download"></i> Export CSV
+            </button>
+        </section>
+    </div>
+
+    <!-- Ledger Screen -->
+    <div id="ledger-screen" class="screen">
+        <button class="back-menu-btn" onclick="goToDashboard()">
+            <i class="fas fa-arrow-left"></i> Back to Menu
+        </button>
+
+        <section class="glass-card">
+            <h4>Customer Balances</h4>
+            <div id="customer-balances-list" class="balances-list"></div>
+
+            <div class="stats-grid small">
+                <div class="stat-mini">
+                    <span class="label">Total Sales</span>
+                    <span class="value" id="ledger-total">₹0</span>
+                </div>
+                <div class="stat-mini">
+                    <span class="label">Due Amount</span>
+                    <span class="value" id="credit-due">₹0</span>
+                </div>
+            </div>
+
+            <h4 style="margin-top: 20px;">Transaction History</h4>
+            <div id="bill-history-list" class="transaction-list"></div>
+
+            <button onclick="exportLedger()" class="action-btn export">
+                <i class="fas fa-download"></i> Export Ledger
+            </button>
+        </section>
+    </div>
+
+    <!-- Customers Screen -->
+    <div id="customers-screen" class="screen">
+        <button class="back-menu-btn" onclick="goToDashboard()">
+            <i class="fas fa-arrow-left"></i> Back to Menu
+        </button>
+
+        <section class="glass-card">
+            <div class="search-add-bar">
+                <div class="form-group" style="flex: 1;">
+                    <label><i class="fas fa-search"></i> Search Customers</label>
+                    <input type="text" id="customer-search" placeholder="Search by name..."
+                        onkeyup="updateCustomersUI()">
+                </div>
+                <button onclick="showAddCustomerModal()" class="add-btn">
+                    <i class="fas fa-plus"></i> Add
+                </button>
+            </div>
+
+            <div id="customers-list" class="customers-grid"></div>
+        </section>
+    </div>
+
+    <!-- Add Customer Modal -->
+    <div id="customer-modal" class="modal">
+        <div class="modal-content glass-card">
+            <h3><i class="fas fa-user-plus"></i> Add Customer</h3>
+
+            <div class="form-group">
+                <label><i class="fas fa-user"></i> Customer Name *</label>
+                <input type="text" id="cust-name" placeholder="Enter full name">
+            </div>
+
+            <div class="form-group">
+                <label><i class="fas fa-phone"></i> Phone Number</label>
+                <input type="text" id="cust-phone" placeholder="Enter phone number">
+            </div>
+
+            <div class="form-group">
+                <label><i class="fas fa-envelope"></i> Email</label>
+                <input type="email" id="cust-email" placeholder="Enter email">
+            </div>
+
+            <div class="form-group">
+                <label><i class="fas fa-map-marker-alt"></i> Address</label>
+                <input type="text" id="cust-address" placeholder="Enter address">
+            </div>
+
+            <div class="form-group">
+                <label><i class="fas fa-id-card"></i> GST Number</label>
+                <input type="text" id="cust-gst" placeholder="Enter GST (optional)">
+            </div>
+
+            <div class="modal-actions">
+                <button onclick="saveCustomer()" class="action-btn save">Save Customer</button>
+                <button onclick="closeCustomerModal()" class="action-btn cancel">Cancel</button>
             </div>
         </div>
     </div>
 
-    <!-- Modals -->
+    <!-- Bill Preview Modal -->
     <div id="bill-preview-modal" class="modal">
-        <div class="modal-content">
+        <div class="modal-content glass-card">
             <div class="modal-header">
-                <h2>Bill Preview</h2>
-                <button class="close-modal" onclick="closeModal()"><i class="fas fa-times"></i></button>
+                <h3><i class="fas fa-file-invoice"></i> Bill Preview</h3>
+                <button onclick="closeModal()" class="close-btn"><i class="fas fa-times"></i></button>
             </div>
             <div class="modal-body" id="bill-preview-content"></div>
-            <div class="modal-footer">
-                <button class="btn-secondary" onclick="printBill()"><i class="fas fa-print"></i> Print</button>
-                <button class="btn-primary" onclick="closeModal()"><i class="fas fa-check"></i> Done</button>
+            <div class="modal-actions">
+                <button onclick="printBill()" class="action-btn print">
+                    <i class="fas fa-print"></i> Print
+                </button>
+                <button onclick="closeModal()" class="action-btn cancel">Close</button>
             </div>
         </div>
     </div>
 
-    <div id="customer-modal" class="modal">
-        <div class="modal-content">
-            <div class="modal-header">
-                <h2>Add Customer</h2>
-                <button class="close-modal" onclick="closeModal()"><i class="fas fa-times"></i></button>
-            </div>
-            <div class="modal-body">
-                <div class="form-group">
-                    <label>Name *</label>
-                    <input type="text" id="modal-customer-name">
-                </div>
-                <div class="form-group">
-                    <label>Phone</label>
-                    <input type="tel" id="modal-customer-phone">
-                </div>
-                <div class="form-group">
-                    <label>Email</label>
-                    <input type="email" id="modal-customer-email">
-                </div>
-                <div class="form-group">
-                    <label>Address</label>
-                    <textarea id="modal-customer-address" rows="3"></textarea>
-                </div>
-            </div>
-            <div class="modal-footer">
-                <button class="btn-secondary" onclick="closeModal()">Cancel</button>
-                <button class="btn-primary" onclick="saveCustomerFromModal()">Save Customer</button>
-            </div>
-        </div>
+    <!-- Floating Action Button -->
+    <button class="fab" onclick="toggleQuickMenu()">
+        <i class="fas fa-plus"></i>
+    </button>
+
+    <!-- Quick Actions Menu -->
+    <div id="quick-actions-menu" class="quick-actions-menu glass-card">
+        <button onclick="showScreen('quick-bill-screen'); toggleQuickMenu()">
+            <i class="fas fa-receipt"></i> New Bill
+        </button>
+        <button onclick="showScreen('inventory-screen'); toggleQuickMenu()">
+            <i class="fas fa-box"></i> Add Stock
+        </button>
+        <button onclick="showAddCustomerModal(); toggleQuickMenu()">
+            <i class="fas fa-user-plus"></i> Add Customer
+        </button>
+        <button onclick="handleSync(); toggleQuickMenu()">
+            <i class="fas fa-cloud-upload-alt"></i> Sync Now
+        </button>
     </div>
 
+    <!-- Toast Container -->
+    <div id="toast-container" class="toast-container"></div>
+
+    <!-- Custom JavaScript -->
     <script src="app.js"></script>
-    <script>
-        if ('serviceWorker' in navigator) {
-            navigator.serviceWorker.register('sw.js').catch(err => console.log('SW failed:', err));
-        }
-    </script>
 </body>
 
 </html>
