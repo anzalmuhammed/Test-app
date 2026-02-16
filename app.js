@@ -102,10 +102,15 @@ async function updateDashboard() {
             }
         });
 
-        document.getElementById('dash-total-items').textContent = totalItems;
-        document.getElementById('dash-total-sales').textContent = '₹' + totalSales.toFixed(2);
-        document.getElementById('dash-total-customers').textContent = totalCustomers;
-        document.getElementById('dash-low-stock').textContent = lowStock;
+        const dashTotalItems = document.getElementById('dash-total-items');
+        const dashTotalSales = document.getElementById('dash-total-sales');
+        const dashTotalCustomers = document.getElementById('dash-total-customers');
+        const dashLowStock = document.getElementById('dash-low-stock');
+
+        if (dashTotalItems) dashTotalItems.textContent = totalItems;
+        if (dashTotalSales) dashTotalSales.textContent = '₹' + totalSales.toFixed(2);
+        if (dashTotalCustomers) dashTotalCustomers.textContent = totalCustomers;
+        if (dashLowStock) dashLowStock.textContent = lowStock;
 
         const recentDiv = document.getElementById('dash-recent');
         if (recentDiv) {
@@ -130,10 +135,10 @@ async function updateDashboard() {
 
 // ==================== INVENTORY ====================
 async function savePart() {
-    const id = document.getElementById('part-id').value.trim();
-    const name = document.getElementById('part-name').value.trim();
-    const price = parseFloat(document.getElementById('part-price').value) || 0;
-    const qty = parseInt(document.getElementById('part-qty').value) || 1;
+    const id = document.getElementById('part-id')?.value.trim();
+    const name = document.getElementById('part-name')?.value.trim();
+    const price = parseFloat(document.getElementById('part-price')?.value) || 0;
+    const qty = parseInt(document.getElementById('part-qty')?.value) || 1;
 
     if (!id || !name) {
         showToast('Please enter Barcode ID and Part Name', 'error');
@@ -163,10 +168,15 @@ async function savePart() {
         doc.updatedAt = new Date().toISOString();
         await db.put(doc);
 
-        document.getElementById('part-id').value = '';
-        document.getElementById('part-name').value = '';
-        document.getElementById('part-price').value = '';
-        document.getElementById('part-qty').value = '1';
+        const partId = document.getElementById('part-id');
+        const partName = document.getElementById('part-name');
+        const partPrice = document.getElementById('part-price');
+        const partQty = document.getElementById('part-qty');
+
+        if (partId) partId.value = '';
+        if (partName) partName.value = '';
+        if (partPrice) partPrice.value = '';
+        if (partQty) partQty.value = '1';
 
         showToast('Stock saved successfully!', 'success');
         updateInventoryUI();
@@ -203,8 +213,11 @@ async function updateInventoryUI() {
             totalValue += ((item.totalIn || 0) - (item.totalSold || 0)) * (item.price || 0);
         });
 
-        document.getElementById('total-value').textContent = '₹' + totalValue.toFixed(2);
-        document.getElementById('total-items-count').textContent = filtered.length;
+        const totalValueEl = document.getElementById('total-value');
+        const totalItemsEl = document.getElementById('total-items-count');
+
+        if (totalValueEl) totalValueEl.textContent = '₹' + totalValue.toFixed(2);
+        if (totalItemsEl) totalItemsEl.textContent = filtered.length;
 
         const tbody = document.getElementById('inventory-list-table');
         if (tbody) {
@@ -243,9 +256,9 @@ async function deleteItem(id) {
 
 // ==================== BILLING ====================
 function addItemToCurrentBill() {
-    const desc = document.getElementById('bill-desc').value.trim();
-    const price = parseFloat(document.getElementById('bill-price').value) || 0;
-    const qty = parseInt(document.getElementById('bill-qty').value) || 1;
+    const desc = document.getElementById('bill-desc')?.value.trim();
+    const price = parseFloat(document.getElementById('bill-price')?.value) || 0;
+    const qty = parseInt(document.getElementById('bill-qty')?.value) || 1;
 
     if (!desc) {
         showToast('Please enter item description', 'error');
@@ -259,10 +272,15 @@ function addItemToCurrentBill() {
         total: price * qty
     });
 
-    document.getElementById('bill-item-id').value = '';
-    document.getElementById('bill-desc').value = '';
-    document.getElementById('bill-price').value = '';
-    document.getElementById('bill-qty').value = '1';
+    const billItemId = document.getElementById('bill-item-id');
+    const billDesc = document.getElementById('bill-desc');
+    const billPrice = document.getElementById('bill-price');
+    const billQty = document.getElementById('bill-qty');
+
+    if (billItemId) billItemId.value = '';
+    if (billDesc) billDesc.value = '';
+    if (billPrice) billPrice.value = '';
+    if (billQty) billQty.value = '1';
 
     renderBillList();
 }
@@ -287,8 +305,12 @@ function renderBillList() {
         `;
     });
 
-    document.getElementById('bill-subtotal').textContent = subtotal.toFixed(2);
-    document.getElementById('current-items-section').style.display = 'block';
+    const billSubtotal = document.getElementById('bill-subtotal');
+    const currentItemsSection = document.getElementById('current-items-section');
+
+    if (billSubtotal) billSubtotal.textContent = subtotal.toFixed(2);
+    if (currentItemsSection) currentItemsSection.style.display = 'block';
+
     updateBillTotal();
 }
 
@@ -298,16 +320,19 @@ function removeBillItem(index) {
 }
 
 function updateBillTotal() {
-    const subtotal = parseFloat(document.getElementById('bill-subtotal').textContent) || 0;
-    const discount = parseFloat(document.getElementById('bill-discount').value) || 0;
+    const subtotal = parseFloat(document.getElementById('bill-subtotal')?.textContent) || 0;
+    const discount = parseFloat(document.getElementById('bill-discount')?.value) || 0;
     const total = Math.max(0, subtotal - discount);
-    document.getElementById('bill-total').textContent = total.toFixed(2);
+
+    const billTotal = document.getElementById('bill-total');
+    if (billTotal) billTotal.textContent = total.toFixed(2);
+
     calculateBalance();
 }
 
 function calculateBalance() {
-    const total = parseFloat(document.getElementById('bill-total').textContent) || 0;
-    const paid = parseFloat(document.getElementById('amount-paid').value) || 0;
+    const total = parseFloat(document.getElementById('bill-total')?.textContent) || 0;
+    const paid = parseFloat(document.getElementById('amount-paid')?.value) || 0;
     const balance = total - paid;
     const el = document.getElementById('balance-due');
 
@@ -326,14 +351,14 @@ function calculateBalance() {
 }
 
 async function finalizeBill() {
-    const customer = document.getElementById('bill-cust-name').value.trim();
+    const customer = document.getElementById('bill-cust-name')?.value.trim();
     if (!customer || currentBillItems.length === 0) {
         showToast('Enter customer name and add items', 'error');
         return;
     }
 
-    const total = parseFloat(document.getElementById('bill-total').textContent) || 0;
-    const paid = parseFloat(document.getElementById('amount-paid').value) || 0;
+    const total = parseFloat(document.getElementById('bill-total')?.textContent) || 0;
+    const paid = parseFloat(document.getElementById('amount-paid')?.value) || 0;
     const balance = total - paid;
 
     try {
@@ -374,11 +399,18 @@ async function finalizeBill() {
 
 function clearBill() {
     currentBillItems = [];
-    document.getElementById('current-items-section').style.display = 'none';
-    document.getElementById('bill-cust-name').value = '';
-    document.getElementById('bill-discount').value = '0';
-    document.getElementById('amount-paid').value = '';
-    document.getElementById('balance-due').textContent = '';
+
+    const currentItemsSection = document.getElementById('current-items-section');
+    const billCustName = document.getElementById('bill-cust-name');
+    const billDiscount = document.getElementById('bill-discount');
+    const amountPaid = document.getElementById('amount-paid');
+    const balanceDue = document.getElementById('balance-due');
+
+    if (currentItemsSection) currentItemsSection.style.display = 'none';
+    if (billCustName) billCustName.value = '';
+    if (billDiscount) billDiscount.value = '0';
+    if (amountPaid) amountPaid.value = '';
+    if (balanceDue) balanceDue.textContent = '';
 }
 
 function showBillPreview(customer, total, paid, balance) {
@@ -405,8 +437,11 @@ function showBillPreview(customer, total, paid, balance) {
         <p><strong>Balance:</strong> ₹${balance.toFixed(2)}</p>
     `;
 
-    document.getElementById('bill-preview-content').innerHTML = content;
-    document.getElementById('bill-preview-modal').classList.add('active');
+    const previewContent = document.getElementById('bill-preview-content');
+    const previewModal = document.getElementById('bill-preview-modal');
+
+    if (previewContent) previewContent.innerHTML = content;
+    if (previewModal) previewModal.classList.add('active');
 }
 
 // ==================== CUSTOMERS ====================
@@ -420,7 +455,7 @@ async function loadCustomers() {
 }
 
 async function saveCustomer() {
-    const name = document.getElementById('cust-name').value.trim();
+    const name = document.getElementById('cust-name')?.value.trim();
     if (!name) {
         showToast('Name is required', 'error');
         return;
@@ -440,11 +475,18 @@ async function saveCustomer() {
         });
 
         closeCustomerModal();
-        document.getElementById('cust-name').value = '';
-        document.getElementById('cust-phone').value = '';
-        document.getElementById('cust-email').value = '';
-        document.getElementById('cust-address').value = '';
-        document.getElementById('cust-gst').value = '';
+
+        const custName = document.getElementById('cust-name');
+        const custPhone = document.getElementById('cust-phone');
+        const custEmail = document.getElementById('cust-email');
+        const custAddress = document.getElementById('cust-address');
+        const custGst = document.getElementById('cust-gst');
+
+        if (custName) custName.value = '';
+        if (custPhone) custPhone.value = '';
+        if (custEmail) custEmail.value = '';
+        if (custAddress) custAddress.value = '';
+        if (custGst) custGst.value = '';
 
         await updateCustomersUI();
         showToast('Customer saved', 'success');
@@ -497,8 +539,11 @@ async function updateLedgerUI() {
             }
         });
 
-        document.getElementById('ledger-total').textContent = '₹' + totalSales.toFixed(2);
-        document.getElementById('credit-due').textContent = '₹' + creditDue.toFixed(2);
+        const ledgerTotal = document.getElementById('ledger-total');
+        const creditDueEl = document.getElementById('credit-due');
+
+        if (ledgerTotal) ledgerTotal.textContent = '₹' + totalSales.toFixed(2);
+        if (creditDueEl) creditDueEl.textContent = '₹' + creditDue.toFixed(2);
 
         const balancesDiv = document.getElementById('customer-balances-list');
         if (balancesDiv) {
@@ -565,7 +610,7 @@ async function toggleScanner(type) {
                 qrbox: { width: 250, height: 250 }
             },
             (text) => {
-                playBeepAndVibrate(); // BEEP AND VIBRATE HERE!
+                playBeepAndVibrate();
                 handleScanResult(text, type);
             },
             (error) => console.log(error)
@@ -584,7 +629,7 @@ async function scanFile(input, type) {
     try {
         showToast('Processing image...', 'info');
         const result = await scanner.scanFile(input.files[0], true);
-        playBeepAndVibrate(); // BEEP AND VIBRATE HERE!
+        playBeepAndVibrate();
         handleScanResult(result, type);
     } catch (error) {
         showToast('Could not read barcode', 'error');
@@ -593,27 +638,42 @@ async function scanFile(input, type) {
 
 async function handleScanResult(text, type) {
     if (type === 'inventory') {
-        document.getElementById('part-id').value = text;
+        const partId = document.getElementById('part-id');
+        if (partId) partId.value = text;
+
         try {
             const doc = await db.get(text);
             if (doc && doc.type === 'inventory') {
-                document.getElementById('part-name').value = doc.name || '';
-                document.getElementById('part-price').value = doc.price || '';
-                document.getElementById('part-category').value = doc.category || 'general';
-                document.getElementById('part-location').value = doc.location || '';
-                document.getElementById('part-min-stock').value = doc.minStock || 5;
+                const partName = document.getElementById('part-name');
+                const partPrice = document.getElementById('part-price');
+                const partCategory = document.getElementById('part-category');
+                const partLocation = document.getElementById('part-location');
+                const partMinStock = document.getElementById('part-min-stock');
+
+                if (partName) partName.value = doc.name || '';
+                if (partPrice) partPrice.value = doc.price || '';
+                if (partCategory) partCategory.value = doc.category || 'general';
+                if (partLocation) partLocation.value = doc.location || '';
+                if (partMinStock) partMinStock.value = doc.minStock || 5;
+
                 showToast('Item found in inventory!', 'success');
             }
         } catch (e) {
             showToast('New item - fill details', 'info');
         }
     } else {
-        document.getElementById('bill-item-id').value = text;
+        const billItemId = document.getElementById('bill-item-id');
+        if (billItemId) billItemId.value = text;
+
         try {
             const doc = await db.get(text);
             if (doc && doc.type === 'inventory') {
-                document.getElementById('bill-desc').value = doc.name || '';
-                document.getElementById('bill-price').value = doc.price || '';
+                const billDesc = document.getElementById('bill-desc');
+                const billPrice = document.getElementById('bill-price');
+
+                if (billDesc) billDesc.value = doc.name || '';
+                if (billPrice) billPrice.value = doc.price || '';
+
                 showToast('Item added to bill!', 'success');
             } else {
                 showToast('Item not in inventory', 'warning');
@@ -705,30 +765,24 @@ async function uploadToDrive() {
         formData.append('file', new Blob([JSON.stringify(backupData)], { type: 'application/json' }));
 
         let uploadResponse;
+        let url;
+        let method;
 
         if (fileId) {
-            uploadResponse = await fetch(
-                `https://www.googleapis.com/upload/drive/v3/files/${fileId}?uploadType=multipart`,
-                {
-                    method: 'PATCH',
-                    headers: {
-                        'Authorization': `Bearer ${accessToken}`
-                    },
-                    body: formData
-                }
-            );
+            url = `https://www.googleapis.com/upload/drive/v3/files/${fileId}?uploadType=multipart`;
+            method = 'PATCH';
         } else {
-            uploadResponse = await fetch(
-                'https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart',
-                {
-                    method: 'POST',
-                    headers: {
-                        'Authorization': `Bearer ${accessToken}`
-                    },
-                    body: formData
-                }
-            );
+            url = 'https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart';
+            method = 'POST';
         }
+
+        uploadResponse = await fetch(url, {
+            method: method,
+            headers: {
+                'Authorization': `Bearer ${accessToken}`
+            },
+            body: formData
+        });
 
         if (uploadResponse.ok) {
             const time = new Date().toLocaleTimeString();
@@ -739,7 +793,9 @@ async function uploadToDrive() {
             if (syncText) syncText.textContent = `Synced at ${time}`;
             showToast('Backup successful!', 'success');
         } else {
-            throw new Error('Upload failed');
+            const errorData = await uploadResponse.text();
+            console.error('Upload failed:', errorData);
+            throw new Error('Upload failed: ' + uploadResponse.status);
         }
     } catch (error) {
         console.error('Sync error:', error);
@@ -748,7 +804,8 @@ async function uploadToDrive() {
             syncIcon.className = 'fas fa-exclamation-circle';
             syncIcon.style.color = '#ef4444';
         }
-        document.getElementById('sync-status-text').textContent = 'Sync failed';
+        const syncText = document.getElementById('sync-status-text');
+        if (syncText) syncText.textContent = 'Sync failed';
         showToast('Sync failed: ' + error.message, 'error');
     }
 }
@@ -786,7 +843,8 @@ window.onload = async () => {
             syncIcon.className = 'fas fa-check-circle';
             syncIcon.style.color = '#10b981';
         }
-        document.getElementById('sync-status-text').textContent = 'Ready to sync';
+        const syncText = document.getElementById('sync-status-text');
+        if (syncText) syncText.textContent = 'Ready to sync';
     }
 };
 
@@ -819,19 +877,23 @@ function showToast(message, type = 'info') {
 }
 
 function toggleQuickMenu() {
-    document.getElementById('quick-actions-menu').classList.toggle('active');
+    const menu = document.getElementById('quick-actions-menu');
+    if (menu) menu.classList.toggle('active');
 }
 
 function showAddCustomerModal() {
-    document.getElementById('customer-modal').classList.add('active');
+    const modal = document.getElementById('customer-modal');
+    if (modal) modal.classList.add('active');
 }
 
 function closeCustomerModal() {
-    document.getElementById('customer-modal').classList.remove('active');
+    const modal = document.getElementById('customer-modal');
+    if (modal) modal.classList.remove('active');
 }
 
 function closeModal() {
-    document.getElementById('bill-preview-modal').classList.remove('active');
+    const modal = document.getElementById('bill-preview-modal');
+    if (modal) modal.classList.remove('active');
 }
 
 function printBill() {
