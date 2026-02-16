@@ -31,7 +31,10 @@
             <i class="fas fa-cloud-upload-alt"></i> Sync
         </button>
     </nav>
-    <div id="sync-status">Status: Offline</div>
+    <div id="sync-status">
+        <i class="fas fa-circle" style="color: #fbbf24; font-size: 8px;"></i>
+        <span id="sync-status-text">Offline Mode</span>
+    </div>
 
     <!-- Main Menu Screen -->
     <div id="main-menu" class="screen active">
@@ -118,26 +121,50 @@
         </section>
 
         <section class="glass-card">
-            <input type="text" id="part-id" placeholder="Barcode ID">
-            <input type="text" id="part-name" placeholder="Part Name">
-            <input type="number" id="part-price" placeholder="Price (₹)">
-
-            <div class="stepper-container">
-                <button type="button" class="step-btn" onclick="changeQty('part-qty', -1)">−</button>
-                <input type="number" id="part-qty" value="1" min="1">
-                <button type="button" class="step-btn" onclick="changeQty('part-qty', 1)">+</button>
+            <div class="form-group">
+                <label><i class="fas fa-barcode"></i> Barcode ID</label>
+                <input type="text" id="part-id" placeholder="Enter or scan barcode">
             </div>
 
-            <select id="part-category">
-                <option value="general">General</option>
-                <option value="brake">Brake System</option>
-                <option value="engine">Engine</option>
-                <option value="electrical">Electrical</option>
-                <option value="body">Body Parts</option>
-            </select>
+            <div class="form-group">
+                <label><i class="fas fa-tag"></i> Part Name</label>
+                <input type="text" id="part-name" placeholder="Enter part name">
+            </div>
 
-            <input type="text" id="part-location" placeholder="Storage Location">
-            <input type="number" id="part-min-stock" placeholder="Min Stock Alert" value="5">
+            <div class="form-group">
+                <label><i class="fas fa-rupee-sign"></i> Price (₹)</label>
+                <input type="number" id="part-price" placeholder="0.00" step="0.01" min="0">
+            </div>
+
+            <div class="form-group">
+                <label><i class="fas fa-sort-amount-up"></i> Quantity</label>
+                <div class="stepper-container">
+                    <button type="button" class="step-btn" onclick="changeQty('part-qty', -1)">−</button>
+                    <input type="number" id="part-qty" value="1" min="1">
+                    <button type="button" class="step-btn" onclick="changeQty('part-qty', 1)">+</button>
+                </div>
+            </div>
+
+            <div class="form-group">
+                <label><i class="fas fa-layer-group"></i> Category</label>
+                <select id="part-category">
+                    <option value="general">General</option>
+                    <option value="brake">Brake System</option>
+                    <option value="engine">Engine</option>
+                    <option value="electrical">Electrical</option>
+                    <option value="body">Body Parts</option>
+                </select>
+            </div>
+
+            <div class="form-group">
+                <label><i class="fas fa-map-marker-alt"></i> Storage Location</label>
+                <input type="text" id="part-location" placeholder="Shelf / Rack number">
+            </div>
+
+            <div class="form-group">
+                <label><i class="fas fa-exclamation-triangle"></i> Min Stock Alert</label>
+                <input type="number" id="part-min-stock" value="5" min="0">
+            </div>
 
             <button onclick="savePart()" class="action-btn save">
                 <i class="fas fa-save"></i> Save Stock
@@ -166,15 +193,33 @@
         </section>
 
         <section class="glass-card">
-            <input type="text" id="bill-cust-name" placeholder="Customer Name" required>
-            <input type="text" id="bill-item-id" placeholder="Scan Barcode ID">
-            <input type="text" id="bill-desc" placeholder="Item Name">
-            <input type="number" id="bill-price" placeholder="Price (₹)">
+            <div class="form-group">
+                <label><i class="fas fa-user"></i> Customer Name *</label>
+                <input type="text" id="bill-cust-name" placeholder="Enter customer name" required>
+            </div>
 
-            <div class="stepper-container">
-                <button type="button" class="step-btn" onclick="changeQty('bill-qty', -1)">−</button>
-                <input type="number" id="bill-qty" value="1" min="1">
-                <button type="button" class="step-btn" onclick="changeQty('bill-qty', 1)">+</button>
+            <div class="form-group">
+                <label><i class="fas fa-barcode"></i> Scan Barcode</label>
+                <input type="text" id="bill-item-id" placeholder="Scan or enter barcode">
+            </div>
+
+            <div class="form-group">
+                <label><i class="fas fa-box"></i> Item Name</label>
+                <input type="text" id="bill-desc" placeholder="Item description">
+            </div>
+
+            <div class="form-group">
+                <label><i class="fas fa-rupee-sign"></i> Price (₹)</label>
+                <input type="number" id="bill-price" placeholder="0.00" step="0.01">
+            </div>
+
+            <div class="form-group">
+                <label><i class="fas fa-sort-amount-up"></i> Quantity</label>
+                <div class="stepper-container">
+                    <button type="button" class="step-btn" onclick="changeQty('bill-qty', -1)">−</button>
+                    <input type="number" id="bill-qty" value="1" min="1">
+                    <button type="button" class="step-btn" onclick="changeQty('bill-qty', 1)">+</button>
+                </div>
             </div>
 
             <button onclick="addItemToCurrentBill()" class="action-btn add">
@@ -217,14 +262,21 @@
                 </div>
             </div>
 
-            <select id="payment-method" style="margin-bottom: 10px;">
-                <option value="cash">Cash</option>
-                <option value="card">Card</option>
-                <option value="upi">UPI</option>
-                <option value="credit">Credit</option>
-            </select>
+            <div class="form-group">
+                <label><i class="fas fa-credit-card"></i> Payment Method</label>
+                <select id="payment-method">
+                    <option value="cash">Cash</option>
+                    <option value="card">Card</option>
+                    <option value="upi">UPI</option>
+                    <option value="credit">Credit</option>
+                </select>
+            </div>
 
-            <input type="number" id="amount-paid" placeholder="Amount Paid" onkeyup="calculateBalance()">
+            <div class="form-group">
+                <label><i class="fas fa-money-bill"></i> Amount Paid</label>
+                <input type="number" id="amount-paid" placeholder="0.00" onkeyup="calculateBalance()">
+            </div>
+
             <div id="balance-due"></div>
 
             <button onclick="finalizeBill()" class="action-btn finalize">
@@ -244,13 +296,20 @@
         </button>
 
         <section class="glass-card">
-            <input type="text" id="stock-search" placeholder="🔍 Search items..." onkeyup="updateInventoryUI()">
+            <div class="form-group">
+                <label><i class="fas fa-search"></i> Search Items</label>
+                <input type="text" id="stock-search" placeholder="Search by name or barcode..."
+                    onkeyup="updateInventoryUI()">
+            </div>
 
-            <select id="stock-filter" onchange="updateInventoryUI()" style="margin-bottom: 10px;">
-                <option value="all">All Items</option>
-                <option value="low">Low Stock</option>
-                <option value="out">Out of Stock</option>
-            </select>
+            <div class="form-group">
+                <label><i class="fas fa-filter"></i> Filter</label>
+                <select id="stock-filter" onchange="updateInventoryUI()">
+                    <option value="all">All Items</option>
+                    <option value="low">Low Stock</option>
+                    <option value="out">Out of Stock</option>
+                </select>
+            </div>
 
             <div class="stats-grid" style="margin: 10px 0;">
                 <div class="stat-card">
@@ -322,11 +381,14 @@
 
         <section class="glass-card">
             <div style="display: flex; gap: 10px; margin-bottom: 15px;">
-                <input type="text" id="customer-search" placeholder="🔍 Search customers..." style="flex: 1;"
-                    onkeyup="updateCustomersUI()">
+                <div style="flex: 1;">
+                    <label><i class="fas fa-search"></i> Search Customers</label>
+                    <input type="text" id="customer-search" placeholder="Search by name..."
+                        onkeyup="updateCustomersUI()">
+                </div>
                 <button onclick="showAddCustomerModal()" class="action-btn"
-                    style="width: auto; margin:0; padding:14px 20px;">
-                    <i class="fas fa-plus"></i>
+                    style="width: auto; margin:23px 0 0; padding:14px 20px;">
+                    <i class="fas fa-plus"></i> Add
                 </button>
             </div>
 
@@ -338,14 +400,34 @@
     <div id="customer-modal" class="modal">
         <div class="modal-content glass-card">
             <h3 style="margin-bottom: 15px;">Add Customer</h3>
-            <input type="text" id="cust-name" placeholder="Customer Name *">
-            <input type="text" id="cust-phone" placeholder="Phone Number">
-            <input type="email" id="cust-email" placeholder="Email">
-            <input type="text" id="cust-address" placeholder="Address">
-            <input type="text" id="cust-gst" placeholder="GST Number">
+
+            <div class="form-group">
+                <label><i class="fas fa-user"></i> Customer Name *</label>
+                <input type="text" id="cust-name" placeholder="Enter full name">
+            </div>
+
+            <div class="form-group">
+                <label><i class="fas fa-phone"></i> Phone Number</label>
+                <input type="text" id="cust-phone" placeholder="Enter phone number">
+            </div>
+
+            <div class="form-group">
+                <label><i class="fas fa-envelope"></i> Email</label>
+                <input type="email" id="cust-email" placeholder="Enter email">
+            </div>
+
+            <div class="form-group">
+                <label><i class="fas fa-map-marker-alt"></i> Address</label>
+                <input type="text" id="cust-address" placeholder="Enter address">
+            </div>
+
+            <div class="form-group">
+                <label><i class="fas fa-id-card"></i> GST Number</label>
+                <input type="text" id="cust-gst" placeholder="Enter GST (optional)">
+            </div>
 
             <div style="display: flex; gap: 10px; margin-top: 15px;">
-                <button onclick="saveCustomer()" class="action-btn save" style="margin:0;">Save</button>
+                <button onclick="saveCustomer()" class="action-btn save" style="margin:0;">Save Customer</button>
                 <button onclick="closeCustomerModal()" class="action-btn"
                     style="background:#64748b; margin:0;">Cancel</button>
             </div>

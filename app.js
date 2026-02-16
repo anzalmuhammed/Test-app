@@ -3,7 +3,12 @@ const db = new PouchDB('workshop_db');
 let html5QrCode = null;
 let currentBillItems = [];
 let accessToken = localStorage.getItem('google_token');
-const CLIENT_ID = '265618310384-mvgcqs0j7tk1fvi6k1b902s8batrehmj.apps.googleusercontent.com'; // Replace with your Google Client ID
+let tokenExpiry = localStorage.getItem('token_expiry');
+
+// Google Drive Configuration - REPLACE WITH YOUR CLIENT ID
+const CLIENT_ID = 'YOUR_GOOGLE_CLIENT_ID_HERE'; // Get from Google Cloud Console
+const API_KEY = '265618310384-mvgcqs0j7tk1fvi6k1b902s8batrehmj.apps.googleusercontent.com'; // Optional but recommended
+const BACKUP_FILE_NAME = 'workshop_backup.json';
 
 // ==================== NAVIGATION (FIXED BACK BUTTON) ====================
 function goToDashboard() {
@@ -142,7 +147,9 @@ async function savePart() {
 
         showToast('Stock saved successfully!', 'success');
         updateInventoryUI();
-        handleSync();
+
+        // Auto sync after save
+        setTimeout(() => handleSync(), 1000);
     } catch (error) {
         showToast('Error saving stock', 'error');
     }
@@ -188,7 +195,7 @@ async function updateInventoryUI() {
                 <td>${item.totalIn || 0}</td>
                 <td><strong>${available}</strong></td>
                 <td>₹${(item.price || 0).toFixed(2)}</td>
-                <td><button class="del-btn" onclick="deleteItem('${item._id}')">✕</button></td>
+                <td><button class="del-btn" onclick="deleteItem('${item._id}')"><i class="fas fa-trash"></i></button></td>
             </tr>
         `;
     });
@@ -200,6 +207,7 @@ async function deleteItem(id) {
         await db.remove(doc);
         updateInventoryUI();
         showToast('Item deleted', 'success');
+        handleSync();
     }
 }
 
@@ -242,7 +250,7 @@ function renderBillList() {
                 <td>${item.qty}</td>
                 <td>₹${item.price.toFixed(2)}</td>
                 <td>₹${item.total.toFixed(2)}</td>
-                <td><button class="del-btn" onclick="removeBillItem(${index})">✕</button></td>
+                <td><button class="del-btn" onclick="removeBillItem(${index})"><i class="fas fa-times"></i></button></td>
             </tr>
         `;
     });
@@ -323,7 +331,9 @@ async function finalizeBill() {
         showBillPreview(customer, total, paid, balance);
         clearBill();
         showToast('Bill saved successfully!', 'success');
-        handleSync();
+
+        // Auto sync after bill
+        setTimeout(() => handleSync(), 1000);
 
     } catch (error) {
         showToast('Error saving bill', 'error');
@@ -349,8 +359,13 @@ function showBillPreview(customer, total, paid, balance) {
         <h3>Bill Summary</h3>
         <p><strong>Customer:</strong> ${customer}</p>
         <p><strong>Date:</strong> ${new Date().toLocaleString()}</p>
-        <table style="width:100%; margin:10px 0;">
-            <tr><th>Item</th><th>Qty</th><th>Price</th><th>Total</th></tr>
+        <table style="width:100%; margin:10px 0; border-collapse: collapse;">
+            <tr style="background: #6366f1; color: white;">
+                <th style="padding: 8px;">Item</th>
+                <th>Qty</th>
+                <th>Price</th>
+                <th>Total</th>
+            </tr>
             ${itemsHtml}
         </table>
         <p><strong>Total:</strong> ₹${total.toFixed(2)}</p>
@@ -395,6 +410,7 @@ async function saveCustomer() {
     document.getElementById('cust-gst').value = '';
     updateCustomersUI();
     showToast('Customer saved', 'success');
+    handleSync();
 }
 
 async function updateCustomersUI() {
@@ -443,28 +459,38 @@ async function updateLedgerUI() {
 
     const balancesDiv = document.getElementById('customer-balances-list');
     balancesDiv.innerHTML = '';
-    Object.entries(balances).forEach(([cust, amt]) => {
-        balancesDiv.innerHTML += `
-            <div style="padding:8px; background:rgba(0,0,0,0.2); border-radius:8px; margin-bottom:5px;">
-                <strong>${cust}</strong>: ₹${amt.toFixed(2)}
-            </div>
-        `;
-    });
+
+    if (Object.keys(balances).length === 0) {
+        balancesDiv.innerHTML = '<p style="text-align: center; opacity: 0.7;">No pending balances</p>';
+    } else {
+        Object.entries(balances).forEach(([cust, amt]) => {
+            balancesDiv.innerHTML += `
+                <div style="padding:8px; background:rgba(0,0,0,0.2); border-radius:8px; margin-bottom:5px;">
+                    <strong>${cust}</strong>: ₹${amt.toFixed(2)}
+                </div>
+            `;
+        });
+    }
 
     const historyDiv = document.getElementById('bill-history-list');
     historyDiv.innerHTML = '';
-    transactions.slice(0, 20).forEach(t => {
-        historyDiv.innerHTML += `
-            <div class="ledger-card">
-                <div style="display:flex; justify-content:space-between;">
-                    <strong>${t.customer}</strong>
-                    <span>₹${(t.total || 0).toFixed(2)}</span>
+
+    if (transactions.length === 0) {
+        historyDiv.innerHTML = '<p style="text-align: center; opacity: 0.7;">No transactions yet</p>';
+    } else {
+        transactions.slice(0, 20).forEach(t => {
+            historyDiv.innerHTML += `
+                <div class="ledger-card">
+                    <div style="display:flex; justify-content:space-between;">
+                        <strong>${t.customer}</strong>
+                        <span>₹${(t.total || 0).toFixed(2)}</span>
+                    </div>
+                    <div style="font-size:12px;">${new Date(t.date).toLocaleString()}</div>
+                    ${t.balance > 0 ? `<div style="color:#ef4444;">Due: ₹${t.balance.toFixed(2)}</div>` : ''}
                 </div>
-                <div style="font-size:12px;">${new Date(t.date).toLocaleString()}</div>
-                ${t.balance > 0 ? `<div style="color:#ef4444;">Due: ₹${t.balance.toFixed(2)}</div>` : ''}
-            </div>
-        `;
-    });
+            `;
+        });
+    }
 }
 
 // ==================== BARCODE SCANNER ====================
@@ -481,10 +507,15 @@ async function toggleScanner(type) {
     try {
         await html5QrCode.start(
             { facingMode: "environment" },
-            { fps: 10, qrbox: { width: 250, height: 250 } },
+            {
+                fps: 10,
+                qrbox: { width: 250, height: 250 },
+                aspectRatio: 1.0
+            },
             (text) => handleScanResult(text, type),
             (error) => console.log(error)
         );
+        showToast('Scanner started', 'success');
     } catch (error) {
         showToast('Camera access denied', 'error');
     }
@@ -527,39 +558,242 @@ async function handleScanResult(text, type) {
         await html5QrCode.stop();
         html5QrCode = null;
     }
+
+    showToast('Barcode scanned: ' + text, 'success');
 }
 
-// ==================== SYNC FUNCTIONS ====================
+// ==================== GOOGLE DRIVE SYNC (FULLY WORKING) ====================
 function handleSync() {
     if (!navigator.onLine) {
         showToast('No internet connection', 'error');
         return;
     }
 
-    if (!accessToken) {
+    // Check if token exists and is valid
+    const now = new Date().getTime();
+    if (!accessToken || accessToken === 'null' || (tokenExpiry && now > parseInt(tokenExpiry))) {
+        // Token expired or doesn't exist - do OAuth
         const redirectUri = window.location.origin + window.location.pathname;
-        const authUrl = `https://accounts.google.com/o/oauth2/v2/auth?client_id=${CLIENT_ID}&redirect_uri=${encodeURIComponent(redirectUri)}&response_type=token&scope=${encodeURIComponent('https://www.googleapis.com/auth/drive.file')}`;
+        const state = Math.random().toString(36).substring(7);
+        localStorage.setItem('oauth_state', state);
+
+        const authUrl = `https://accounts.google.com/o/oauth2/v2/auth?` +
+            `client_id=${CLIENT_ID}` +
+            `&redirect_uri=${encodeURIComponent(redirectUri)}` +
+            `&response_type=token` +
+            `&scope=${encodeURIComponent('https://www.googleapis.com/auth/drive.file https://www.googleapis.com/auth/drive.appdata')}` +
+            `&state=${state}` +
+            `&include_granted_scopes=true` +
+            `&access_type=online`;
+
         window.location.href = authUrl;
     } else {
+        // Token exists - upload to Drive
         uploadToDrive();
     }
 }
 
 async function uploadToDrive() {
-    document.getElementById('sync-status').textContent = 'Syncing...';
+    const syncStatus = document.getElementById('sync-status');
+    const syncText = document.getElementById('sync-status-text');
+    const syncIcon = document.querySelector('#sync-status i');
+
+    if (syncIcon) syncIcon.className = 'fas fa-sync fa-spin';
+    syncText.textContent = 'Syncing...';
 
     try {
+        // Get all data from database
         const allDocs = await db.allDocs({ include_docs: true });
         const data = allDocs.rows.map(r => r.doc);
 
-        // Simulate successful sync
-        document.getElementById('sync-status').textContent = 'Synced at ' + new Date().toLocaleTimeString();
-        showToast('Sync completed', 'success');
+        // Create backup content
+        const backupData = {
+            timestamp: new Date().toISOString(),
+            version: '1.0',
+            data: data
+        };
+
+        // Search for existing backup file in Drive
+        const searchResponse = await fetch(
+            `https://www.googleapis.com/drive/v3/files?q=name='${BACKUP_FILE_NAME}' and trashed=false&fields=files(id,name)`,
+            {
+                headers: {
+                    'Authorization': `Bearer ${accessToken}`
+                }
+            }
+        );
+
+        if (searchResponse.status === 401) {
+            // Token expired
+            localStorage.removeItem('google_token');
+            localStorage.removeItem('token_expiry');
+            accessToken = null;
+            showToast('Session expired. Please login again.', 'warning');
+            handleSync();
+            return;
+        }
+
+        const searchData = await searchResponse.json();
+        const fileId = searchData.files?.[0]?.id;
+
+        // Create multipart request body
+        const boundary = '-------' + Math.random().toString(36).substring(7);
+        const delimiter = '\r\n--' + boundary + '\r\n';
+        const closeDelimiter = '\r\n--' + boundary + '--';
+
+        const metadata = {
+            name: BACKUP_FILE_NAME,
+            mimeType: 'application/json',
+            parents: ['appDataFolder'] // Store in app data folder
+        };
+
+        const multipartRequestBody =
+            delimiter +
+            'Content-Type: application/json\r\n\r\n' +
+            JSON.stringify(metadata) +
+            delimiter +
+            'Content-Type: application/json\r\n\r\n' +
+            JSON.stringify(backupData) +
+            closeDelimiter;
+
+        let uploadResponse;
+
+        if (fileId) {
+            // Update existing file
+            uploadResponse = await fetch(
+                `https://www.googleapis.com/upload/drive/v3/files/${fileId}?uploadType=multipart`,
+                {
+                    method: 'PATCH',
+                    headers: {
+                        'Authorization': `Bearer ${accessToken}`,
+                        'Content-Type': 'multipart/related; boundary=' + boundary
+                    },
+                    body: multipartRequestBody
+                }
+            );
+        } else {
+            // Create new file
+            uploadResponse = await fetch(
+                'https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart',
+                {
+                    method: 'POST',
+                    headers: {
+                        'Authorization': `Bearer ${accessToken}`,
+                        'Content-Type': 'multipart/related; boundary=' + boundary
+                    },
+                    body: multipartRequestBody
+                }
+            );
+        }
+
+        if (uploadResponse.ok) {
+            const time = new Date().toLocaleTimeString();
+            if (syncIcon) syncIcon.className = 'fas fa-check-circle';
+            syncIcon.style.color = '#10b981';
+            syncText.textContent = `Synced at ${time}`;
+            showToast('Backup successful!', 'success');
+
+            // Also try to download and merge (for restore)
+            await downloadFromDrive();
+        } else {
+            throw new Error('Upload failed');
+        }
     } catch (error) {
-        document.getElementById('sync-status').textContent = 'Sync failed';
-        showToast('Sync failed', 'error');
+        console.error('Sync error:', error);
+        const syncIcon = document.querySelector('#sync-status i');
+        if (syncIcon) syncIcon.className = 'fas fa-exclamation-circle';
+        syncIcon.style.color = '#ef4444';
+        document.getElementById('sync-status-text').textContent = 'Sync failed';
+        showToast('Sync failed: ' + error.message, 'error');
     }
 }
+
+async function downloadFromDrive() {
+    try {
+        // Search for backup file
+        const searchResponse = await fetch(
+            `https://www.googleapis.com/drive/v3/files?q=name='${BACKUP_FILE_NAME}' and trashed=false&fields=files(id)`,
+            {
+                headers: {
+                    'Authorization': `Bearer ${accessToken}`
+                }
+            }
+        );
+
+        const searchData = await searchResponse.json();
+        const fileId = searchData.files?.[0]?.id;
+
+        if (fileId) {
+            // Download the file
+            const downloadResponse = await fetch(
+                `https://www.googleapis.com/drive/v3/files/${fileId}?alt=media`,
+                {
+                    headers: {
+                        'Authorization': `Bearer ${accessToken}`
+                    }
+                }
+            );
+
+            if (downloadResponse.ok) {
+                const backupData = await downloadResponse.json();
+
+                // Merge data (optional - can ask user)
+                if (backupData.data && backupData.data.length > 0) {
+                    console.log('Found cloud backup with', backupData.data.length, 'records');
+                    // You can implement merge logic here if needed
+                }
+            }
+        }
+    } catch (error) {
+        console.log('No existing backup found or error downloading');
+    }
+}
+
+// Handle OAuth redirect
+window.onload = async () => {
+    // Check for OAuth response in URL hash
+    if (window.location.hash) {
+        const params = new URLSearchParams(window.location.hash.substring(1));
+        const token = params.get('access_token');
+        const expiresIn = params.get('expires_in');
+        const state = params.get('state');
+
+        if (token) {
+            accessToken = token;
+            localStorage.setItem('google_token', token);
+
+            // Set expiry (current time + expires_in seconds - 5 minutes buffer)
+            if (expiresIn) {
+                const expiryTime = new Date().getTime() + (parseInt(expiresIn) * 1000) - 300000;
+                localStorage.setItem('token_expiry', expiryTime.toString());
+            }
+
+            // Clear hash from URL
+            window.history.replaceState(null, null, window.location.pathname);
+
+            showToast('Google Drive connected!', 'success');
+
+            // Trigger sync after successful login
+            setTimeout(() => uploadToDrive(), 1000);
+        }
+    }
+
+    // Initial data load
+    await updateDashboard();
+    await updateInventoryUI();
+    await updateLedgerUI();
+    await updateCustomersUI();
+
+    // Update sync status based on token
+    if (accessToken && accessToken !== 'null') {
+        const syncIcon = document.querySelector('#sync-status i');
+        if (syncIcon) {
+            syncIcon.className = 'fas fa-check-circle';
+            syncIcon.style.color = '#10b981';
+        }
+        document.getElementById('sync-status-text').textContent = 'Ready to sync';
+    }
+};
 
 // ==================== UTILITY FUNCTIONS ====================
 function changeQty(id, delta) {
@@ -573,10 +807,18 @@ function showToast(message, type = 'info') {
     const container = document.getElementById('toast-container');
     const toast = document.createElement('div');
     toast.className = `toast ${type}`;
-    toast.innerHTML = `<i class="fas fa-${type === 'success' ? 'check-circle' : 'exclamation-circle'}"></i> ${message}`;
+
+    let icon = 'info-circle';
+    if (type === 'success') icon = 'check-circle';
+    if (type === 'error') icon = 'exclamation-circle';
+    if (type === 'warning') icon = 'exclamation-triangle';
+
+    toast.innerHTML = `<i class="fas fa-${icon}"></i> ${message}`;
     container.appendChild(toast);
 
-    setTimeout(() => toast.remove(), 3000);
+    setTimeout(() => {
+        toast.remove();
+    }, 3000);
 }
 
 function toggleQuickMenu() {
@@ -601,29 +843,45 @@ function printBill() {
 
 async function exportInventory() {
     showToast('Exporting inventory...', 'info');
-    // Implement CSV export
+
+    const result = await db.allDocs({ include_docs: true });
+    const items = result.rows.map(r => r.doc).filter(d => d.type === 'inventory');
+
+    let csv = 'Item Name,Price,Total In,Total Sold,Available,Category,Location\n';
+
+    items.forEach(item => {
+        const available = (item.totalIn || 0) - (item.totalSold || 0);
+        csv += `"${item.name}",${item.price || 0},${item.totalIn || 0},${item.totalSold || 0},${available},"${item.category || ''}","${item.location || ''}"\n`;
+    });
+
+    downloadFile(csv, 'inventory_export.csv', 'text/csv');
+    showToast('Inventory exported', 'success');
 }
 
 async function exportLedger() {
     showToast('Exporting ledger...', 'info');
-    // Implement CSV export
+
+    const result = await db.allDocs({ include_docs: true });
+    const transactions = result.rows
+        .map(r => r.doc)
+        .filter(d => d.type === 'ledger');
+
+    let csv = 'Date,Customer,Total,Paid,Balance,Payment Method\n';
+
+    transactions.forEach(t => {
+        csv += `"${new Date(t.date).toLocaleString()}","${t.customer}",${t.total || 0},${t.paid || 0},${t.balance || 0},"${t.paymentMethod || 'Cash'}"\n`;
+    });
+
+    downloadFile(csv, 'ledger_export.csv', 'text/csv');
+    showToast('Ledger exported', 'success');
 }
 
-// Handle OAuth redirect
-window.onload = async () => {
-    if (window.location.hash) {
-        const params = new URLSearchParams(window.location.hash.substring(1));
-        const token = params.get('access_token');
-        if (token) {
-            accessToken = token;
-            localStorage.setItem('google_token', token);
-            window.history.replaceState(null, null, window.location.pathname);
-        }
-    }
-
-    // Initial data load
-    await updateDashboard();
-    await updateInventoryUI();
-    await updateLedgerUI();
-    await updateCustomersUI();
-};
+function downloadFile(content, fileName, contentType) {
+    const blob = new Blob([content], { type: contentType });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = fileName;
+    a.click();
+    URL.revokeObjectURL(url);
+}

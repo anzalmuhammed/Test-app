@@ -86,6 +86,16 @@ body {
   display: flex;
   align-items: center;
   gap: 5px;
+  transition: all 0.3s;
+}
+
+#sync-btn:hover {
+  transform: scale(1.05);
+  background: #fbbf24;
+}
+
+#sync-btn:active {
+  transform: scale(0.95);
 }
 
 #sync-status {
@@ -93,9 +103,13 @@ body {
   font-size: 12px;
   margin: 5px 0;
   opacity: 0.8;
-  padding: 4px;
+  padding: 6px;
   background: var(--glass);
   border-radius: 20px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
 }
 
 /* Menu Grid */
@@ -137,19 +151,48 @@ body {
 }
 
 /* Form Elements */
+.form-group {
+  margin-bottom: 15px;
+}
+
+.form-group label {
+  display: block;
+  margin-bottom: 5px;
+  font-size: 13px;
+  color: var(--amber);
+  font-weight: 500;
+}
+
+.form-group label i {
+  margin-right: 5px;
+  color: var(--primary);
+}
+
 input,
 select,
 textarea {
   width: 100%;
   background: #ffffff;
   border: 1px solid var(--glass-border);
-  padding: 14px;
+  padding: 12px 14px;
   border-radius: 10px;
   color: #000;
-  margin-bottom: 12px;
-  font-size: 16px;
+  font-size: 15px;
   font-weight: 500;
   outline: none;
+}
+
+/* Remove arrows from number inputs */
+input[type="number"]::-webkit-inner-spin-button,
+input[type="number"]::-webkit-outer-spin-button {
+  -webkit-appearance: none;
+  appearance: none;
+  margin: 0;
+}
+
+input[type="number"] {
+  -moz-appearance: textfield;
+  appearance: textfield;
 }
 
 input:focus,
@@ -164,7 +207,7 @@ select:focus {
   background: var(--primary);
   border-radius: 10px;
   padding: 5px;
-  margin-bottom: 15px;
+  margin-top: 5px;
 }
 
 .step-btn {
@@ -178,6 +221,12 @@ select:focus {
   display: flex;
   align-items: center;
   justify-content: center;
+  transition: all 0.2s;
+}
+
+.step-btn:active {
+  background: rgba(255, 255, 255, 0.2);
+  border-radius: 8px;
 }
 
 .stepper-container input {
@@ -188,6 +237,7 @@ select:focus {
   font-weight: bold;
   border: none;
   margin-bottom: 0;
+  padding: 0;
 }
 
 /* Buttons */
@@ -201,6 +251,11 @@ select:focus {
   margin-top: 10px;
   cursor: pointer;
   font-size: 16px;
+  transition: all 0.3s;
+}
+
+.action-btn:active {
+  transform: scale(0.98);
 }
 
 .save {
@@ -224,6 +279,11 @@ select:focus {
   margin-bottom: 10px;
   cursor: pointer;
   font-size: 16px;
+  transition: all 0.3s;
+}
+
+.cam-btn-active:active {
+  transform: scale(0.98);
 }
 
 .back-menu-btn {
@@ -238,6 +298,11 @@ select:focus {
   align-items: center;
   gap: 5px;
   font-size: 14px;
+  transition: all 0.3s;
+}
+
+.back-menu-btn:active {
+  transform: scale(0.95);
 }
 
 .file-label {
@@ -250,6 +315,11 @@ select:focus {
   border-radius: 10px;
   cursor: pointer;
   margin-top: 5px;
+  transition: all 0.3s;
+}
+
+.file-label:active {
+  background: rgba(251, 191, 36, 0.1);
 }
 
 /* Scanner */
@@ -290,9 +360,17 @@ th {
   background: var(--danger);
   color: white;
   border: none;
-  padding: 5px 10px;
+  width: 30px;
+  height: 30px;
   border-radius: 5px;
   cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.del-btn:active {
+  transform: scale(0.9);
 }
 
 /* Stats Grid */
@@ -304,16 +382,18 @@ th {
 }
 
 .stat-card {
-  background: var(--glass);
+  background: rgba(0, 0, 0, 0.2);
   padding: 15px;
   border-radius: 15px;
   text-align: center;
+  border: 1px solid var(--glass-border);
 }
 
 .stat-value {
   font-size: 24px;
   font-weight: 700;
   color: var(--amber);
+  margin-top: 5px;
 }
 
 /* Customer Cards */
@@ -325,20 +405,37 @@ th {
 }
 
 .customer-card {
-  background: var(--glass);
+  background: rgba(0, 0, 0, 0.2);
   padding: 15px;
   border-radius: 12px;
   cursor: pointer;
+  border: 1px solid var(--glass-border);
+  transition: all 0.3s;
+}
+
+.customer-card:active {
+  transform: scale(0.98);
+  background: rgba(99, 102, 241, 0.2);
+}
+
+.customer-card h4 {
+  margin-bottom: 5px;
 }
 
 /* Ledger Cards */
 .ledger-card {
-  background: var(--glass);
+  background: rgba(0, 0, 0, 0.2);
   padding: 15px;
   border-radius: 12px;
   margin-bottom: 10px;
   border-left: 4px solid var(--primary);
   cursor: pointer;
+  transition: all 0.3s;
+}
+
+.ledger-card:active {
+  transform: scale(0.99);
+  background: rgba(99, 102, 241, 0.1);
 }
 
 /* Quick Actions Menu */
@@ -350,6 +447,7 @@ th {
   flex-direction: column;
   gap: 10px;
   z-index: 99;
+  min-width: 200px;
 }
 
 .quick-actions-menu.active {
@@ -367,6 +465,12 @@ th {
   display: flex;
   align-items: center;
   gap: 10px;
+  font-size: 14px;
+  transition: all 0.3s;
+}
+
+.quick-actions-menu button:active {
+  background: var(--primary);
 }
 
 .fab {
@@ -386,6 +490,11 @@ th {
   display: flex;
   align-items: center;
   justify-content: center;
+  transition: all 0.3s;
+}
+
+.fab:active {
+  transform: scale(0.9);
 }
 
 /* Modal */
@@ -432,6 +541,7 @@ th {
   align-items: center;
   gap: 10px;
   animation: slideIn 0.3s;
+  min-width: 250px;
 }
 
 @keyframes slideIn {
@@ -479,9 +589,12 @@ th {
 
 #balance-due {
   text-align: center;
-  padding: 10px;
+  padding: 12px;
   font-size: 16px;
   font-weight: 600;
+  margin: 10px 0;
+  background: rgba(0, 0, 0, 0.2);
+  border-radius: 10px;
 }
 
 /* Screen Management */
