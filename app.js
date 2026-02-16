@@ -3,7 +3,7 @@ const db = new PouchDB('workshop_super_db');
 const CLOUD_BACKUP_FILE = 'workshop_super_backup.json';
 
 // Google Drive Configuration
-const CLIENT_ID = 'YOUR_GOOGLE_CLIENT_ID_HERE'; // Get from Google Cloud Console
+const CLIENT_ID = '265618310384 - mvgcqs0j7tk1fvi6k1b902s8batrehmj.apps.googleusercontent.com'; // Get from Google Cloud Console
 let accessToken = localStorage.getItem('google_token');
 
 // Global Variables
