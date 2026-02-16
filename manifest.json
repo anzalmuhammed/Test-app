@@ -1,11 +1,12 @@
 {
-  "name": "Workshop Manager",
-  "short_name": "Workshop",
-  "description": "Workshop inventory and billing management",
+  "name": "Workshop Manager Pro",
+  "short_name": "Workshop Pro",
+  "description": "Complete workshop management with inventory, billing, and offline sync",
   "start_url": "index.html",
   "display": "standalone",
   "background_color": "#2c3e50",
   "theme_color": "#2c3e50",
+  "orientation": "portrait",
   "icons": [
     {
       "src": "icon-192.png",

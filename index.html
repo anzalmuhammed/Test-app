@@ -4,204 +4,444 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=yes">
-    <title>Workshop Manager</title>
+    <title>Workshop Manager Pro</title>
     <link rel="stylesheet" href="styles.css">
     <link rel="manifest" href="manifest.json">
+    <link rel="apple-touch-icon" href="icon-192.png">
     <meta name="theme-color" content="#2c3e50">
-    <!-- Font Awesome for icons (optional but nice) -->
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <!-- Libraries -->
+    <script src="https://cdn.jsdelivr.net/npm/pouchdb@8.0.1/dist/pouchdb.min.js"></script>
+    <script src="https://unpkg.com/html5-qrcode@2.3.8/minified/html5-qrcode.min.js"></script>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
 </head>
 
 <body>
-    <div class="container">
+    <!-- Toast Notifications -->
+    <div id="toast-container" class="toast-container"></div>
+
+    <!-- Quick Actions Menu -->
+    <div class="quick-menu" id="quick-actions-menu">
+        <button onclick="showScreen('add-inventory-screen')"><i class="fas fa-box"></i> Add Stock</button>
+        <button onclick="showScreen('billing-screen')"><i class="fas fa-receipt"></i> New Bill</button>
+        <button onclick="showScreen('scan-screen')"><i class="fas fa-camera"></i> Scan Barcode</button>
+        <button onclick="exportInventory()"><i class="fas fa-download"></i> Export Data</button>
+        <button onclick="handleSync()"><i class="fas fa-cloud-upload-alt"></i> Sync to Drive</button>
+        <button onclick="toggleQuickMenu()"><i class="fas fa-times"></i> Close</button>
+    </div>
+
+    <!-- Main App Container -->
+    <div class="app-container">
+        <!-- Header -->
         <div class="header">
-            <h1>🔧 Workshop Manager</h1>
-            <div>
-                <span class="balance" id="headerBalance">₹0</span>
-                <span class="offline-badge" id="offlineBadge">📴 OFFLINE</span>
+            <div class="header-left">
+                <button class="menu-btn" onclick="toggleQuickMenu()"><i class="fas fa-bars"></i></button>
+                <h1><i class="fas fa-tools"></i> Workshop Pro</h1>
+            </div>
+            <div class="header-right">
+                <span class="online-indicator" id="online-indicator"><i class="fas fa-wifi"></i></span>
+                <span class="sync-indicator" onclick="handleSync()"><i class="fas fa-cloud-upload-alt"></i></span>
             </div>
         </div>
 
-        <div class="nav">
-            <button onclick="showSection('dashboard')" class="active" id="nav-dashboard">📊 Dashboard</button>
-            <button onclick="showSection('stock')" id="nav-stock">📦 Stock</button>
-            <button onclick="showSection('customers')" id="nav-customers">👥 Customers</button>
-            <button onclick="showSection('ledger')" id="nav-ledger">📒 Ledger</button>
-            <button onclick="showSection('scan')" id="nav-scan">📷 Scan</button>
-        </div>
+        <!-- Bottom Navigation -->
+        <nav class="bottom-nav">
+            <button onclick="showScreen('dashboard-screen')" class="nav-item active" id="nav-dashboard">
+                <i class="fas fa-chart-pie"></i>
+                <span>Dashboard</span>
+            </button>
+            <button onclick="showScreen('stock-list-screen')" class="nav-item" id="nav-stock">
+                <i class="fas fa-boxes"></i>
+                <span>Stock</span>
+            </button>
+            <button onclick="showScreen('billing-screen')" class="nav-item" id="nav-billing">
+                <i class="fas fa-receipt"></i>
+                <span>Billing</span>
+            </button>
+            <button onclick="showScreen('ledger-screen')" class="nav-item" id="nav-ledger">
+                <i class="fas fa-book"></i>
+                <span>Ledger</span>
+            </button>
+            <button onclick="showScreen('customers-screen')" class="nav-item" id="nav-customers">
+                <i class="fas fa-users"></i>
+                <span>Customers</span>
+            </button>
+        </nav>
 
-        <!-- DASHBOARD SECTION -->
-        <div id="dashboard" class="section active">
-            <h2>Dashboard</h2>
-            <div class="grid-2">
-                <div class="item-card">
-                    <h3>Today's Sales</h3>
-                    <div class="price" id="todaySales">₹0</div>
+        <!-- Main Content Area -->
+        <div class="content">
+            <!-- DASHBOARD SCREEN -->
+            <div id="dashboard-screen" class="screen active">
+                <div class="screen-header">
+                    <h2>Dashboard</h2>
+                    <button class="btn-refresh" onclick="updateDashboard()"><i class="fas fa-sync-alt"></i></button>
                 </div>
-                <div class="item-card">
-                    <h3>Outstanding</h3>
-                    <div class="price" id="totalOutstanding">₹0</div>
+
+                <div class="metrics-grid">
+                    <div class="metric-card">
+                        <i class="fas fa-boxes"></i>
+                        <div class="metric-info">
+                            <span class="metric-label">Total Items</span>
+                            <span class="metric-value" id="total-items">0</span>
+                        </div>
+                    </div>
+                    <div class="metric-card">
+                        <i class="fas fa-cubes"></i>
+                        <div class="metric-info">
+                            <span class="metric-label">In Stock</span>
+                            <span class="metric-value" id="total-stock">0</span>
+                        </div>
+                    </div>
+                    <div class="metric-card warning">
+                        <i class="fas fa-exclamation-triangle"></i>
+                        <div class="metric-info">
+                            <span class="metric-label">Low Stock</span>
+                            <span class="metric-value" id="low-stock">0</span>
+                        </div>
+                    </div>
+                    <div class="metric-card success">
+                        <i class="fas fa-rupee-sign"></i>
+                        <div class="metric-info">
+                            <span class="metric-label">Today's Sales</span>
+                            <span class="metric-value" id="today-sales">₹0</span>
+                        </div>
+                    </div>
+                    <div class="metric-card info">
+                        <i class="fas fa-credit-card"></i>
+                        <div class="metric-info">
+                            <span class="metric-label">Outstanding</span>
+                            <span class="metric-value" id="outstanding">₹0</span>
+                        </div>
+                    </div>
                 </div>
-                <div class="item-card">
-                    <h3>Low Stock Items</h3>
-                    <div class="stock" id="lowStockCount">0</div>
+
+                <div class="section">
+                    <h3><i class="fas fa-history"></i> Recent Transactions</h3>
+                    <div id="recent-transactions" class="recent-list"></div>
                 </div>
-                <div class="item-card">
-                    <h3>Total Products</h3>
-                    <div class="price" id="totalProducts">0</div>
+
+                <div class="section">
+                    <h3><i class="fas fa-exclamation-circle"></i> Low Stock Alerts</h3>
+                    <div id="stock-alerts" class="alert-list"></div>
                 </div>
             </div>
-            <h3 style="margin: 20px 0 10px">Recent Transactions</h3>
-            <div id="recentTransactions" class="item-list"></div>
-        </div>
 
-        <!-- STOCK SECTION -->
-        <div id="stock" class="section">
-            <h2>Stock Management</h2>
-            <button class="btn btn-success btn-small" onclick="showAddProductForm()">➕ Add New Product</button>
+            <!-- STOCK LIST SCREEN -->
+            <div id="stock-list-screen" class="screen">
+                <div class="screen-header">
+                    <h2>Inventory Stock</h2>
+                    <button class="btn-add" onclick="showScreen('add-inventory-screen')">
+                        <i class="fas fa-plus"></i>
+                    </button>
+                </div>
 
-            <div id="addProductForm" style="display: none; margin-top: 20px;">
-                <h3>Add/Edit Product</h3>
-                <div class="form-group">
-                    <label>Product Name</label>
-                    <input type="text" id="productName" placeholder="e.g., Brake Pad">
+                <div class="search-bar">
+                    <i class="fas fa-search"></i>
+                    <input type="text" id="search-inventory" placeholder="Search items..." onkeyup="searchInventory()">
                 </div>
-                <div class="form-group">
-                    <label>Barcode</label>
-                    <input type="text" id="productBarcode" placeholder="Scan or enter barcode">
-                </div>
-                <div class="grid-2">
-                    <div class="form-group">
-                        <label>Purchase Price</label>
-                        <input type="number" id="purchasePrice" placeholder="₹">
-                    </div>
-                    <div class="form-group">
-                        <label>Selling Price</label>
-                        <input type="number" id="sellingPrice" placeholder="₹">
-                    </div>
-                </div>
-                <div class="grid-2">
-                    <div class="form-group">
-                        <label>Quantity</label>
-                        <input type="number" id="productQuantity" value="0">
-                    </div>
-                    <div class="form-group">
-                        <label>Min Stock Alert</label>
-                        <input type="number" id="minStock" value="5">
-                    </div>
-                </div>
-                <div class="form-group">
-                    <label>Location</label>
-                    <input type="text" id="productLocation" placeholder="e.g., Shelf A-12">
-                </div>
-                <button class="btn btn-success" onclick="saveProduct()">Save Product</button>
-                <button class="btn btn-secondary" onclick="hideAddProductForm()">Cancel</button>
+
+                <div id="inventory-list" class="inventory-grid"></div>
             </div>
 
-            <h3 style="margin: 20px 0 10px">Current Stock</h3>
-            <input type="text" id="searchStock" placeholder="🔍 Search products..." onkeyup="searchProducts()"
-                style="width: 100%; padding: 12px; margin-bottom: 15px; border-radius: 8px; border: 1px solid #ddd;">
-            <div id="stockList" class="item-list"></div>
-        </div>
-
-        <!-- CUSTOMERS SECTION -->
-        <div id="customers" class="section">
-            <h2>Customers & Balances</h2>
-            <button class="btn btn-success btn-small" onclick="showAddCustomerForm()">➕ Add Customer</button>
-
-            <div id="addCustomerForm" style="display: none; margin-top: 20px;">
-                <h3>Add Customer</h3>
-                <div class="form-group">
-                    <label>Name</label>
-                    <input type="text" id="customerName" placeholder="Full name">
-                </div>
-                <div class="form-group">
-                    <label>Phone</label>
-                    <input type="tel" id="customerPhone" placeholder="Phone number">
-                </div>
-                <div class="form-group">
-                    <label>Email</label>
-                    <input type="email" id="customerEmail" placeholder="Email">
-                </div>
-                <div class="form-group">
-                    <label>Address</label>
-                    <textarea id="customerAddress" rows="2"></textarea>
-                </div>
-                <button class="btn btn-success" onclick="saveCustomer()">Save Customer</button>
-                <button class="btn btn-secondary" onclick="hideAddCustomerForm()">Cancel</button>
-            </div>
-
-            <h3 style="margin: 20px 0 10px">Customer List</h3>
-            <input type="text" id="searchCustomer" placeholder="🔍 Search customers..." onkeyup="searchCustomers()"
-                style="width: 100%; padding: 12px; margin-bottom: 15px; border-radius: 8px; border: 1px solid #ddd;">
-            <div id="customerList" class="item-list"></div>
-        </div>
-
-        <!-- LEDGER SECTION -->
-        <div id="ledger" class="section">
-            <h2>Ledger Book</h2>
-
-            <div class="grid-2">
-                <button class="btn btn-small" onclick="recordPayment()">💰 Record Payment</button>
-                <button class="btn btn-small" onclick="recordExpense()">💸 Add Expense</button>
-            </div>
-
-            <h3 style="margin: 20px 0 10px">Filter by Customer</h3>
-            <select id="ledgerCustomerFilter" onchange="loadLedger()"
-                style="width: 100%; padding: 12px; margin-bottom: 15px; border-radius: 8px; border: 1px solid #ddd;">
-                <option value="">All Customers</option>
-            </select>
-
-            <h3 style="margin: 20px 0 10px">Transaction History</h3>
-            <div id="transactionList" class="item-list"></div>
-        </div>
-
-        <!-- SCAN SECTION -->
-        <div id="scan" class="section">
-            <h2>Barcode Scanner</h2>
-            <div class="barcode-scanner">
-                <p>📷 Point camera at barcode</p>
-                <input type="text" id="barcodeInput" placeholder="Scan or type barcode"
-                    onkeypress="handleBarcodeKeypress(event)" autofocus>
-            </div>
-
-            <div id="scannedProduct" style="display: none;">
-                <h3>Scanned Product</h3>
-                <div class="item-card" id="productDetail"></div>
-
-                <h3>Quick Actions</h3>
-                <div class="grid-2">
-                    <button class="btn btn-small" onclick="stockIn()">📥 Stock IN</button>
-                    <button class="btn btn-small btn-danger" onclick="stockOut()">📤 Stock OUT</button>
-                    <button class="btn btn-small btn-success" onclick="addToSale()">🛒 Add to Sale</button>
-                    <button class="btn btn-small" onclick="viewHistory()">📜 History</button>
+            <!-- ADD INVENTORY SCREEN -->
+            <div id="add-inventory-screen" class="screen">
+                <div class="screen-header">
+                    <button class="btn-back" onclick="showScreen('stock-list-screen')">
+                        <i class="fas fa-arrow-left"></i>
+                    </button>
+                    <h2>Add / Edit Item</h2>
                 </div>
 
-                <div id="stockActionForm" style="display: none; margin-top: 20px;">
-                    <h3 id="stockActionTitle"></h3>
+                <div class="form-card">
                     <div class="form-group">
-                        <label>Quantity</label>
-                        <input type="number" id="actionQuantity" min="1" value="1">
+                        <label><i class="fas fa-barcode"></i> Barcode / Part ID *</label>
+                        <div class="input-with-scan">
+                            <input type="text" id="part-id" placeholder="Scan or type barcode" readonly>
+                            <button class="btn-scan" onclick="toggleScanner('inventory')">
+                                <i class="fas fa-camera"></i> Scan
+                            </button>
+                        </div>
                     </div>
+
+                    <div id="reader" class="scanner-container" style="display: none;"></div>
+
                     <div class="form-group">
-                        <label>Reference/Notes</label>
-                        <input type="text" id="actionReference" placeholder="e.g., Supplier name">
+                        <label><i class="fas fa-tag"></i> Part Name *</label>
+                        <input type="text" id="part-name" placeholder="Enter part name">
                     </div>
-                    <button class="btn btn-success" onclick="confirmStockAction()">Confirm</button>
-                    <button class="btn btn-secondary" onclick="cancelStockAction()">Cancel</button>
+
+                    <div class="form-row">
+                        <div class="form-group half">
+                            <label><i class="fas fa-rupee-sign"></i> Price *</label>
+                            <input type="number" id="part-price" placeholder="0.00" step="0.01">
+                        </div>
+                        <div class="form-group half">
+                            <label><i class="fas fa-hashtag"></i> Quantity</label>
+                            <input type="number" id="part-quantity" placeholder="0" value="0">
+                        </div>
+                    </div>
+
+                    <div class="form-row">
+                        <div class="form-group half">
+                            <label><i class="fas fa-folder"></i> Category</label>
+                            <select id="part-category">
+                                <option value="General">General</option>
+                                <option value="Engine">Engine</option>
+                                <option value="Electrical">Electrical</option>
+                                <option value="Brakes">Brakes</option>
+                                <option value="Suspension">Suspension</option>
+                            </select>
+                        </div>
+                        <div class="form-group half">
+                            <label><i class="fas fa-map-marker-alt"></i> Location</label>
+                            <input type="text" id="part-location" placeholder="Shelf A-12">
+                        </div>
+                    </div>
+
+                    <button class="btn-primary btn-large" onclick="addInventoryItem()">
+                        <i class="fas fa-save"></i> Save Item
+                    </button>
+                </div>
+            </div>
+
+            <!-- BILLING SCREEN -->
+            <div id="billing-screen" class="screen">
+                <div class="screen-header">
+                    <h2>Create New Bill</h2>
+                    <button class="btn-clear" onclick="clearBill()">
+                        <i class="fas fa-trash"></i>
+                    </button>
+                </div>
+
+                <div class="customer-section">
+                    <div class="form-row">
+                        <div class="form-group half">
+                            <label>Customer Name</label>
+                            <input type="text" id="bill-customer-name" placeholder="Walk-in Customer">
+                        </div>
+                        <div class="form-group half">
+                            <label>Phone</label>
+                            <input type="tel" id="bill-customer-phone" placeholder="Optional">
+                        </div>
+                    </div>
+                </div>
+
+                <div class="add-item-section">
+                    <h3>Add Item to Bill</h3>
+
+                    <div class="form-group">
+                        <label>Scan Barcode</label>
+                        <div class="input-with-scan">
+                            <input type="text" id="bill-item-id" placeholder="Scan or type barcode" readonly>
+                            <button class="btn-scan" onclick="toggleScanner('bill')">
+                                <i class="fas fa-camera"></i> Scan
+                            </button>
+                        </div>
+                    </div>
+
+                    <div id="bill-reader" class="scanner-container" style="display: none;"></div>
+
+                    <div class="form-group">
+                        <label>Description</label>
+                        <input type="text" id="bill-desc" placeholder="Item description">
+                    </div>
+
+                    <div class="form-row">
+                        <div class="form-group half">
+                            <label>Price (₹)</label>
+                            <input type="number" id="bill-price" placeholder="0.00" step="0.01">
+                        </div>
+                        <div class="form-group half">
+                            <label>Quantity</label>
+                            <div class="qty-controls">
+                                <button class="qty-btn" onclick="changeQty('bill-qty', -1)">-</button>
+                                <input type="number" id="bill-qty" value="1" min="1">
+                                <button class="qty-btn" onclick="changeQty('bill-qty', 1)">+</button>
+                            </div>
+                        </div>
+                    </div>
+
+                    <button class="btn-secondary btn-large" onclick="addToBill()">
+                        <i class="fas fa-cart-plus"></i> Add to Bill
+                    </button>
+                </div>
+
+                <div class="current-bill">
+                    <h3>Current Bill Items</h3>
+                    <div class="bill-items-container">
+                        <table class="bill-table">
+                            <thead>
+                                <tr>
+                                    <th>Item</th>
+                                    <th>Qty</th>
+                                    <th>Price</th>
+                                    <th>Total</th>
+                                    <th></th>
+                                </tr>
+                            </thead>
+                            <tbody id="bill-items-list"></tbody>
+                        </table>
+                    </div>
+
+                    <div class="bill-summary">
+                        <div class="summary-row">
+                            <span>Subtotal:</span>
+                            <span id="bill-subtotal">₹0.00</span>
+                        </div>
+                        <div class="summary-row">
+                            <span>Tax (18%):</span>
+                            <span id="bill-tax">₹0.00</span>
+                        </div>
+                        <div class="summary-row total">
+                            <span>Total:</span>
+                            <span id="bill-total">₹0.00</span>
+                        </div>
+                    </div>
+
+                    <div class="payment-section">
+                        <div class="form-group">
+                            <label>Payment Method</label>
+                            <select id="payment-method">
+                                <option value="Cash">Cash</option>
+                                <option value="Card">Card</option>
+                                <option value="UPI">UPI</option>
+                            </select>
+                        </div>
+
+                        <button class="btn-success btn-large" onclick="completeBill()">
+                            <i class="fas fa-check-circle"></i> Complete Bill
+                        </button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- LEDGER SCREEN -->
+            <div id="ledger-screen" class="screen">
+                <div class="screen-header">
+                    <h2>Ledger Book</h2>
+                    <button class="btn-export" onclick="exportLedger()">
+                        <i class="fas fa-download"></i>
+                    </button>
+                </div>
+
+                <div class="ledger-summary">
+                    <div class="summary-card">
+                        <span class="label">Total Sales</span>
+                        <span class="value" id="total-sales">₹0</span>
+                    </div>
+                    <div class="summary-card">
+                        <span class="label">Outstanding</span>
+                        <span class="value" id="total-outstanding">₹0</span>
+                    </div>
+                </div>
+
+                <div class="filter-bar">
+                    <select id="ledger-filter" onchange="filterLedger()">
+                        <option value="all">All Transactions</option>
+                        <option value="due">Due Payments</option>
+                        <option value="paid">Paid</option>
+                    </select>
+                </div>
+
+                <div id="ledger-entries" class="ledger-list"></div>
+            </div>
+
+            <!-- CUSTOMERS SCREEN -->
+            <div id="customers-screen" class="screen">
+                <div class="screen-header">
+                    <h2>Customers</h2>
+                    <button class="btn-add" onclick="showAddCustomerForm()">
+                        <i class="fas fa-user-plus"></i>
+                    </button>
+                </div>
+
+                <div class="search-bar">
+                    <i class="fas fa-search"></i>
+                    <input type="text" id="search-customer" placeholder="Search customers..."
+                        onkeyup="searchCustomers()">
+                </div>
+
+                <div id="customers-list" class="customers-grid"></div>
+            </div>
+
+            <!-- SCAN SCREEN -->
+            <div id="scan-screen" class="screen">
+                <div class="screen-header">
+                    <h2>Barcode Scanner</h2>
+                </div>
+
+                <div class="scanner-full" id="full-scanner"></div>
+
+                <div class="scan-options">
+                    <button class="btn-primary" onclick="startFullScanner('inventory')">
+                        <i class="fas fa-box"></i> Scan for Stock
+                    </button>
+                    <button class="btn-secondary" onclick="startFullScanner('bill')">
+                        <i class="fas fa-receipt"></i> Scan for Bill
+                    </button>
+                </div>
+
+                <div class="manual-entry">
+                    <p>Or enter barcode manually:</p>
+                    <div class="input-group">
+                        <input type="text" id="manual-barcode" placeholder="Enter barcode">
+                        <button onclick="lookupBarcode(document.getElementById('manual-barcode').value)">
+                            <i class="fas fa-arrow-right"></i>
+                        </button>
+                    </div>
                 </div>
             </div>
         </div>
     </div>
 
-    <!-- Toast Container for Notifications -->
-    <div id="toast-container" class="toast-container"></div>
+    <!-- Modals -->
+    <div id="bill-preview-modal" class="modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2>Bill Preview</h2>
+                <button class="close-modal" onclick="closeModal()"><i class="fas fa-times"></i></button>
+            </div>
+            <div class="modal-body" id="bill-preview-content"></div>
+            <div class="modal-footer">
+                <button class="btn-secondary" onclick="printBill()"><i class="fas fa-print"></i> Print</button>
+                <button class="btn-primary" onclick="closeModal()"><i class="fas fa-check"></i> Done</button>
+            </div>
+        </div>
+    </div>
 
-    <!-- Scripts -->
-    <script src="https://cdn.jsdelivr.net/npm/pouchdb@8.0.1/dist/pouchdb.min.js"></script>
+    <div id="customer-modal" class="modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2>Add Customer</h2>
+                <button class="close-modal" onclick="closeModal()"><i class="fas fa-times"></i></button>
+            </div>
+            <div class="modal-body">
+                <div class="form-group">
+                    <label>Name *</label>
+                    <input type="text" id="modal-customer-name">
+                </div>
+                <div class="form-group">
+                    <label>Phone</label>
+                    <input type="tel" id="modal-customer-phone">
+                </div>
+                <div class="form-group">
+                    <label>Email</label>
+                    <input type="email" id="modal-customer-email">
+                </div>
+                <div class="form-group">
+                    <label>Address</label>
+                    <textarea id="modal-customer-address" rows="3"></textarea>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button class="btn-secondary" onclick="closeModal()">Cancel</button>
+                <button class="btn-primary" onclick="saveCustomerFromModal()">Save Customer</button>
+            </div>
+        </div>
+    </div>
+
     <script src="app.js"></script>
     <script>
-        // Register Service Worker for offline
         if ('serviceWorker' in navigator) {
             navigator.serviceWorker.register('sw.js').catch(err => console.log('SW failed:', err));
         }

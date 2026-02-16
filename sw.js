@@ -4,7 +4,9 @@ const urlsToCache = [
     'styles.css',
     'app.js',
     'manifest.json',
-    'https://cdn.jsdelivr.net/npm/pouchdb@8.0.1/dist/pouchdb.min.js'
+    'https://cdn.jsdelivr.net/npm/pouchdb@8.0.1/dist/pouchdb.min.js',
+    'https://unpkg.com/html5-qrcode@2.3.8/minified/html5-qrcode.min.js',
+    'https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css'
 ];
 
 self.addEventListener('install', event => {
