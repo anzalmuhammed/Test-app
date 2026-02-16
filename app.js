@@ -6,8 +6,8 @@ let accessToken = localStorage.getItem('google_token');
 let tokenExpiry = localStorage.getItem('token_expiry');
 
 // Google Drive Configuration - REPLACE WITH YOUR CLIENT ID
-const CLIENT_ID = 'YOUR_GOOGLE_CLIENT_ID_HERE'; // Get from Google Cloud Console
-const API_KEY = '265618310384-mvgcqs0j7tk1fvi6k1b902s8batrehmj.apps.googleusercontent.com'; // Optional but recommended
+const CLIENT_ID = '265618310384 - mvgcqs0j7tk1fvi6k1b902s8batrehmj.apps.googleusercontent.com'; // Get from Google Cloud Console
+const API_KEY = 'YOUR_API_KEY_HERE'; // Optional but recommended
 const BACKUP_FILE_NAME = 'workshop_backup.json';
 
 // ==================== NAVIGATION (FIXED BACK BUTTON) ====================
