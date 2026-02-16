@@ -7,7 +7,7 @@ let tokenExpiry = localStorage.getItem('token_expiry');
 let currentScannerMode = null;
 
 // Google Drive Configuration - REPLACE WITH YOUR OWN
-const CLIENT_ID = 'YOUR_GOOGLE_CLIENT_ID.apps.googleusercontent.com';
+const CLIENT_ID = '265618310384-mvgcqs0j7tk1fvi6k1b902s8batrehmj.apps.googleusercontent.com';
 const BACKUP_FILE_NAME = 'workshop_backup.json';
 
 // ==================== UTILITY FUNCTIONS ====================
