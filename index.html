@@ -203,37 +203,35 @@
                 <input type="text" id="bill-cust-name" placeholder="Enter customer name" required>
             </div>
 
-            <div class="form-row">
-                <div class="form-group half">
-                    <label><i class="fas fa-barcode"></i> Barcode</label>
-                    <input type="text" id="bill-item-id" placeholder="Scan barcode">
-                </div>
-                <div class="form-group half">
-                    <label><i class="fas fa-box"></i> Item Name</label>
-                    <input type="text" id="bill-desc" placeholder="Item description">
-                </div>
+            <div class="form-group">
+                <label><i class="fas fa-barcode"></i> Barcode</label>
+                <input type="text" id="bill-item-id" placeholder="Scan barcode">
+            </div>
+
+            <div class="form-group">
+                <label><i class="fas fa-box"></i> Item Name</label>
+                <input type="text" id="bill-desc" placeholder="Item description">
             </div>
 
             <div class="form-row">
-                <div class="form-group third">
+                <div class="form-group half">
                     <label><i class="fas fa-rupee-sign"></i> Price</label>
                     <input type="number" id="bill-price" placeholder="0.00" step="0.01">
                 </div>
-                <div class="form-group third">
-                    <label><i class="fas fa-sort-amount-up"></i> Qty</label>
+                <div class="form-group half">
+                    <label><i class="fas fa-sort-amount-up"></i> Quantity</label>
                     <div class="stepper-container small">
                         <button type="button" class="step-btn" onclick="changeQty('bill-qty', -1)">−</button>
                         <input type="number" id="bill-qty" value="1" min="1">
                         <button type="button" class="step-btn" onclick="changeQty('bill-qty', 1)">+</button>
                     </div>
                 </div>
-                <div class="form-group third">
-                    <label>&nbsp;</label>
-                    <button onclick="addItemToCurrentBill()" class="action-btn add small">
-                        <i class="fas fa-plus"></i> Add
-                    </button>
-                </div>
             </div>
+
+            <!-- Full width Add to Bill button like Save Stock button -->
+            <button onclick="addItemToCurrentBill()" class="action-btn add" style="width: 100%; margin-top: 15px;">
+                <i class="fas fa-plus-circle"></i> Add to Bill
+            </button>
         </section>
 
         <section id="current-items-section" class="glass-card" style="display:none;">
@@ -459,8 +457,8 @@
         </div>
     </div>
 
-    <!-- Floating Action Button -->
-    <button class="fab" onclick="toggleQuickMenu()">
+    <!-- Floating Action Button (only visible on dashboard) -->
+    <button class="fab" id="fab-button" onclick="toggleQuickMenu()">
         <i class="fas fa-plus"></i>
     </button>
 

@@ -5,9 +5,30 @@ let currentBillItems = [];
 let accessToken = localStorage.getItem('google_token');
 let tokenExpiry = localStorage.getItem('token_expiry');
 
-// ===== YOUR CLIENT ID (Already set) =====
-const CLIENT_ID = '265618310384-mvgcqs0j7tk1fvi6k1b902s8batrehmj.apps.googleusercontent.com'; // Your actual Client ID
-const BACKUP_FILE_NAME = 'workshop_backup.json';
+// ===== YOUR GOOGLE CLIENT ID =====
+const CLIENT_ID = '265618310384-mvgcqs0j7tk1fvi6k1b902s8batrehmj.apps.googleusercontent.com';
+
+// ==================== AUTO-SYNC FUNCTION ====================
+async function autoSync() {
+    // Auto sync after any data change
+    if (navigator.onLine && accessToken) {
+        console.log('Auto-syncing...');
+        await uploadToDrive();
+    }
+}
+
+// ==================== FAB VISIBILITY CONTROL ====================
+function updateFABVisibility(screenId) {
+    const fabButton = document.getElementById('fab-button');
+    if (!fabButton) return;
+
+    // Show FAB only on dashboard screen or main menu, hide on all others
+    if (screenId === 'dashboard-screen' || screenId === 'main-menu') {
+        fabButton.style.display = 'flex';
+    } else {
+        fabButton.style.display = 'none';
+    }
+}
 
 // ==================== UTILITY FUNCTIONS ====================
 function changeQty(id, delta) {
@@ -55,6 +76,9 @@ function goToDashboard() {
     document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
     const mainMenu = document.getElementById('main-menu');
     if (mainMenu) mainMenu.classList.add('active');
+
+    // Show FAB on main menu
+    updateFABVisibility('main-menu');
 }
 
 function showScreen(screenId) {
@@ -62,6 +86,9 @@ function showScreen(screenId) {
     document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
     const target = document.getElementById(screenId);
     if (target) target.classList.add('active');
+
+    // Update FAB visibility based on screen
+    updateFABVisibility(screenId);
 
     // Refresh data based on screen
     if (screenId === 'stock-list-screen') updateInventoryUI();
@@ -192,13 +219,21 @@ async function savePart() {
         doc.updatedAt = new Date().toISOString();
         await db.put(doc);
 
+        // Clear all input fields
         document.getElementById('part-id').value = '';
         document.getElementById('part-name').value = '';
         document.getElementById('part-price').value = '';
         document.getElementById('part-qty').value = '1';
+        document.getElementById('part-category').value = 'general';
+        document.getElementById('part-location').value = '';
+        document.getElementById('part-min-stock').value = '5';
 
         showToast('Stock saved successfully!', 'success');
         updateInventoryUI();
+
+        // Auto sync after save
+        await autoSync();
+
     } catch (error) {
         showToast('Error saving stock', 'error');
         console.error(error);
@@ -267,6 +302,7 @@ async function deleteItem(id) {
             await db.remove(doc);
             updateInventoryUI();
             showToast('Item deleted', 'success');
+            await autoSync();
         } catch (error) {
             showToast('Error deleting item', 'error');
         }
@@ -291,6 +327,7 @@ function addItemToCurrentBill() {
         total: price * qty
     });
 
+    // Clear only the item input fields, keep customer name
     document.getElementById('bill-item-id').value = '';
     document.getElementById('bill-desc').value = '';
     document.getElementById('bill-price').value = '';
@@ -408,6 +445,9 @@ async function finalizeBill() {
         clearBill();
         showToast('Bill saved successfully!', 'success');
 
+        // Auto sync after bill
+        await autoSync();
+
     } catch (error) {
         showToast('Error saving bill', 'error');
         console.error(error);
@@ -477,6 +517,7 @@ async function saveCustomer() {
 
         closeCustomerModal();
 
+        // Clear all customer form fields
         document.getElementById('cust-name').value = '';
         document.getElementById('cust-phone').value = '';
         document.getElementById('cust-email').value = '';
@@ -485,6 +526,7 @@ async function saveCustomer() {
 
         await updateCustomersUI();
         showToast('Customer saved', 'success');
+        await autoSync();
     } catch (error) {
         showToast('Error saving customer', 'error');
     }
@@ -645,6 +687,16 @@ async function handleScanResult(text, type) {
 
             if (nameInput) nameInput.value = doc.name || '';
             if (priceInput) priceInput.value = doc.price || '';
+
+            if (type === 'inventory') {
+                const categoryField = document.getElementById('part-category');
+                const locationField = document.getElementById('part-location');
+                const minStockField = document.getElementById('part-min-stock');
+
+                if (categoryField) categoryField.value = doc.category || 'general';
+                if (locationField) locationField.value = doc.location || '';
+                if (minStockField) minStockField.value = doc.minStock || 5;
+            }
 
             showToast('Item Found!', 'success');
         } else {
@@ -822,4 +874,7 @@ window.onload = async () => {
         }
         if (syncText) syncText.textContent = 'Ready to sync';
     }
+
+    // Initially show FAB on main menu
+    updateFABVisibility('main-menu');
 };
