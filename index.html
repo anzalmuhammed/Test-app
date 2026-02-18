@@ -108,16 +108,25 @@
         </button>
 
         <section class="glass-card">
-            <div id="reader"></div>
-            <div class="scanner-controls">
-                <button class="cam-btn-active" onclick="toggleScanner('inventory')">
-                    <i class="fas fa-camera"></i> Start Camera
-                </button>
-                <label class="file-label">
-                    <i class="fas fa-file-image"></i> Scan Image File
-                    <input type="file" id="inv-file-input" accept="image/*" style="display:none"
-                        onchange="scanFile(this, 'inventory')">
-                </label>
+            <div class="scanner-container">
+                <div id="reader"></div>
+                <div class="scanner-overlay">
+                    <div class="scanner-line"></div>
+                </div>
+                <div class="scanner-controls">
+                    <button class="cam-btn-active" onclick="toggleScanner('inventory')">
+                        <i class="fas fa-camera"></i> Start Camera
+                    </button>
+                    <button class="flash-btn" id="flash-inventory" onclick="toggleFlash('inventory')"
+                        style="display:none;">
+                        <i class="fas fa-bolt"></i> Flash
+                    </button>
+                    <label class="file-label">
+                        <i class="fas fa-file-image"></i> Scan Image
+                        <input type="file" id="inv-file-input" accept="image/*" style="display:none"
+                            onchange="scanFile(this, 'inventory')">
+                    </label>
+                </div>
             </div>
         </section>
 
@@ -184,16 +193,24 @@
         </button>
 
         <section class="glass-card">
-            <div id="bill-reader"></div>
-            <div class="scanner-controls">
-                <button class="cam-btn-active" onclick="toggleScanner('bill')">
-                    <i class="fas fa-camera"></i> Start Camera
-                </button>
-                <label class="file-label">
-                    <i class="fas fa-file-image"></i> Scan Image File
-                    <input type="file" id="bill-file-input" accept="image/*" style="display:none"
-                        onchange="scanFile(this, 'bill')">
-                </label>
+            <div class="scanner-container">
+                <div id="bill-reader"></div>
+                <div class="scanner-overlay">
+                    <div class="scanner-line"></div>
+                </div>
+                <div class="scanner-controls">
+                    <button class="cam-btn-active" onclick="toggleScanner('bill')">
+                        <i class="fas fa-camera"></i> Start Camera
+                    </button>
+                    <button class="flash-btn" id="flash-bill" onclick="toggleFlash('bill')" style="display:none;">
+                        <i class="fas fa-bolt"></i> Flash
+                    </button>
+                    <label class="file-label">
+                        <i class="fas fa-file-image"></i> Scan Image
+                        <input type="file" id="bill-file-input" accept="image/*" style="display:none"
+                            onchange="scanFile(this, 'bill')">
+                    </label>
+                </div>
             </div>
         </section>
 
@@ -228,7 +245,6 @@
                 </div>
             </div>
 
-            <!-- Full width Add to Bill button like Save Stock button -->
             <button onclick="addItemToCurrentBill()" class="action-btn add" style="width: 100%; margin-top: 15px;">
                 <i class="fas fa-plus-circle"></i> Add to Bill
             </button>

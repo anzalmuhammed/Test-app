@@ -4,17 +4,53 @@ let html5QrCode = null;
 let currentBillItems = [];
 let accessToken = localStorage.getItem('google_token');
 let tokenExpiry = localStorage.getItem('token_expiry');
+let currentScanner = null;
+let torchEnabled = false;
 
 // ===== YOUR GOOGLE CLIENT ID =====
 const CLIENT_ID = '265618310384-mvgcqs0j7tk1fvi6k1b902s8batrehmj.apps.googleusercontent.com';
 const BACKUP_FILE_NAME = 'workshop_backup.json';
 
+// ==================== NETWORK STATUS DETECTION ====================
+function updateNetworkStatus() {
+    const syncStatus = document.getElementById('sync-status');
+    const syncText = document.getElementById('sync-status-text');
+    const syncIcon = document.querySelector('#sync-status i');
+
+    if (navigator.onLine) {
+        syncStatus.classList.add('online');
+        syncStatus.classList.remove('offline');
+        if (syncIcon) syncIcon.style.color = '#10b981';
+        if (syncText) syncText.textContent = accessToken ? 'Online - Ready to sync' : 'Online';
+
+        // Try to sync if we have token and were offline
+        if (accessToken && localStorage.getItem('wasOffline') === 'true') {
+            autoSync();
+            localStorage.removeItem('wasOffline');
+        }
+    } else {
+        syncStatus.classList.add('offline');
+        syncStatus.classList.remove('online');
+        if (syncIcon) syncIcon.style.color = '#fbbf24';
+        if (syncText) syncText.textContent = 'Offline Mode';
+        localStorage.setItem('wasOffline', 'true');
+    }
+}
+
+// Listen for online/offline events
+window.addEventListener('online', updateNetworkStatus);
+window.addEventListener('offline', updateNetworkStatus);
+
 // ==================== AUTO-SYNC FUNCTION ====================
 async function autoSync() {
-    // Auto sync after any data change
+    // Auto sync after any data change if online and have token
     if (navigator.onLine && accessToken) {
         console.log('Auto-syncing...');
         await uploadToDrive();
+    } else {
+        // Mark that we have pending changes
+        localStorage.setItem('pendingSync', 'true');
+        showToast('Changes saved offline. Will sync when online.', 'info');
     }
 }
 
@@ -26,10 +62,8 @@ function updateFABVisibility(screenId) {
     // Show FAB only on dashboard screen or main menu, hide on all others
     if (screenId === 'dashboard-screen' || screenId === 'main-menu') {
         fabButton.style.display = 'flex';
-        console.log('FAB shown on:', screenId); // For debugging
     } else {
         fabButton.style.display = 'none';
-        console.log('FAB hidden on:', screenId); // For debugging
     }
 }
 
@@ -73,9 +107,36 @@ function playBeepAndVibrate() {
     } catch (e) { console.log('Audio feedback error'); }
 }
 
+// ==================== FLASHLIGHT CONTROL ====================
+async function toggleFlash(type) {
+    if (!html5QrCode) return;
+
+    torchEnabled = !torchEnabled;
+    const flashBtn = document.getElementById(`flash-${type}`);
+
+    try {
+        await html5QrCode.setTorch(torchEnabled);
+        if (flashBtn) {
+            flashBtn.classList.toggle('active');
+            flashBtn.innerHTML = torchEnabled ?
+                '<i class="fas fa-bolt"></i> Flash On' :
+                '<i class="fas fa-bolt"></i> Flash';
+        }
+    } catch (error) {
+        showToast('Flashlight not available', 'error');
+        torchEnabled = false;
+    }
+}
+
 // ==================== NAVIGATION & MODALS ====================
 function goToDashboard() {
-    if (html5QrCode) { html5QrCode.stop().catch(() => { }); html5QrCode = null; }
+    if (html5QrCode) {
+        html5QrCode.stop().catch(() => { });
+        html5QrCode = null;
+        // Hide flash buttons
+        document.getElementById('flash-inventory').style.display = 'none';
+        document.getElementById('flash-bill').style.display = 'none';
+    }
     document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
     const mainMenu = document.getElementById('main-menu');
     if (mainMenu) mainMenu.classList.add('active');
@@ -85,7 +146,13 @@ function goToDashboard() {
 }
 
 function showScreen(screenId) {
-    if (html5QrCode) { html5QrCode.stop().catch(() => { }); html5QrCode = null; }
+    if (html5QrCode) {
+        html5QrCode.stop().catch(() => { });
+        html5QrCode = null;
+        // Hide flash buttons
+        document.getElementById('flash-inventory').style.display = 'none';
+        document.getElementById('flash-bill').style.display = 'none';
+    }
     document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
     const target = document.getElementById(screenId);
     if (target) target.classList.add('active');
@@ -639,6 +706,10 @@ async function toggleScanner(type) {
         html5QrCode = null;
     }
 
+    // Show flash button
+    document.getElementById(`flash-${type}`).style.display = 'block';
+    torchEnabled = false;
+
     html5QrCode = new Html5Qrcode(readerId);
 
     try {
@@ -712,6 +783,8 @@ async function handleScanResult(text, type) {
     if (html5QrCode) {
         await html5QrCode.stop();
         html5QrCode = null;
+        // Hide flash button
+        document.getElementById(`flash-${type}`).style.display = 'none';
     }
 }
 
@@ -741,7 +814,10 @@ async function uploadToDrive() {
     const syncText = document.getElementById('sync-status-text');
     const syncIcon = document.querySelector('#sync-status i');
 
-    if (syncIcon) syncIcon.className = 'fas fa-sync fa-spin';
+    if (syncIcon) {
+        syncIcon.className = 'fas fa-sync fa-spin';
+        syncIcon.style.color = '#fbbf24';
+    }
     if (syncText) syncText.textContent = 'Syncing...';
 
     try {
@@ -789,6 +865,12 @@ async function uploadToDrive() {
             }
             if (syncText) syncText.textContent = `Synced at ${time}`;
             showToast('Sync Successful', 'success');
+
+            // Clear pending sync flag
+            localStorage.removeItem('pendingSync');
+
+            // After successful upload, try to download latest data
+            await downloadFromDrive();
         } else {
             throw new Error('Upload failed');
         }
@@ -801,6 +883,65 @@ async function uploadToDrive() {
         }
         if (syncText) syncText.textContent = 'Sync failed';
         showToast('Sync Failed', 'error');
+    }
+}
+
+// ==================== DOWNLOAD FROM DRIVE ====================
+async function downloadFromDrive() {
+    if (!accessToken || !navigator.onLine) return;
+
+    try {
+        const searchRes = await fetch(`https://www.googleapis.com/drive/v3/files?q=name='${BACKUP_FILE_NAME}' and trashed=false`, {
+            headers: { 'Authorization': `Bearer ${accessToken}` }
+        });
+
+        const searchData = await searchRes.json();
+        const fileId = searchData.files?.[0]?.id;
+
+        if (fileId) {
+            const downloadRes = await fetch(`https://www.googleapis.com/drive/v3/files/${fileId}?alt=media`, {
+                headers: { 'Authorization': `Bearer ${accessToken}` }
+            });
+
+            if (downloadRes.ok) {
+                const cloudData = await downloadRes.json();
+                const cloudDocs = cloudData.data || [];
+
+                // Merge cloud data with local
+                let imported = 0;
+                for (const doc of cloudDocs) {
+                    try {
+                        // Check if document exists locally
+                        try {
+                            const existing = await db.get(doc._id);
+                            // If cloud version is newer, update
+                            if (new Date(doc.updatedAt || 0) > new Date(existing.updatedAt || 0)) {
+                                doc._rev = existing._rev;
+                                await db.put(doc);
+                                imported++;
+                            }
+                        } catch (e) {
+                            // Document doesn't exist locally, add it
+                            await db.put(doc);
+                            imported++;
+                        }
+                    } catch (e) {
+                        console.log('Error importing doc:', e);
+                    }
+                }
+
+                if (imported > 0) {
+                    showToast(`Imported ${imported} records from cloud`, 'success');
+                    // Refresh all UIs
+                    updateDashboard();
+                    updateInventoryUI();
+                    updateLedgerUI();
+                    updateCustomersUI();
+                }
+            }
+        }
+    } catch (error) {
+        console.log('Download from Drive error:', error);
     }
 }
 
@@ -867,6 +1008,9 @@ window.onload = async () => {
     await updateLedgerUI();
     await updateCustomersUI();
 
+    // Update network status
+    updateNetworkStatus();
+
     // Update sync status
     if (accessToken && accessToken !== 'null') {
         const syncIcon = document.querySelector('#sync-status i');
@@ -876,6 +1020,14 @@ window.onload = async () => {
             syncIcon.style.color = '#10b981';
         }
         if (syncText) syncText.textContent = 'Ready to sync';
+
+        // Check if we have pending sync
+        if (localStorage.getItem('pendingSync') === 'true' && navigator.onLine) {
+            autoSync();
+        }
+
+        // Download latest data from drive
+        setTimeout(() => downloadFromDrive(), 2000);
     }
 
     // Initially hide FAB

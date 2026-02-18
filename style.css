@@ -9,6 +9,7 @@
   --danger: #ef4444;
   --warning: #f59e0b;
   --dark: #0f172a;
+  --scanner-red: #ff3b30;
 }
 
 * {
@@ -326,6 +327,29 @@ select:focus {
   transform: scale(0.98);
 }
 
+.flash-btn {
+  background: var(--primary);
+  color: white;
+  width: 100%;
+  padding: 14px;
+  border-radius: 10px;
+  border: none;
+  font-weight: bold;
+  margin-bottom: 10px;
+  cursor: pointer;
+  font-size: 16px;
+  transition: all 0.3s;
+}
+
+.flash-btn.active {
+  background: var(--amber);
+  color: black;
+}
+
+.flash-btn:active {
+  transform: scale(0.98);
+}
+
 .back-menu-btn {
   background: #64748b;
   color: white;
@@ -377,7 +401,14 @@ select:focus {
   margin-top: 23px;
 }
 
-/* Scanner */
+/* Scanner Container with Red Line */
+.scanner-container {
+  position: relative;
+  width: 100%;
+  overflow: hidden;
+  border-radius: 15px;
+}
+
 #reader,
 #bill-reader {
   width: 100%;
@@ -386,6 +417,44 @@ select:focus {
   min-height: 200px;
   overflow: hidden;
   margin-bottom: 10px;
+}
+
+.scanner-overlay {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+  z-index: 10;
+}
+
+.scanner-line {
+  position: absolute;
+  top: 50%;
+  left: 10%;
+  width: 80%;
+  height: 2px;
+  background: var(--scanner-red);
+  box-shadow:
+    0 0 10px var(--scanner-red),
+    0 0 20px var(--scanner-red);
+  animation: scan 2s ease-in-out infinite;
+  transform: translateY(-50%);
+}
+
+@keyframes scan {
+  0%,
+  100% {
+    top: 30%;
+  }
+  50% {
+    top: 70%;
+  }
+}
+
+.scanner-controls {
+  margin-top: 10px;
 }
 
 /* Tables */
@@ -791,6 +860,28 @@ td {
   }
 }
 
+/* Network Status Indicator */
+#sync-status.online i {
+  color: var(--success) !important;
+}
+
+#sync-status.offline i {
+  color: var(--amber) !important;
+}
+
+#sync-status.syncing i {
+  animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}
+
 /* Print Styles */
 @media print {
   .top-nav,
@@ -801,9 +892,12 @@ td {
   #sync-status,
   .action-btn,
   .cam-btn-active,
+  .flash-btn,
   .file-label,
   .add-btn,
-  .del-btn {
+  .del-btn,
+  .scanner-container,
+  .scanner-controls {
     display: none !important;
   }
 
