@@ -7,6 +7,7 @@ let tokenExpiry = localStorage.getItem('token_expiry');
 
 // ===== YOUR GOOGLE CLIENT ID =====
 const CLIENT_ID = '265618310384-mvgcqs0j7tk1fvi6k1b902s8batrehmj.apps.googleusercontent.com';
+const BACKUP_FILE_NAME = 'workshop_backup.json';
 
 // ==================== AUTO-SYNC FUNCTION ====================
 async function autoSync() {
@@ -25,8 +26,10 @@ function updateFABVisibility(screenId) {
     // Show FAB only on dashboard screen or main menu, hide on all others
     if (screenId === 'dashboard-screen' || screenId === 'main-menu') {
         fabButton.style.display = 'flex';
+        console.log('FAB shown on:', screenId); // For debugging
     } else {
         fabButton.style.display = 'none';
+        console.log('FAB hidden on:', screenId); // For debugging
     }
 }
 
@@ -875,6 +878,12 @@ window.onload = async () => {
         if (syncText) syncText.textContent = 'Ready to sync';
     }
 
-    // Initially show FAB on main menu
+    // Initially hide FAB
+    const fabButton = document.getElementById('fab-button');
+    if (fabButton) {
+        fabButton.style.display = 'none';
+    }
+
+    // Show FAB only on main menu initially
     updateFABVisibility('main-menu');
 };

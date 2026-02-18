@@ -600,7 +600,7 @@ td {
   background: var(--primary);
 }
 
-/* Floating Action Button */
+/* Floating Action Button - Hidden by default */
 .fab {
   position: fixed;
   bottom: 20px;
@@ -615,14 +615,14 @@ td {
   cursor: pointer;
   box-shadow: 0 4px 15px rgba(99, 102, 241, 0.4);
   z-index: 100;
-  display: flex; /* This will be overridden by JS */
+  display: none !important; /* Hidden by default, shown by JS */
   align-items: center;
   justify-content: center;
   transition: all 0.3s;
 }
 
-.fab[style*="display: none"] {
-  display: none !important;
+.fab[style*="display: flex"] {
+  display: flex !important;
 }
 
 .fab:active {
