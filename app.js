@@ -315,7 +315,7 @@ async function deleteItem(id) {
     }
 }
 
-// ==================== BILLING (YOUR STOCK PROTECTION CODE) ====================
+// ==================== BILLING ====================
 async function addItemToCurrentBill() {
     const desc = document.getElementById('bill-desc').value.trim();
     const price = parseFloat(document.getElementById('bill-price').value) || 0;
@@ -324,7 +324,6 @@ async function addItemToCurrentBill() {
 
     if (!desc) return showToast('Enter item description', 'warning');
 
-    // 1. CHECK STOCK AVAILABILITY
     try {
         const allDocs = await db.allDocs({ include_docs: true });
         const stockItem = allDocs.rows.find(r =>
@@ -336,14 +335,10 @@ async function addItemToCurrentBill() {
 
             if (qtyRequested > available) {
                 showToast(`Insufficient Stock! Only ${available} left.`, 'error');
-                return; // STOP: Do not add to bill
+                return;
             }
-        } else {
-            // Optional: If item isn't in inventory, decide if you want to allow sale
-            showToast('Item not found in inventory. Proceeding as service/misc.', 'info');
         }
 
-        // 2. ADD TO BILL LIST
         currentBillItems.push({
             id: itemId || null,
             desc,
@@ -355,7 +350,6 @@ async function addItemToCurrentBill() {
         renderBillList();
         showToast('Item added to bill', 'success');
 
-        // Clear inputs
         document.getElementById('bill-desc').value = '';
         document.getElementById('bill-price').value = '';
         document.getElementById('bill-qty').value = '1';
@@ -430,7 +424,6 @@ async function finalizeBill() {
         const balance = total - paid;
         const billId = 'ledger_' + Date.now();
 
-        // Save to Ledger
         await db.put({
             _id: billId,
             type: 'ledger',
@@ -444,7 +437,6 @@ async function finalizeBill() {
             updatedAt: new Date().toISOString()
         });
 
-        // DEDUCT FROM INVENTORY
         const result = await db.allDocs({ include_docs: true });
         for (const billItem of currentBillItems) {
             const match = result.rows.find(r =>
@@ -577,7 +569,7 @@ async function updateCustomersUI() {
     }
 }
 
-// ==================== LEDGER FUNCTIONS (ADDED) ====================
+// ==================== LEDGER FUNCTIONS ====================
 function filterTransactionsByDate(transactions, filterType, fromDate, toDate) {
     const now = new Date();
     const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
@@ -617,7 +609,6 @@ async function updateLedgerUI() {
             .map(r => r.doc)
             .filter(d => d && d.type === 'ledger');
 
-        // Apply filters
         const customerSearch = document.getElementById('ledger-customer-search')?.value.toLowerCase() || '';
         if (customerSearch) {
             transactions = transactions.filter(t =>
@@ -630,7 +621,6 @@ async function updateLedgerUI() {
         const toDate = document.getElementById('ledger-date-to')?.value;
         transactions = filterTransactionsByDate(transactions, filterType, fromDate, toDate);
 
-        // Calculate totals
         let totalSales = 0, creditDue = 0;
         const balances = {};
 
@@ -642,7 +632,6 @@ async function updateLedgerUI() {
             }
         });
 
-        // Sort
         const sortType = document.getElementById('ledger-sort')?.value || 'newest';
         switch (sortType) {
             case 'newest': transactions.sort((a, b) => new Date(b.date) - new Date(a.date)); break;
@@ -651,12 +640,10 @@ async function updateLedgerUI() {
             case 'lowest': transactions.sort((a, b) => (a.total || 0) - (b.total || 0)); break;
         }
 
-        // Update UI
         document.getElementById('ledger-filtered-total').textContent = '₹' + totalSales.toFixed(2);
         document.getElementById('ledger-filtered-count').textContent = transactions.length;
         document.getElementById('credit-due').textContent = '₹' + creditDue.toFixed(2);
 
-        // Show balances
         const balancesDiv = document.getElementById('customer-balances-list');
         if (balancesDiv) {
             balancesDiv.innerHTML = '';
@@ -673,7 +660,6 @@ async function updateLedgerUI() {
             }
         }
 
-        // Show transactions
         const historyDiv = document.getElementById('bill-history-list');
         if (historyDiv) {
             historyDiv.innerHTML = '';
@@ -773,7 +759,7 @@ async function handleScanResult(text, type) {
     }
 }
 
-// ==================== GOOGLE DRIVE SYNC ====================
+// ==================== FIXED GOOGLE DRIVE SYNC (NEVER CLEARS DATA) ====================
 function handleSync() {
     if (!navigator.onLine) return showToast('No internet', 'error');
     const now = new Date().getTime();
@@ -795,12 +781,9 @@ async function uploadToDrive() {
     if (syncText) syncText.textContent = 'Syncing...';
 
     try {
-        const allDocs = await db.allDocs({ include_docs: true });
-        const payload = {
-            timestamp: new Date().toISOString(),
-            version: '1.0',
-            data: allDocs.rows.map(r => r.doc)
-        };
+        // 1. FIRST, DOWNLOAD EXISTING DATA FROM DRIVE
+        let cloudData = [];
+        let fileId = null;
 
         const searchRes = await fetch(`https://www.googleapis.com/drive/v3/files?q=name='${BACKUP_FILE_NAME}' and trashed=false`, {
             headers: { 'Authorization': `Bearer ${accessToken}` }
@@ -816,7 +799,99 @@ async function uploadToDrive() {
         }
 
         const searchData = await searchRes.json();
-        const fileId = searchData.files?.[0]?.id;
+        fileId = searchData.files?.[0]?.id;
+
+        if (fileId) {
+            const downloadRes = await fetch(`https://www.googleapis.com/drive/v3/files/${fileId}?alt=media`, {
+                headers: { 'Authorization': `Bearer ${accessToken}` }
+            });
+            if (downloadRes.ok) {
+                const cloudBackup = await downloadRes.json();
+                cloudData = cloudBackup.data || [];
+                console.log(`Found ${cloudData.length} records in cloud`);
+            }
+        }
+
+        // 2. GET LOCAL DATA
+        const localResult = await db.allDocs({ include_docs: true });
+        const localData = localResult.rows.map(r => r.doc);
+        console.log(`Local data: ${localData.length} records`);
+
+        // 3. MERGE DATA (NEVER DELETE ANYTHING)
+        // Create a map with all documents, keeping newest versions
+        const mergedMap = new Map();
+
+        // First add all cloud data
+        cloudData.forEach(doc => {
+            mergedMap.set(doc._id, doc);
+        });
+
+        // Then add/update with local data (local wins if newer)
+        let newCount = 0;
+        let updatedCount = 0;
+
+        for (const localDoc of localData) {
+            const cloudDoc = mergedMap.get(localDoc._id);
+
+            if (!cloudDoc) {
+                // Brand new document from local
+                mergedMap.set(localDoc._id, localDoc);
+                newCount++;
+            } else {
+                // Compare timestamps to keep newest
+                const localTime = new Date(localDoc.updatedAt || 0).getTime();
+                const cloudTime = new Date(cloudDoc.updatedAt || 0).getTime();
+
+                if (localTime > cloudTime) {
+                    // Local is newer, replace cloud version
+                    mergedMap.set(localDoc._id, localDoc);
+                    updatedCount++;
+                } else if (cloudTime > localTime) {
+                    // Cloud is newer, we'll need to update local later
+                    updatedCount++;
+                }
+                // If equal, keep either (both same)
+            }
+        }
+
+        const mergedData = Array.from(mergedMap.values());
+        console.log(`Merged data: ${mergedData.length} records (${newCount} new, ${updatedCount} updated)`);
+
+        // 4. UPDATE LOCAL DATABASE WITH MERGED DATA
+        let localImported = 0;
+        let localUpdated = 0;
+
+        for (const doc of mergedData) {
+            try {
+                const existing = await db.get(doc._id).catch(() => null);
+                if (existing) {
+                    // Update existing document if cloud version is newer
+                    const existingTime = new Date(existing.updatedAt || 0).getTime();
+                    const newTime = new Date(doc.updatedAt || 0).getTime();
+
+                    if (newTime > existingTime) {
+                        doc._rev = existing._rev;
+                        await db.put(doc);
+                        localUpdated++;
+                    }
+                } else {
+                    // Insert new document
+                    await db.put(doc);
+                    localImported++;
+                }
+            } catch (e) {
+                console.error('Error saving doc to local DB:', e);
+            }
+        }
+
+        console.log(`Local DB updated: ${localImported} new, ${localUpdated} updated`);
+
+        // 5. UPLOAD MERGED DATA TO DRIVE
+        const payload = {
+            timestamp: new Date().toISOString(),
+            version: '1.0',
+            data: mergedData
+        };
 
         const metadata = { name: BACKUP_FILE_NAME, mimeType: 'application/json' };
         const boundary = 'foo_bar_baz';
@@ -836,14 +911,27 @@ async function uploadToDrive() {
                 syncIcon.style.color = '#10b981';
             }
             if (syncText) syncText.textContent = `Synced at ${time}`;
-            showToast('Sync Successful', 'success');
+
+            // Show detailed merge stats
+            if (localImported > 0 || localUpdated > 0) {
+                showToast(`Sync complete: ${localImported} new, ${localUpdated} updated`, 'success');
+            } else {
+                showToast('Sync complete (no changes)', 'success');
+            }
+
             localStorage.removeItem('pendingSync');
+
+            // Refresh all UI components
+            await updateDashboard();
+            await updateInventoryUI();
+            await updateLedgerUI();
+            await updateCustomersUI();
         } else {
             throw new Error('Upload failed');
         }
     } catch (e) {
         console.error('Sync error:', e);
-        showToast('Sync Failed', 'error');
+        showToast('Sync Failed: ' + e.message, 'error');
         if (syncText) syncText.textContent = 'Sync failed';
     }
 }
@@ -905,7 +993,11 @@ window.onload = async () => {
             localStorage.setItem('token_expiry', (new Date().getTime() + 3600000).toString());
             window.history.replaceState(null, null, window.location.pathname);
             showToast('Connected to Google Drive', 'success');
-            setTimeout(() => uploadToDrive(), 1500);
+            // Download from Drive first (don't upload yet)
+            setTimeout(async () => {
+                // This will download and merge cloud data into local
+                await uploadToDrive(); // Our fixed function now downloads first
+            }, 1500);
         }
     }
 
