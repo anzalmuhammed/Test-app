@@ -17,7 +17,6 @@ function handleBackPress() {
     const now = new Date().getTime();
 
     if (now - lastBackPress < 2000) {
-        // Double tap detected - exit app
         if (window.matchMedia('(display-mode: standalone)').matches) {
             showToast('Exiting app...', 'info');
             setTimeout(() => {
@@ -245,8 +244,9 @@ function printBill() { window.print(); }
 // ==================== DASHBOARD ====================
 async function updateDashboard() {
     try {
+        console.log('Updating dashboard...');
         const allDocs = await db.allDocs({ include_docs: true });
-        console.log('Dashboard loading data:', allDocs.rows.length); // Debug log
+        console.log('Total documents in DB:', allDocs.rows.length);
 
         let totalItems = 0, totalSales = 0, totalCustomers = 0, lowStock = 0;
         let recentTransactions = [];
@@ -257,13 +257,18 @@ async function updateDashboard() {
                 totalItems++;
                 const available = (doc.totalIn || 0) - (doc.totalSold || 0);
                 if (available < (doc.minStock || 5)) lowStock++;
+                console.log('Inventory item:', doc.name, 'available:', available);
             } else if (doc && doc.type === 'ledger') {
                 totalSales += doc.total || 0;
                 recentTransactions.push(doc);
+                console.log('Ledger entry:', doc.customer, 'amount:', doc.total);
             } else if (doc && doc.type === 'customer') {
                 totalCustomers++;
+                console.log('Customer:', doc.name);
             }
         });
+
+        console.log('Stats - Items:', totalItems, 'Sales:', totalSales, 'Customers:', totalCustomers, 'Low Stock:', lowStock);
 
         const dashTotalItems = document.getElementById('dash-total-items');
         const dashTotalSales = document.getElementById('dash-total-sales');
@@ -317,7 +322,7 @@ async function savePart() {
         try {
             doc = await db.get(id);
             doc.totalIn = (doc.totalIn || 0) + qty;
-            doc.price = price; // Update price to new price
+            doc.price = price;
         } catch (e) {
             doc = {
                 _id: id,
@@ -335,6 +340,7 @@ async function savePart() {
 
         doc.updatedAt = new Date().toISOString();
         await db.put(doc);
+        console.log('Saved part:', doc);
 
         document.getElementById('part-id').value = '';
         document.getElementById('part-name').value = '';
@@ -358,10 +364,13 @@ async function savePart() {
 
 async function updateInventoryUI() {
     try {
+        console.log('Updating inventory UI...');
         const result = await db.allDocs({ include_docs: true });
-        console.log('Inventory loading data:', result.rows.length); // Debug log
+        console.log('Total docs in inventory check:', result.rows.length);
 
         const items = result.rows.map(r => r.doc).filter(d => d && d.type === 'inventory');
+        console.log('Inventory items found:', items.length);
+
         const search = document.getElementById('stock-search')?.value.toLowerCase() || '';
         const filter = document.getElementById('stock-filter')?.value || 'all';
 
@@ -446,7 +455,6 @@ async function addItemToCurrentBill() {
         return;
     }
 
-    // Check stock availability
     try {
         if (itemId) {
             const doc = await db.get(itemId);
@@ -712,7 +720,10 @@ async function saveCustomer() {
 }
 
 async function updateCustomersUI() {
+    console.log('Updating customers UI...');
     const customers = await loadCustomers();
+    console.log('Customers found:', customers.length);
+
     const search = document.getElementById('customer-search')?.value.toLowerCase() || '';
     const filtered = customers.filter(c => c.name.toLowerCase().includes(search));
 
@@ -782,12 +793,15 @@ function filterTransactionsByDate(transactions, filterType, fromDate, toDate) {
 
 async function updateLedgerUI() {
     try {
+        console.log('Updating ledger UI...');
         const result = await db.allDocs({ include_docs: true });
-        console.log('Ledger loading data:', result.rows.length); // Debug log
+        console.log('Total docs in ledger check:', result.rows.length);
 
         let transactions = result.rows
             .map(r => r.doc)
             .filter(d => d && d.type === 'ledger');
+
+        console.log('Ledger transactions found:', transactions.length);
 
         const customerSearch = document.getElementById('ledger-customer-search')?.value.toLowerCase() || '';
         if (customerSearch) {
@@ -983,7 +997,7 @@ async function handleScanResult(text, type) {
     }
 }
 
-// ==================== GOOGLE DRIVE SYNC ====================
+// ==================== GOOGLE DRIVE SYNC - FIXED TO SHOW DATA ====================
 function handleSync() {
     if (!navigator.onLine) {
         showToast('No internet', 'error');
@@ -1017,10 +1031,15 @@ async function uploadToDrive() {
     try {
         showToast('Syncing to Cloud...', 'info');
 
+        // Get all local data
         const allDocs = await db.allDocs({ include_docs: true });
         const localData = allDocs.rows.map(r => r.doc);
+        console.log('Local data count:', localData.length);
 
+        // Try to download existing data from Drive
         let cloudData = [];
+        let fileId = null;
+
         try {
             const searchRes = await fetch(`https://www.googleapis.com/drive/v3/files?q=name='${BACKUP_FILE_NAME}' and trashed=false`, {
                 headers: { 'Authorization': `Bearer ${accessToken}` }
@@ -1036,7 +1055,7 @@ async function uploadToDrive() {
             }
 
             const searchData = await searchRes.json();
-            const fileId = searchData.files?.[0]?.id;
+            fileId = searchData.files?.[0]?.id;
 
             if (fileId) {
                 const downloadRes = await fetch(`https://www.googleapis.com/drive/v3/files/${fileId}?alt=media`, {
@@ -1053,40 +1072,63 @@ async function uploadToDrive() {
             console.log('No existing backup found or error downloading');
         }
 
-        const mergedData = [...cloudData];
-        const cloudMap = new Map(cloudData.map(doc => [doc._id, doc]));
+        // MERGE DATA - Keep newest versions
+        const mergedMap = new Map();
 
-        for (const localDoc of localData) {
-            const cloudDoc = cloudMap.get(localDoc._id);
+        // Add cloud data first
+        cloudData.forEach(doc => {
+            mergedMap.set(doc._id, doc);
+        });
 
+        // Add/overwrite with local data if newer
+        localData.forEach(localDoc => {
+            const cloudDoc = mergedMap.get(localDoc._id);
             if (!cloudDoc) {
-                mergedData.push(localDoc);
+                mergedMap.set(localDoc._id, localDoc);
             } else {
                 const localTime = new Date(localDoc.updatedAt || 0).getTime();
                 const cloudTime = new Date(cloudDoc.updatedAt || 0).getTime();
-
-                if (localTime > cloudTime) {
-                    const index = mergedData.findIndex(d => d._id === localDoc._id);
-                    if (index !== -1) {
-                        mergedData[index] = localDoc;
-                    }
+                if (localTime >= cloudTime) {
+                    mergedMap.set(localDoc._id, localDoc);
                 }
+            }
+        });
+
+        const mergedData = Array.from(mergedMap.values());
+        console.log('Merged data count:', mergedData.length);
+
+        // Save merged data to local database FIRST
+        let imported = 0;
+        let updated = 0;
+
+        for (const doc of mergedData) {
+            try {
+                const existing = await db.get(doc._id).catch(() => null);
+                if (existing) {
+                    // Update existing document
+                    doc._rev = existing._rev;
+                    await db.put(doc);
+                    updated++;
+                } else {
+                    // Insert new document
+                    await db.put(doc);
+                    imported++;
+                }
+            } catch (e) {
+                console.log('Error saving doc to local DB:', e);
             }
         }
 
+        console.log(`Local DB updated: ${imported} new, ${updated} updated`);
+
+        // Prepare backup data for Drive
         const backupData = {
             timestamp: new Date().toISOString(),
             version: '1.0',
             data: mergedData
         };
 
-        const searchRes = await fetch(`https://www.googleapis.com/drive/v3/files?q=name='${BACKUP_FILE_NAME}' and trashed=false`, {
-            headers: { 'Authorization': `Bearer ${accessToken}` }
-        });
-
-        const searchData = await searchRes.json();
-        const fileId = searchData.files?.[0]?.id;
-
+        // Upload merged data to Drive
         const metadata = { name: BACKUP_FILE_NAME, mimeType: 'application/json' };
         const boundary = 'foo_bar_baz';
         const body = `--${boundary}\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n${JSON.stringify(metadata)}\r\n--${boundary}\r\nContent-Type: application/json\r\n\r\n${JSON.stringify(backupData)}\r\n--${boundary}--`;
@@ -1110,26 +1152,21 @@ async function uploadToDrive() {
                 syncIcon.style.color = '#10b981';
             }
             if (syncText) syncText.textContent = `Synced at ${time}`;
-            showToast(`Sync Successful! Merged ${mergedData.length} records`, 'success');
+            showToast(`Sync Successful! ${imported} new, ${updated} updated`, 'success');
 
             localStorage.removeItem('pendingSync');
 
-            for (const doc of mergedData) {
-                try {
-                    const existing = await db.get(doc._id).catch(() => null);
-                    if (existing) {
-                        doc._rev = existing._rev;
-                    }
-                    await db.put(doc);
-                } catch (e) {
-                    console.log('Error updating local doc:', e);
-                }
-            }
-
+            // FORCE REFRESH ALL UI COMPONENTS
+            console.log('Refreshing all UI components...');
             await updateDashboard();
             await updateInventoryUI();
             await updateLedgerUI();
             await updateCustomersUI();
+
+            // Double-check by logging current DB state
+            const checkDocs = await db.allDocs({ include_docs: true });
+            console.log('Final DB state - total docs:', checkDocs.rows.length);
+
         } else {
             throw new Error('Upload failed');
         }
@@ -1142,7 +1179,7 @@ async function uploadToDrive() {
             syncIcon.style.color = '#ef4444';
         }
         if (syncText) syncText.textContent = 'Sync failed';
-        showToast('Sync Failed', 'error');
+        showToast('Sync Failed: ' + e.message, 'error');
     }
 }
 
@@ -1150,6 +1187,7 @@ async function downloadFromDrive() {
     if (!accessToken || !navigator.onLine) return;
 
     try {
+        console.log('Downloading from Drive...');
         const searchRes = await fetch(`https://www.googleapis.com/drive/v3/files?q=name='${BACKUP_FILE_NAME}' and trashed=false`, {
             headers: { 'Authorization': `Bearer ${accessToken}` }
         });
@@ -1165,6 +1203,7 @@ async function downloadFromDrive() {
             if (downloadRes.ok) {
                 const cloudData = await downloadRes.json();
                 const cloudDocs = cloudData.data || [];
+                console.log('Cloud docs count:', cloudDocs.length);
 
                 let imported = 0;
                 let updated = 0;
@@ -1192,7 +1231,8 @@ async function downloadFromDrive() {
                 }
 
                 if (imported > 0 || updated > 0) {
-                    showToast(`Merged: ${imported} new, ${updated} updated from cloud`, 'success');
+                    showToast(`Downloaded: ${imported} new, ${updated} updated from cloud`, 'success');
+                    // Force refresh all UIs
                     await updateDashboard();
                     await updateInventoryUI();
                     await updateLedgerUI();
@@ -1302,6 +1342,7 @@ function installPWA() {
 window.onload = async () => {
     console.log('App initializing...');
 
+    // Handle OAuth redirect
     if (window.location.hash) {
         const params = new URLSearchParams(window.location.hash.substring(1));
         const token = params.get('access_token');
@@ -1313,14 +1354,17 @@ window.onload = async () => {
             window.history.replaceState(null, null, window.location.pathname);
             showToast('Google Drive connected!', 'success');
 
+            // Download from Drive first
             setTimeout(async () => {
                 await downloadFromDrive();
+                // Then upload merged data
                 setTimeout(() => uploadToDrive(), 1000);
             }, 1000);
         }
     }
 
-    // Load all data
+    // Load all data initially
+    console.log('Loading initial data...');
     await updateDashboard();
     await updateInventoryUI();
     await updateLedgerUI();
@@ -1341,6 +1385,7 @@ window.onload = async () => {
             autoSync();
         }
 
+        // Download latest data from drive
         setTimeout(() => downloadFromDrive(), 2000);
     }
 
@@ -1351,6 +1396,7 @@ window.onload = async () => {
 
     updateFABVisibility('dashboard-screen');
 
+    // Register service worker
     if ('serviceWorker' in navigator) {
         try {
             const registration = await navigator.serviceWorker.register('sw.js');
