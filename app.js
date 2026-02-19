@@ -963,7 +963,7 @@ async function handleScanResult(text, type) {
     }
 }
 
-// ==================== GOOGLE DRIVE SYNC ====================
+// ==================== GOOGLE DRIVE SYNC - FIXED (NEVER CLEARS DATA) ====================
 function handleSync() {
     if (!navigator.onLine) {
         showToast('No internet', 'error');
@@ -997,29 +997,81 @@ async function uploadToDrive() {
     try {
         showToast('Syncing to Cloud...', 'info');
 
-        await downloadFromDrive();
-
+        // Get all local data
         const allDocs = await db.allDocs({ include_docs: true });
         const localData = allDocs.rows.map(r => r.doc);
 
+        // Try to download existing data from Drive (if any)
+        let cloudData = [];
+        try {
+            const searchRes = await fetch(`https://www.googleapis.com/drive/v3/files?q=name='${BACKUP_FILE_NAME}' and trashed=false`, {
+                headers: { 'Authorization': `Bearer ${accessToken}` }
+            });
+
+            if (searchRes.status === 401) {
+                localStorage.removeItem('google_token');
+                localStorage.removeItem('token_expiry');
+                accessToken = null;
+                showToast('Session expired. Please login again.', 'warning');
+                handleSync();
+                return;
+            }
+
+            const searchData = await searchRes.json();
+            const fileId = searchData.files?.[0]?.id;
+
+            if (fileId) {
+                const downloadRes = await fetch(`https://www.googleapis.com/drive/v3/files/${fileId}?alt=media`, {
+                    headers: { 'Authorization': `Bearer ${accessToken}` }
+                });
+
+                if (downloadRes.ok) {
+                    const cloudBackup = await downloadRes.json();
+                    cloudData = cloudBackup.data || [];
+                    console.log(`Found ${cloudData.length} records in cloud`);
+                }
+            }
+        } catch (e) {
+            console.log('No existing backup found or error downloading');
+        }
+
+        // MERGE STRATEGY: Combine cloud and local data, keeping newest versions
+        const mergedData = [...cloudData];
+        const cloudMap = new Map(cloudData.map(doc => [doc._id, doc]));
+
+        for (const localDoc of localData) {
+            const cloudDoc = cloudMap.get(localDoc._id);
+
+            if (!cloudDoc) {
+                // New local document - add to merged
+                mergedData.push(localDoc);
+            } else {
+                // Both exist - keep the newest based on updatedAt
+                const localTime = new Date(localDoc.updatedAt || 0).getTime();
+                const cloudTime = new Date(cloudDoc.updatedAt || 0).getTime();
+
+                if (localTime > cloudTime) {
+                    // Local is newer - replace cloud version
+                    const index = mergedData.findIndex(d => d._id === localDoc._id);
+                    if (index !== -1) {
+                        mergedData[index] = localDoc;
+                    }
+                }
+                // If cloud is newer, keep cloud version (already in mergedData)
+            }
+        }
+
+        // Prepare backup data
         const backupData = {
             timestamp: new Date().toISOString(),
             version: '1.0',
-            data: localData
+            data: mergedData
         };
 
+        // Search for existing file again (in case it was created during download)
         const searchRes = await fetch(`https://www.googleapis.com/drive/v3/files?q=name='${BACKUP_FILE_NAME}' and trashed=false`, {
             headers: { 'Authorization': `Bearer ${accessToken}` }
         });
-
-        if (searchRes.status === 401) {
-            localStorage.removeItem('google_token');
-            localStorage.removeItem('token_expiry');
-            accessToken = null;
-            showToast('Session expired. Please login again.', 'warning');
-            handleSync();
-            return;
-        }
 
         const searchData = await searchRes.json();
         const fileId = searchData.files?.[0]?.id;
@@ -1047,13 +1099,33 @@ async function uploadToDrive() {
                 syncIcon.style.color = '#10b981';
             }
             if (syncText) syncText.textContent = `Synced at ${time}`;
-            showToast('Sync Successful! Data merged.', 'success');
+            showToast(`Sync Successful! Merged ${mergedData.length} records`, 'success');
 
             localStorage.removeItem('pendingSync');
+
+            // Update local database with merged data (to ensure we have latest)
+            for (const doc of mergedData) {
+                try {
+                    const existing = await db.get(doc._id).catch(() => null);
+                    if (existing) {
+                        doc._rev = existing._rev;
+                    }
+                    await db.put(doc);
+                } catch (e) {
+                    console.log('Error updating local doc:', e);
+                }
+            }
+
+            // Refresh all UIs
+            updateDashboard();
+            updateInventoryUI();
+            updateLedgerUI();
+            updateCustomersUI();
         } else {
             throw new Error('Upload failed');
         }
     } catch (e) {
+        console.error('Sync error:', e);
         const syncIcon = document.querySelector('#sync-status i');
         const syncText = document.getElementById('sync-status-text');
         if (syncIcon) {
@@ -1065,6 +1137,7 @@ async function uploadToDrive() {
     }
 }
 
+// ==================== DOWNLOAD FROM DRIVE - FIXED (NEVER CLEARS) ====================
 async function downloadFromDrive() {
     if (!accessToken || !navigator.onLine) return;
 
@@ -1090,17 +1163,22 @@ async function downloadFromDrive() {
 
                 for (const cloudDoc of cloudDocs) {
                     try {
-                        try {
-                            const existing = await db.get(cloudDoc._id);
+                        // Check if document exists locally
+                        const existing = await db.get(cloudDoc._id).catch(() => null);
+
+                        if (existing) {
+                            // Compare timestamps to keep the newest version
                             const cloudTime = new Date(cloudDoc.updatedAt || 0).getTime();
                             const localTime = new Date(existing.updatedAt || 0).getTime();
 
                             if (cloudTime > localTime) {
+                                // Cloud is newer, update local
                                 cloudDoc._rev = existing._rev;
                                 await db.put(cloudDoc);
                                 updated++;
                             }
-                        } catch (e) {
+                        } else {
+                            // Document doesn't exist locally, add it
                             await db.put(cloudDoc);
                             imported++;
                         }
@@ -1111,6 +1189,7 @@ async function downloadFromDrive() {
 
                 if (imported > 0 || updated > 0) {
                     showToast(`Merged: ${imported} new, ${updated} updated from cloud`, 'success');
+                    // Refresh all UIs
                     updateDashboard();
                     updateInventoryUI();
                     updateLedgerUI();
@@ -1232,8 +1311,10 @@ window.onload = async () => {
             window.history.replaceState(null, null, window.location.pathname);
             showToast('Google Drive connected!', 'success');
 
+            // Download from Drive first (merges, doesn't replace)
             setTimeout(async () => {
                 await downloadFromDrive();
+                // Then upload merged data
                 setTimeout(() => uploadToDrive(), 1000);
             }, 1000);
         }
@@ -1259,6 +1340,7 @@ window.onload = async () => {
             autoSync();
         }
 
+        // Download latest data from drive (merge, not replace)
         setTimeout(() => downloadFromDrive(), 2000);
     }
 
