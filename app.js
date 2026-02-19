@@ -7,7 +7,6 @@ let tokenExpiry = localStorage.getItem('token_expiry');
 let torchEnabled = false;
 let currentScannerType = null;
 let lastBackPress = 0;
-let cameraPermissionDenied = false;
 
 // ===== YOUR GOOGLE CLIENT ID =====
 const CLIENT_ID = '265618310384-mvgcqs0j7tk1fvi6k1b902s8batrehmj.apps.googleusercontent.com';
@@ -20,25 +19,19 @@ function handleBackPress() {
     if (now - lastBackPress < 2000) {
         // Double tap detected - exit app
         if (window.matchMedia('(display-mode: standalone)').matches) {
-            // In PWA mode, we can't directly close the app
             showToast('Exiting app...', 'info');
             setTimeout(() => {
                 window.close();
             }, 500);
         } else {
-            // In browser - show message
             showToast('Double tap again to exit', 'warning');
         }
     } else {
-        // First tap
         lastBackPress = now;
-
-        // Show exit indicator
         const indicator = document.createElement('div');
         indicator.className = 'exit-indicator';
         indicator.textContent = 'Tap again to exit';
         document.body.appendChild(indicator);
-
         setTimeout(() => {
             if (indicator.parentNode) {
                 indicator.remove();
@@ -47,7 +40,6 @@ function handleBackPress() {
     }
 }
 
-// Override back button behavior
 window.addEventListener('popstate', function (event) {
     const activeScreen = document.querySelector('.screen.active');
     if (activeScreen && activeScreen.id !== 'dashboard-screen') {
@@ -197,7 +189,7 @@ function goToDashboard() {
     if (dashboard) dashboard.classList.add('active');
 
     updateFABVisibility('dashboard-screen');
-    updateDashboard(); // Refresh dashboard data
+    updateDashboard();
 }
 
 function showScreen(screenId) {
@@ -254,6 +246,8 @@ function printBill() { window.print(); }
 async function updateDashboard() {
     try {
         const allDocs = await db.allDocs({ include_docs: true });
+        console.log('Dashboard loading data:', allDocs.rows.length); // Debug log
+
         let totalItems = 0, totalSales = 0, totalCustomers = 0, lowStock = 0;
         let recentTransactions = [];
 
@@ -284,18 +278,22 @@ async function updateDashboard() {
         const recentDiv = document.getElementById('dash-recent');
         if (recentDiv) {
             recentDiv.innerHTML = '';
-            recentTransactions.sort((a, b) => new Date(b.date) - new Date(a.date))
-                .slice(0, 5).forEach(t => {
-                    recentDiv.innerHTML += `
-                        <div style="padding: 8px; border-bottom: 1px solid var(--glass-border);">
-                            <div style="display: flex; justify-content: space-between;">
-                                <span>${t.customer || 'Customer'}</span>
-                                <span>₹${(t.total || 0).toFixed(2)}</span>
+            if (recentTransactions.length === 0) {
+                recentDiv.innerHTML = '<p style="text-align: center; opacity: 0.7;">No recent transactions</p>';
+            } else {
+                recentTransactions.sort((a, b) => new Date(b.date) - new Date(a.date))
+                    .slice(0, 5).forEach(t => {
+                        recentDiv.innerHTML += `
+                            <div style="padding: 8px; border-bottom: 1px solid var(--glass-border);">
+                                <div style="display: flex; justify-content: space-between;">
+                                    <span>${t.customer || 'Customer'}</span>
+                                    <span>₹${(t.total || 0).toFixed(2)}</span>
+                                </div>
+                                <div style="font-size: 12px; opacity:0.7;">${new Date(t.date).toLocaleString()}</div>
                             </div>
-                            <div style="font-size: 12px; opacity:0.7;">${new Date(t.date).toLocaleString()}</div>
-                        </div>
-                    `;
-                });
+                        `;
+                    });
+            }
         }
     } catch (error) {
         console.log('Dashboard update error:', error);
@@ -319,8 +317,7 @@ async function savePart() {
         try {
             doc = await db.get(id);
             doc.totalIn = (doc.totalIn || 0) + qty;
-            // Update price to new price (don't keep old price)
-            doc.price = price;
+            doc.price = price; // Update price to new price
         } catch (e) {
             doc = {
                 _id: id,
@@ -348,8 +345,8 @@ async function savePart() {
         document.getElementById('part-min-stock').value = '5';
 
         showToast('Stock saved successfully!', 'success');
-        updateInventoryUI();
-        updateDashboard(); // Update dashboard stats
+        await updateInventoryUI();
+        await updateDashboard();
 
         await autoSync();
 
@@ -362,6 +359,8 @@ async function savePart() {
 async function updateInventoryUI() {
     try {
         const result = await db.allDocs({ include_docs: true });
+        console.log('Inventory loading data:', result.rows.length); // Debug log
+
         const items = result.rows.map(r => r.doc).filter(d => d && d.type === 'inventory');
         const search = document.getElementById('stock-search')?.value.toLowerCase() || '';
         const filter = document.getElementById('stock-filter')?.value || 'all';
@@ -397,20 +396,23 @@ async function updateInventoryUI() {
         if (tbody) {
             tbody.innerHTML = '';
 
-            filtered.sort((a, b) => a.name.localeCompare(b.name)).forEach(item => {
-                const available = (item.totalIn || 0) - (item.totalSold || 0);
-                const statusClass = available <= 0 ? 'out-of-stock' : available < (item.minStock || 5) ? 'low-stock' : '';
-                tbody.innerHTML += `
-                    <tr class="${statusClass}">
-                        <td>${item.name}</td>
-                        <td>${item.totalIn || 0}</td>
-                        <td>${item.totalSold || 0}</td>
-                        <td><strong>${available}</strong></td>
-                        <td>₹${(item.price || 0).toFixed(2)}</td>
-                        <td><button class="del-btn" onclick="deleteItem('${item._id}')"><i class="fas fa-trash"></i></button></td>
-                    </tr>
-                `;
-            });
+            if (filtered.length === 0) {
+                tbody.innerHTML = '<tr><td colspan="6" style="text-align: center;">No items found</td></tr>';
+            } else {
+                filtered.sort((a, b) => a.name.localeCompare(b.name)).forEach(item => {
+                    const available = (item.totalIn || 0) - (item.totalSold || 0);
+                    tbody.innerHTML += `
+                        <tr>
+                            <td>${item.name}</td>
+                            <td>${item.totalIn || 0}</td>
+                            <td>${item.totalSold || 0}</td>
+                            <td><strong>${available}</strong></td>
+                            <td>₹${(item.price || 0).toFixed(2)}</td>
+                            <td><button class="del-btn" onclick="deleteItem('${item._id}')"><i class="fas fa-trash"></i></button></td>
+                        </tr>
+                    `;
+                });
+            }
         }
     } catch (error) {
         console.log('Inventory update error:', error);
@@ -422,8 +424,8 @@ async function deleteItem(id) {
         try {
             const doc = await db.get(id);
             await db.remove(doc);
-            updateInventoryUI();
-            updateDashboard();
+            await updateInventoryUI();
+            await updateDashboard();
             showToast('Item deleted', 'success');
             await autoSync();
         } catch (error) {
@@ -432,7 +434,7 @@ async function deleteItem(id) {
     }
 }
 
-// ==================== BILLING (with Stock Validation) ====================
+// ==================== BILLING ====================
 async function addItemToCurrentBill() {
     const desc = document.getElementById('bill-desc')?.value.trim();
     let price = parseFloat(document.getElementById('bill-price')?.value) || 0;
@@ -454,13 +456,11 @@ async function addItemToCurrentBill() {
                     showToast(`Only ${available} items in stock!`, 'error');
                     return;
                 }
-                // If price is 0, use stored price
                 if (price === 0) {
                     price = doc.price || 0;
                 }
             }
         } else {
-            // Search by name
             const result = await db.allDocs({ include_docs: true });
             for (const row of result.rows) {
                 if (row.doc && row.doc.type === 'inventory' && row.doc.name === desc) {
@@ -469,7 +469,6 @@ async function addItemToCurrentBill() {
                         showToast(`Only ${available} items in stock!`, 'error');
                         return;
                     }
-                    // If price is 0, use stored price
                     if (price === 0) {
                         price = row.doc.price || 0;
                     }
@@ -598,7 +597,6 @@ async function finalizeBill() {
             date: new Date().toISOString()
         });
 
-        // Update inventory with final stock reduction (using original prices from DB, not edited bill prices)
         for (const item of currentBillItems) {
             if (item.itemId) {
                 try {
@@ -611,7 +609,6 @@ async function finalizeBill() {
                 } catch (e) { }
             }
 
-            // Search by name if no ID
             const result = await db.allDocs({ include_docs: true });
             for (const row of result.rows) {
                 if (row.doc && row.doc.type === 'inventory' && row.doc.name === item.desc) {
@@ -625,7 +622,8 @@ async function finalizeBill() {
         showBillPreview(customer, total, paid, balance);
         clearBill();
         showToast('Bill saved successfully!', 'success');
-        updateDashboard(); // Update dashboard stats
+        await updateDashboard();
+        await updateInventoryUI();
 
         await autoSync();
 
@@ -705,7 +703,7 @@ async function saveCustomer() {
         document.getElementById('cust-gst').value = '';
 
         await updateCustomersUI();
-        updateDashboard();
+        await updateDashboard();
         showToast('Customer saved', 'success');
         await autoSync();
     } catch (error) {
@@ -722,21 +720,25 @@ async function updateCustomersUI() {
     if (container) {
         container.innerHTML = '';
 
-        filtered.forEach(c => {
-            container.innerHTML += `
-                <div class="customer-card">
-                    <strong>${c.name}</strong>
-                    <div style="font-size:12px;">${c.phone || 'No phone'}</div>
-                    <div style="color:${c.balance > 0 ? '#ef4444' : '#10b981'};">
-                        Balance: ₹${(c.balance || 0).toFixed(2)}
+        if (filtered.length === 0) {
+            container.innerHTML = '<p style="text-align: center; opacity: 0.7;">No customers found</p>';
+        } else {
+            filtered.forEach(c => {
+                container.innerHTML += `
+                    <div class="customer-card">
+                        <strong>${c.name}</strong>
+                        <div style="font-size:12px;">${c.phone || 'No phone'}</div>
+                        <div style="color:${c.balance > 0 ? '#ef4444' : '#10b981'};">
+                            Balance: ₹${(c.balance || 0).toFixed(2)}
+                        </div>
                     </div>
-                </div>
-            `;
-        });
+                `;
+            });
+        }
     }
 }
 
-// ==================== ADVANCED LEDGER WITH FILTERS ====================
+// ==================== ADVANCED LEDGER ====================
 function resetLedgerFilters() {
     document.getElementById('ledger-customer-search').value = '';
     document.getElementById('ledger-date-from').value = '';
@@ -781,11 +783,12 @@ function filterTransactionsByDate(transactions, filterType, fromDate, toDate) {
 async function updateLedgerUI() {
     try {
         const result = await db.allDocs({ include_docs: true });
+        console.log('Ledger loading data:', result.rows.length); // Debug log
+
         let transactions = result.rows
             .map(r => r.doc)
             .filter(d => d && d.type === 'ledger');
 
-        // Apply customer filter
         const customerSearch = document.getElementById('ledger-customer-search')?.value.toLowerCase() || '';
         if (customerSearch) {
             transactions = transactions.filter(t =>
@@ -793,14 +796,12 @@ async function updateLedgerUI() {
             );
         }
 
-        // Apply date filters
         const filterType = document.getElementById('ledger-filter-type')?.value || 'all';
         const fromDate = document.getElementById('ledger-date-from')?.value;
         const toDate = document.getElementById('ledger-date-to')?.value;
 
         transactions = filterTransactionsByDate(transactions, filterType, fromDate, toDate);
 
-        // Calculate totals for filtered transactions
         let totalSales = 0;
         let creditDue = 0;
         const balances = {};
@@ -813,7 +814,6 @@ async function updateLedgerUI() {
             }
         });
 
-        // Apply sorting
         const sortType = document.getElementById('ledger-sort')?.value || 'newest';
         switch (sortType) {
             case 'newest':
@@ -830,14 +830,12 @@ async function updateLedgerUI() {
                 break;
         }
 
-        // Update stats
         const ledgerFilteredTotal = document.getElementById('ledger-filtered-total');
         const ledgerFilteredCount = document.getElementById('ledger-filtered-count');
 
         if (ledgerFilteredTotal) ledgerFilteredTotal.textContent = '₹' + totalSales.toFixed(2);
         if (ledgerFilteredCount) ledgerFilteredCount.textContent = transactions.length;
 
-        // Show customer balances
         const balancesDiv = document.getElementById('customer-balances-list');
         if (balancesDiv) {
             balancesDiv.innerHTML = '';
@@ -855,7 +853,6 @@ async function updateLedgerUI() {
             }
         }
 
-        // Show transaction history
         const historyDiv = document.getElementById('bill-history-list');
         if (historyDiv) {
             historyDiv.innerHTML = '';
@@ -891,16 +888,12 @@ async function toggleScanner(type) {
     const element = document.getElementById(readerId);
     if (!element) return;
 
-    // Reset permission flag on each attempt
-    cameraPermissionDenied = false;
-
     if (html5QrCode) {
         await html5QrCode.stop();
         html5QrCode = null;
     }
 
-    // Show scanner overlay
-    document.getElementById(`scanner-overlay-${type}`).style.display = 'flex';
+    document.getElementById(`scanner-overlay-${type}`).style.display = 'block';
     document.getElementById(`flash-${type}`).style.display = 'flex';
     torchEnabled = false;
     currentScannerType = type;
@@ -927,7 +920,6 @@ async function toggleScanner(type) {
         showToast('Camera access denied. Please allow camera permission.', 'error');
         document.getElementById(`scanner-overlay-${type}`).style.display = 'none';
         document.getElementById(`flash-${type}`).style.display = 'none';
-        cameraPermissionDenied = true;
     }
 }
 
@@ -1025,11 +1017,9 @@ async function uploadToDrive() {
     try {
         showToast('Syncing to Cloud...', 'info');
 
-        // Get all local data
         const allDocs = await db.allDocs({ include_docs: true });
         const localData = allDocs.rows.map(r => r.doc);
 
-        // Try to download existing data from Drive (if any)
         let cloudData = [];
         try {
             const searchRes = await fetch(`https://www.googleapis.com/drive/v3/files?q=name='${BACKUP_FILE_NAME}' and trashed=false`, {
@@ -1063,7 +1053,6 @@ async function uploadToDrive() {
             console.log('No existing backup found or error downloading');
         }
 
-        // MERGE STRATEGY: Combine cloud and local data, keeping newest versions
         const mergedData = [...cloudData];
         const cloudMap = new Map(cloudData.map(doc => [doc._id, doc]));
 
@@ -1071,32 +1060,26 @@ async function uploadToDrive() {
             const cloudDoc = cloudMap.get(localDoc._id);
 
             if (!cloudDoc) {
-                // New local document - add to merged
                 mergedData.push(localDoc);
             } else {
-                // Both exist - keep the newest based on updatedAt
                 const localTime = new Date(localDoc.updatedAt || 0).getTime();
                 const cloudTime = new Date(cloudDoc.updatedAt || 0).getTime();
 
                 if (localTime > cloudTime) {
-                    // Local is newer - replace cloud version
                     const index = mergedData.findIndex(d => d._id === localDoc._id);
                     if (index !== -1) {
                         mergedData[index] = localDoc;
                     }
                 }
-                // If cloud is newer, keep cloud version (already in mergedData)
             }
         }
 
-        // Prepare backup data
         const backupData = {
             timestamp: new Date().toISOString(),
             version: '1.0',
             data: mergedData
         };
 
-        // Search for existing file again (in case it was created during download)
         const searchRes = await fetch(`https://www.googleapis.com/drive/v3/files?q=name='${BACKUP_FILE_NAME}' and trashed=false`, {
             headers: { 'Authorization': `Bearer ${accessToken}` }
         });
@@ -1131,7 +1114,6 @@ async function uploadToDrive() {
 
             localStorage.removeItem('pendingSync');
 
-            // Update local database with merged data (to ensure we have latest)
             for (const doc of mergedData) {
                 try {
                     const existing = await db.get(doc._id).catch(() => null);
@@ -1144,11 +1126,10 @@ async function uploadToDrive() {
                 }
             }
 
-            // Refresh all UIs
-            updateDashboard();
-            updateInventoryUI();
-            updateLedgerUI();
-            updateCustomersUI();
+            await updateDashboard();
+            await updateInventoryUI();
+            await updateLedgerUI();
+            await updateCustomersUI();
         } else {
             throw new Error('Upload failed');
         }
@@ -1165,7 +1146,6 @@ async function uploadToDrive() {
     }
 }
 
-// ==================== DOWNLOAD FROM DRIVE ====================
 async function downloadFromDrive() {
     if (!accessToken || !navigator.onLine) return;
 
@@ -1191,22 +1171,18 @@ async function downloadFromDrive() {
 
                 for (const cloudDoc of cloudDocs) {
                     try {
-                        // Check if document exists locally
                         const existing = await db.get(cloudDoc._id).catch(() => null);
 
                         if (existing) {
-                            // Compare timestamps to keep the newest version
                             const cloudTime = new Date(cloudDoc.updatedAt || 0).getTime();
                             const localTime = new Date(existing.updatedAt || 0).getTime();
 
                             if (cloudTime > localTime) {
-                                // Cloud is newer, update local
                                 cloudDoc._rev = existing._rev;
                                 await db.put(cloudDoc);
                                 updated++;
                             }
                         } else {
-                            // Document doesn't exist locally, add it
                             await db.put(cloudDoc);
                             imported++;
                         }
@@ -1217,11 +1193,10 @@ async function downloadFromDrive() {
 
                 if (imported > 0 || updated > 0) {
                     showToast(`Merged: ${imported} new, ${updated} updated from cloud`, 'success');
-                    // Refresh all UIs
-                    updateDashboard();
-                    updateInventoryUI();
-                    updateLedgerUI();
-                    updateCustomersUI();
+                    await updateDashboard();
+                    await updateInventoryUI();
+                    await updateLedgerUI();
+                    await updateCustomersUI();
                 }
             }
         }
@@ -1260,11 +1235,9 @@ async function exportLedger() {
     try {
         showToast('Exporting ledger...', 'info');
 
-        // Get current filtered transactions
         const result = await db.allDocs({ include_docs: true });
         let transactions = result.rows.map(r => r.doc).filter(d => d && d.type === 'ledger');
 
-        // Apply current filters
         const customerSearch = document.getElementById('ledger-customer-search')?.value.toLowerCase() || '';
         if (customerSearch) {
             transactions = transactions.filter(t => t.customer.toLowerCase().includes(customerSearch));
@@ -1292,7 +1265,6 @@ window.addEventListener('beforeinstallprompt', (e) => {
     e.preventDefault();
     deferredPrompt = e;
 
-    // Show install prompt after 30 seconds
     setTimeout(() => {
         if (deferredPrompt) {
             showInstallPrompt();
@@ -1328,6 +1300,8 @@ function installPWA() {
 
 // ==================== INITIALIZATION ====================
 window.onload = async () => {
+    console.log('App initializing...');
+
     if (window.location.hash) {
         const params = new URLSearchParams(window.location.hash.substring(1));
         const token = params.get('access_token');
@@ -1339,15 +1313,14 @@ window.onload = async () => {
             window.history.replaceState(null, null, window.location.pathname);
             showToast('Google Drive connected!', 'success');
 
-            // Download from Drive first (merges, doesn't replace)
             setTimeout(async () => {
                 await downloadFromDrive();
-                // Then upload merged data
                 setTimeout(() => uploadToDrive(), 1000);
             }, 1000);
         }
     }
 
+    // Load all data
     await updateDashboard();
     await updateInventoryUI();
     await updateLedgerUI();
@@ -1368,7 +1341,6 @@ window.onload = async () => {
             autoSync();
         }
 
-        // Download latest data from drive (merge, not replace)
         setTimeout(() => downloadFromDrive(), 2000);
     }
 
@@ -1379,7 +1351,6 @@ window.onload = async () => {
 
     updateFABVisibility('dashboard-screen');
 
-    // Register service worker for PWA
     if ('serviceWorker' in navigator) {
         try {
             const registration = await navigator.serviceWorker.register('sw.js');
@@ -1389,6 +1360,5 @@ window.onload = async () => {
         }
     }
 
-    // Push initial state for back button handling
     history.pushState(null, null, location.href);
 };

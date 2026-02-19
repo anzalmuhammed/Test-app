@@ -96,36 +96,6 @@
         </div>
     </div>
 
-    <!-- Main Menu Screen (Hidden - No longer used as home) -->
-    <div id="main-menu" class="screen" style="display:none;">
-        <div class="menu-grid">
-            <div class="menu-box" onclick="showScreen('inventory-screen')">
-                <div class="icon">📦</div>
-                <span>Add Stock</span>
-            </div>
-            <div class="menu-box" onclick="showScreen('quick-bill-screen')">
-                <div class="icon">🧾</div>
-                <span>Quick Bill</span>
-            </div>
-            <div class="menu-box" onclick="showScreen('stock-list-screen')">
-                <div class="icon">📊</div>
-                <span>Reports</span>
-            </div>
-            <div class="menu-box" onclick="showScreen('ledger-screen')">
-                <div class="icon">📋</div>
-                <span>Ledger</span>
-            </div>
-            <div class="menu-box" onclick="showScreen('customers-screen')">
-                <div class="icon">👥</div>
-                <span>Customers</span>
-            </div>
-            <div class="menu-box" onclick="showScreen('dashboard-screen')">
-                <div class="icon">📈</div>
-                <span>Dashboard</span>
-            </div>
-        </div>
-    </div>
-
     <!-- Inventory Screen (Add Stock) -->
     <div id="inventory-screen" class="screen">
         <button class="back-menu-btn" onclick="goToDashboard()">
@@ -136,8 +106,11 @@
             <div class="scanner-container">
                 <div id="reader"></div>
                 <div class="scanner-overlay" id="scanner-overlay-inventory" style="display: none;">
-                    <div class="scanner-line-horizontal"></div>
-                    <div class="scanner-line-vertical"></div>
+                    <div class="scanner-line"></div>
+                    <div class="scanner-corner top-left"></div>
+                    <div class="scanner-corner top-right"></div>
+                    <div class="scanner-corner bottom-left"></div>
+                    <div class="scanner-corner bottom-right"></div>
                 </div>
                 <div class="flash-icon" id="flash-inventory" style="display: none;" onclick="toggleFlash('inventory')">
                     <i class="fas fa-bolt"></i>
@@ -221,8 +194,11 @@
             <div class="scanner-container">
                 <div id="bill-reader"></div>
                 <div class="scanner-overlay" id="scanner-overlay-bill" style="display: none;">
-                    <div class="scanner-line-horizontal"></div>
-                    <div class="scanner-line-vertical"></div>
+                    <div class="scanner-line"></div>
+                    <div class="scanner-corner top-left"></div>
+                    <div class="scanner-corner top-right"></div>
+                    <div class="scanner-corner bottom-left"></div>
+                    <div class="scanner-corner bottom-right"></div>
                 </div>
                 <div class="flash-icon" id="flash-bill" style="display: none;" onclick="toggleFlash('bill')">
                     <i class="fas fa-bolt"></i>

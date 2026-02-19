@@ -412,58 +412,70 @@ select:focus {
   height: 100%;
   pointer-events: none;
   z-index: 10;
-  display: flex;
-  align-items: center;
-  justify-content: center;
 }
 
-/* Horizontal and Vertical Scanner Lines - Centered Crosshair */
-.scanner-line-horizontal {
+/* Professional Scanner Line - Single Red Line with Animation */
+.scanner-line {
   position: absolute;
+  top: 50%;
+  left: 10%;
   width: 80%;
   height: 2px;
   background: var(--scanner-red);
   box-shadow:
     0 0 10px var(--scanner-red),
     0 0 20px var(--scanner-red);
-  animation: pulseHorizontal 2s ease-in-out infinite;
-  left: 10%;
+  transform: translateY(-50%);
+  animation: scanMove 2s ease-in-out infinite;
 }
 
-.scanner-line-vertical {
+@keyframes scanMove {
+  0% {
+    top: 30%;
+  }
+  50% {
+    top: 70%;
+  }
+  100% {
+    top: 30%;
+  }
+}
+
+/* Scanner Corners for Professional Look */
+.scanner-corner {
   position: absolute;
-  height: 80%;
-  width: 2px;
-  background: var(--scanner-red);
-  box-shadow:
-    0 0 10px var(--scanner-red),
-    0 0 20px var(--scanner-red);
-  animation: pulseVertical 2s ease-in-out infinite;
-  top: 10%;
+  width: 30px;
+  height: 30px;
+  border: 3px solid var(--scanner-red);
+  filter: drop-shadow(0 0 5px var(--scanner-red));
 }
 
-@keyframes pulseHorizontal {
-  0%,
-  100% {
-    opacity: 1;
-    transform: scaleX(1);
-  }
-  50% {
-    opacity: 0.7;
-    transform: scaleX(1.02);
-  }
+.scanner-corner.top-left {
+  top: 20px;
+  left: 20px;
+  border-right: none;
+  border-bottom: none;
 }
 
-@keyframes pulseVertical {
-  0%,
-  100% {
-    opacity: 1;
-    transform: scaleY(1);
-  }
-  50% {
-    opacity: 0.7;
-    transform: scaleY(1.02);
-  }
+.scanner-corner.top-right {
+  top: 20px;
+  right: 20px;
+  border-left: none;
+  border-bottom: none;
+}
+
+.scanner-corner.bottom-left {
+  bottom: 20px;
+  left: 20px;
+  border-right: none;
+  border-top: none;
+}
+
+.scanner-corner.bottom-right {
+  bottom: 20px;
+  right: 20px;
+  border-left: none;
+  border-top: none;
 }
 
 /* Flash Icon - Like Mobile Camera App */
@@ -1061,5 +1073,11 @@ td {
 
   .bottom-menu-grid {
     gap: 10px;
+  }
+
+  .scanner-corner {
+    width: 20px;
+    height: 20px;
+    border-width: 2px;
   }
 }
