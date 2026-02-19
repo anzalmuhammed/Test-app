@@ -161,7 +161,6 @@ async function showScreen(screenId) {
 
     updateFABVisibility(screenId);
 
-    // Refresh data based on screen
     if (screenId === 'stock-list-screen') await updateInventoryUI();
     if (screenId === 'ledger-screen') await updateLedgerUI();
     if (screenId === 'customers-screen') await updateCustomersUI();
@@ -243,7 +242,6 @@ async function savePart() {
         await db.put(doc);
         showToast('Stock saved!', 'success');
 
-        // Clear form
         document.getElementById('part-id').value = '';
         document.getElementById('part-name').value = '';
         document.getElementById('part-price').value = '';
@@ -285,7 +283,6 @@ async function updateInventoryUI() {
             });
         }
 
-        // Update total value
         const totalValue = items.reduce((sum, item) => {
             const available = (item.totalIn || 0) - (item.totalSold || 0);
             return sum + (available * (item.price || 0));
@@ -781,7 +778,24 @@ async function uploadToDrive() {
     if (syncText) syncText.textContent = 'Syncing...';
 
     try {
-        // 1. FIRST, DOWNLOAD EXISTING DATA FROM DRIVE
+        // 1. GET LOCAL DATA FIRST
+        const localResult = await db.allDocs({ include_docs: true });
+        const localData = localResult.rows.map(r => r.doc);
+        console.log(`Local data: ${localData.length} records`);
+
+        // 2. IF NO LOCAL DATA, DON'T UPLOAD (PREVENTS CLEARING CLOUD)
+        if (localData.length === 0) {
+            console.log('No local data - skipping upload to preserve cloud data');
+            showToast('No local data to sync', 'info');
+            if (syncText) syncText.textContent = 'No data to sync';
+            if (syncIcon) {
+                syncIcon.className = 'fas fa-info-circle';
+                syncIcon.style.color = '#fbbf24';
+            }
+            return;
+        }
+
+        // 3. DOWNLOAD EXISTING DATA FROM DRIVE
         let cloudData = [];
         let fileId = null;
 
@@ -812,13 +826,7 @@ async function uploadToDrive() {
             }
         }
 
-        // 2. GET LOCAL DATA
-        const localResult = await db.allDocs({ include_docs: true });
-        const localData = localResult.rows.map(r => r.doc);
-        console.log(`Local data: ${localData.length} records`);
-
-        // 3. MERGE DATA (NEVER DELETE ANYTHING)
-        // Create a map with all documents, keeping newest versions
+        // 4. MERGE DATA (KEEP ALL, NEVER DELETE)
         const mergedMap = new Map();
 
         // First add all cloud data
@@ -826,7 +834,7 @@ async function uploadToDrive() {
             mergedMap.set(doc._id, doc);
         });
 
-        // Then add/update with local data (local wins if newer)
+        // Then add/update with local data
         let newCount = 0;
         let updatedCount = 0;
 
@@ -834,30 +842,23 @@ async function uploadToDrive() {
             const cloudDoc = mergedMap.get(localDoc._id);
 
             if (!cloudDoc) {
-                // Brand new document from local
                 mergedMap.set(localDoc._id, localDoc);
                 newCount++;
             } else {
-                // Compare timestamps to keep newest
                 const localTime = new Date(localDoc.updatedAt || 0).getTime();
                 const cloudTime = new Date(cloudDoc.updatedAt || 0).getTime();
 
-                if (localTime > cloudTime) {
-                    // Local is newer, replace cloud version
+                if (localTime >= cloudTime) {
                     mergedMap.set(localDoc._id, localDoc);
                     updatedCount++;
-                } else if (cloudTime > localTime) {
-                    // Cloud is newer, we'll need to update local later
-                    updatedCount++;
                 }
-                // If equal, keep either (both same)
             }
         }
 
         const mergedData = Array.from(mergedMap.values());
         console.log(`Merged data: ${mergedData.length} records (${newCount} new, ${updatedCount} updated)`);
 
-        // 4. UPDATE LOCAL DATABASE WITH MERGED DATA
+        // 5. UPDATE LOCAL DATABASE WITH ANY NEWER CLOUD DATA
         let localImported = 0;
         let localUpdated = 0;
 
@@ -865,7 +866,6 @@ async function uploadToDrive() {
             try {
                 const existing = await db.get(doc._id).catch(() => null);
                 if (existing) {
-                    // Update existing document if cloud version is newer
                     const existingTime = new Date(existing.updatedAt || 0).getTime();
                     const newTime = new Date(doc.updatedAt || 0).getTime();
 
@@ -875,7 +875,6 @@ async function uploadToDrive() {
                         localUpdated++;
                     }
                 } else {
-                    // Insert new document
                     await db.put(doc);
                     localImported++;
                 }
@@ -884,9 +883,7 @@ async function uploadToDrive() {
             }
         }
 
-        console.log(`Local DB updated: ${localImported} new, ${localUpdated} updated`);
-
-        // 5. UPLOAD MERGED DATA TO DRIVE
+        // 6. UPLOAD MERGED DATA TO DRIVE (BUT ONLY IF WE HAVE DATA)
         const payload = {
             timestamp: new Date().toISOString(),
             version: '1.0',
@@ -912,7 +909,6 @@ async function uploadToDrive() {
             }
             if (syncText) syncText.textContent = `Synced at ${time}`;
 
-            // Show detailed merge stats
             if (localImported > 0 || localUpdated > 0) {
                 showToast(`Sync complete: ${localImported} new, ${localUpdated} updated`, 'success');
             } else {
@@ -921,7 +917,6 @@ async function uploadToDrive() {
 
             localStorage.removeItem('pendingSync');
 
-            // Refresh all UI components
             await updateDashboard();
             await updateInventoryUI();
             await updateLedgerUI();
@@ -993,10 +988,11 @@ window.onload = async () => {
             localStorage.setItem('token_expiry', (new Date().getTime() + 3600000).toString());
             window.history.replaceState(null, null, window.location.pathname);
             showToast('Connected to Google Drive', 'success');
+
             // Download from Drive first (don't upload yet)
             setTimeout(async () => {
                 // This will download and merge cloud data into local
-                await uploadToDrive(); // Our fixed function now downloads first
+                await uploadToDrive(); // Our fixed function now checks for empty local data
             }, 1500);
         }
     }
