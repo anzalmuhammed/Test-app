@@ -4,11 +4,11 @@ let html5QrCode = null;
 let currentBillItems = [];
 let accessToken = localStorage.getItem('google_token');
 let tokenExpiry = localStorage.getItem('token_expiry');
-let currentScanner = null;
 let torchEnabled = false;
+let currentScannerType = null;
 
 // ===== YOUR GOOGLE CLIENT ID =====
-const CLIENT_ID = '265618310384-mvgcqs0j7tk1fvi6k1b902s8batrehmj.apps.googleusercontent.com';
+const CLIENT_ID = '265618310384-mvgcqs0j7tk1fvi6k1b902s8batrehmj.apps.googleusercontent.com'; // Replace with your actual Client ID
 const BACKUP_FILE_NAME = 'workshop_backup.json';
 
 // ==================== NETWORK STATUS DETECTION ====================
@@ -59,7 +59,6 @@ function updateFABVisibility(screenId) {
     const fabButton = document.getElementById('fab-button');
     if (!fabButton) return;
 
-    // Show FAB only on dashboard screen or main menu, hide on all others
     if (screenId === 'dashboard-screen' || screenId === 'main-menu') {
         fabButton.style.display = 'flex';
     } else {
@@ -112,19 +111,31 @@ async function toggleFlash(type) {
     if (!html5QrCode) return;
 
     torchEnabled = !torchEnabled;
-    const flashBtn = document.getElementById(`flash-${type}`);
+    const flashIcon = document.getElementById(`flash-${type}`);
 
     try {
+        // Try to set torch - this works on many devices
         await html5QrCode.setTorch(torchEnabled);
-        if (flashBtn) {
-            flashBtn.classList.toggle('active');
-            flashBtn.innerHTML = torchEnabled ?
-                '<i class="fas fa-bolt"></i> Flash On' :
-                '<i class="fas fa-bolt"></i> Flash';
+
+        if (flashIcon) {
+            if (torchEnabled) {
+                flashIcon.classList.add('active');
+                flashIcon.innerHTML = '<i class="fas fa-bolt" style="color: black;"></i>';
+            } else {
+                flashIcon.classList.remove('active');
+                flashIcon.innerHTML = '<i class="fas fa-bolt"></i>';
+            }
         }
+
+        showToast(torchEnabled ? 'Flashlight On' : 'Flashlight Off', 'success');
     } catch (error) {
-        showToast('Flashlight not available', 'error');
+        console.log('Flashlight error:', error);
+        showToast('Flashlight not supported on this device', 'warning');
         torchEnabled = false;
+        if (flashIcon) {
+            flashIcon.classList.remove('active');
+            flashIcon.innerHTML = '<i class="fas fa-bolt"></i>';
+        }
     }
 }
 
@@ -133,15 +144,17 @@ function goToDashboard() {
     if (html5QrCode) {
         html5QrCode.stop().catch(() => { });
         html5QrCode = null;
-        // Hide flash buttons
+        // Hide scanner overlays and flash icons
+        document.getElementById('scanner-overlay-inventory').style.display = 'none';
+        document.getElementById('scanner-overlay-bill').style.display = 'none';
         document.getElementById('flash-inventory').style.display = 'none';
         document.getElementById('flash-bill').style.display = 'none';
+        torchEnabled = false;
     }
     document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
     const mainMenu = document.getElementById('main-menu');
     if (mainMenu) mainMenu.classList.add('active');
 
-    // Show FAB on main menu
     updateFABVisibility('main-menu');
 }
 
@@ -149,18 +162,19 @@ function showScreen(screenId) {
     if (html5QrCode) {
         html5QrCode.stop().catch(() => { });
         html5QrCode = null;
-        // Hide flash buttons
+        // Hide scanner overlays and flash icons
+        document.getElementById('scanner-overlay-inventory').style.display = 'none';
+        document.getElementById('scanner-overlay-bill').style.display = 'none';
         document.getElementById('flash-inventory').style.display = 'none';
         document.getElementById('flash-bill').style.display = 'none';
+        torchEnabled = false;
     }
     document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
     const target = document.getElementById(screenId);
     if (target) target.classList.add('active');
 
-    // Update FAB visibility based on screen
     updateFABVisibility(screenId);
 
-    // Refresh data based on screen
     if (screenId === 'stock-list-screen') updateInventoryUI();
     if (screenId === 'ledger-screen') updateLedgerUI();
     if (screenId === 'customers-screen') updateCustomersUI();
@@ -289,7 +303,6 @@ async function savePart() {
         doc.updatedAt = new Date().toISOString();
         await db.put(doc);
 
-        // Clear all input fields
         document.getElementById('part-id').value = '';
         document.getElementById('part-name').value = '';
         document.getElementById('part-price').value = '';
@@ -301,7 +314,6 @@ async function savePart() {
         showToast('Stock saved successfully!', 'success');
         updateInventoryUI();
 
-        // Auto sync after save
         await autoSync();
 
     } catch (error) {
@@ -397,7 +409,6 @@ function addItemToCurrentBill() {
         total: price * qty
     });
 
-    // Clear only the item input fields, keep customer name
     document.getElementById('bill-item-id').value = '';
     document.getElementById('bill-desc').value = '';
     document.getElementById('bill-price').value = '';
@@ -515,7 +526,6 @@ async function finalizeBill() {
         clearBill();
         showToast('Bill saved successfully!', 'success');
 
-        // Auto sync after bill
         await autoSync();
 
     } catch (error) {
@@ -587,7 +597,6 @@ async function saveCustomer() {
 
         closeCustomerModal();
 
-        // Clear all customer form fields
         document.getElementById('cust-name').value = '';
         document.getElementById('cust-phone').value = '';
         document.getElementById('cust-email').value = '';
@@ -706,16 +715,22 @@ async function toggleScanner(type) {
         html5QrCode = null;
     }
 
-    // Show flash button
-    document.getElementById(`flash-${type}`).style.display = 'block';
+    // Show scanner overlay and flash icon
+    document.getElementById(`scanner-overlay-${type}`).style.display = 'block';
+    document.getElementById(`flash-${type}`).style.display = 'flex';
     torchEnabled = false;
+    currentScannerType = type;
 
     html5QrCode = new Html5Qrcode(readerId);
 
     try {
         await html5QrCode.start(
             { facingMode: "environment" },
-            { fps: 10, qrbox: { width: 250, height: 250 } },
+            {
+                fps: 10,
+                qrbox: { width: 250, height: 250 },
+                aspectRatio: 1.0
+            },
             (text) => {
                 playBeepAndVibrate();
                 handleScanResult(text, type);
@@ -726,6 +741,8 @@ async function toggleScanner(type) {
     } catch (error) {
         showToast('Camera access denied', 'error');
         console.error(error);
+        document.getElementById(`scanner-overlay-${type}`).style.display = 'none';
+        document.getElementById(`flash-${type}`).style.display = 'none';
     }
 }
 
@@ -783,12 +800,13 @@ async function handleScanResult(text, type) {
     if (html5QrCode) {
         await html5QrCode.stop();
         html5QrCode = null;
-        // Hide flash button
+        document.getElementById(`scanner-overlay-${type}`).style.display = 'none';
         document.getElementById(`flash-${type}`).style.display = 'none';
+        torchEnabled = false;
     }
 }
 
-// ==================== GOOGLE DRIVE SYNC ====================
+// ==================== GOOGLE DRIVE SYNC (MERGE MODE - NEVER CLEARS) ====================
 function handleSync() {
     if (!navigator.onLine) {
         showToast('No internet', 'error');
@@ -797,7 +815,6 @@ function handleSync() {
 
     const now = new Date().getTime();
     if (!accessToken || (tokenExpiry && now > parseInt(tokenExpiry))) {
-        // Clean URL for GitHub Pages Redirect
         const redirectUri = window.location.origin + window.location.pathname;
         const cleanUri = redirectUri.split('#')[0].split('?')[0];
 
@@ -822,9 +839,22 @@ async function uploadToDrive() {
 
     try {
         showToast('Syncing to Cloud...', 'info');
-        const allDocs = await db.allDocs({ include_docs: true });
-        const jsonData = JSON.stringify(allDocs.rows.map(r => r.doc));
 
+        // First, download existing data from Drive (to merge, not replace)
+        await downloadFromDrive();
+
+        // Now get all local data
+        const allDocs = await db.allDocs({ include_docs: true });
+        const localData = allDocs.rows.map(r => r.doc);
+
+        // Prepare backup data
+        const backupData = {
+            timestamp: new Date().toISOString(),
+            version: '1.0',
+            data: localData
+        };
+
+        // Search for existing file
         const searchRes = await fetch(`https://www.googleapis.com/drive/v3/files?q=name='${BACKUP_FILE_NAME}' and trashed=false`, {
             headers: { 'Authorization': `Bearer ${accessToken}` }
         });
@@ -843,7 +873,7 @@ async function uploadToDrive() {
 
         const metadata = { name: BACKUP_FILE_NAME, mimeType: 'application/json' };
         const boundary = 'foo_bar_baz';
-        const body = `--${boundary}\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n${JSON.stringify(metadata)}\r\n--${boundary}\r\nContent-Type: application/json\r\n\r\n${jsonData}\r\n--${boundary}--`;
+        const body = `--${boundary}\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n${JSON.stringify(metadata)}\r\n--${boundary}\r\nContent-Type: application/json\r\n\r\n${JSON.stringify(backupData)}\r\n--${boundary}--`;
 
         const url = fileId ? `https://www.googleapis.com/upload/drive/v3/files/${fileId}?uploadType=multipart` : `https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart`;
         const method = fileId ? 'PATCH' : 'POST';
@@ -864,13 +894,9 @@ async function uploadToDrive() {
                 syncIcon.style.color = '#10b981';
             }
             if (syncText) syncText.textContent = `Synced at ${time}`;
-            showToast('Sync Successful', 'success');
+            showToast('Sync Successful! Data merged.', 'success');
 
-            // Clear pending sync flag
             localStorage.removeItem('pendingSync');
-
-            // After successful upload, try to download latest data
-            await downloadFromDrive();
         } else {
             throw new Error('Upload failed');
         }
@@ -886,7 +912,7 @@ async function uploadToDrive() {
     }
 }
 
-// ==================== DOWNLOAD FROM DRIVE ====================
+// ==================== DOWNLOAD FROM DRIVE (MERGE MODE) ====================
 async function downloadFromDrive() {
     if (!accessToken || !navigator.onLine) return;
 
@@ -907,31 +933,37 @@ async function downloadFromDrive() {
                 const cloudData = await downloadRes.json();
                 const cloudDocs = cloudData.data || [];
 
-                // Merge cloud data with local
                 let imported = 0;
-                for (const doc of cloudDocs) {
+                let updated = 0;
+
+                for (const cloudDoc of cloudDocs) {
                     try {
                         // Check if document exists locally
                         try {
-                            const existing = await db.get(doc._id);
-                            // If cloud version is newer, update
-                            if (new Date(doc.updatedAt || 0) > new Date(existing.updatedAt || 0)) {
-                                doc._rev = existing._rev;
-                                await db.put(doc);
-                                imported++;
+                            const existing = await db.get(cloudDoc._id);
+
+                            // Compare timestamps to keep the newest version
+                            const cloudTime = new Date(cloudDoc.updatedAt || 0).getTime();
+                            const localTime = new Date(existing.updatedAt || 0).getTime();
+
+                            if (cloudTime > localTime) {
+                                // Cloud is newer, update local
+                                cloudDoc._rev = existing._rev;
+                                await db.put(cloudDoc);
+                                updated++;
                             }
                         } catch (e) {
                             // Document doesn't exist locally, add it
-                            await db.put(doc);
+                            await db.put(cloudDoc);
                             imported++;
                         }
                     } catch (e) {
-                        console.log('Error importing doc:', e);
+                        console.log('Error merging doc:', e);
                     }
                 }
 
-                if (imported > 0) {
-                    showToast(`Imported ${imported} records from cloud`, 'success');
+                if (imported > 0 || updated > 0) {
+                    showToast(`Merged: ${imported} new, ${updated} updated from cloud`, 'success');
                     // Refresh all UIs
                     updateDashboard();
                     updateInventoryUI();
@@ -998,7 +1030,13 @@ window.onload = async () => {
             localStorage.setItem('token_expiry', expiryTime.toString());
             window.history.replaceState(null, null, window.location.pathname);
             showToast('Google Drive connected!', 'success');
-            setTimeout(() => uploadToDrive(), 1000);
+
+            // Download data from Drive first (don't clear anything)
+            setTimeout(async () => {
+                await downloadFromDrive();
+                // Then upload local data (will merge)
+                setTimeout(() => uploadToDrive(), 1000);
+            }, 1000);
         }
     }
 
@@ -1026,7 +1064,7 @@ window.onload = async () => {
             autoSync();
         }
 
-        // Download latest data from drive
+        // Download latest data from drive (merge, not replace)
         setTimeout(() => downloadFromDrive(), 2000);
     }
 
@@ -1036,6 +1074,5 @@ window.onload = async () => {
         fabButton.style.display = 'none';
     }
 
-    // Show FAB only on main menu initially
     updateFABVisibility('main-menu');
 };

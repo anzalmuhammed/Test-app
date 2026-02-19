@@ -327,29 +327,6 @@ select:focus {
   transform: scale(0.98);
 }
 
-.flash-btn {
-  background: var(--primary);
-  color: white;
-  width: 100%;
-  padding: 14px;
-  border-radius: 10px;
-  border: none;
-  font-weight: bold;
-  margin-bottom: 10px;
-  cursor: pointer;
-  font-size: 16px;
-  transition: all 0.3s;
-}
-
-.flash-btn.active {
-  background: var(--amber);
-  color: black;
-}
-
-.flash-btn:active {
-  transform: scale(0.98);
-}
-
 .back-menu-btn {
   background: #64748b;
   color: white;
@@ -401,7 +378,7 @@ select:focus {
   margin-top: 23px;
 }
 
-/* Scanner Container with Red Line */
+/* Scanner Container */
 .scanner-container {
   position: relative;
   width: 100%;
@@ -427,11 +404,16 @@ select:focus {
   height: 100%;
   pointer-events: none;
   z-index: 10;
+  background: linear-gradient(
+    transparent 30%,
+    rgba(255, 0, 0, 0.1) 30%,
+    rgba(255, 0, 0, 0.1) 70%,
+    transparent 70%
+  );
 }
 
 .scanner-line {
   position: absolute;
-  top: 50%;
   left: 10%;
   width: 80%;
   height: 2px;
@@ -439,18 +421,56 @@ select:focus {
   box-shadow:
     0 0 10px var(--scanner-red),
     0 0 20px var(--scanner-red);
-  animation: scan 2s ease-in-out infinite;
-  transform: translateY(-50%);
+  animation: scanMove 2s ease-in-out infinite;
 }
 
-@keyframes scan {
-  0%,
-  100% {
+@keyframes scanMove {
+  0% {
     top: 30%;
   }
   50% {
     top: 70%;
   }
+  100% {
+    top: 30%;
+  }
+}
+
+/* Flash Icon - Like Mobile Camera App */
+.flash-icon {
+  position: absolute;
+  top: 15px;
+  right: 15px;
+  width: 45px;
+  height: 45px;
+  border-radius: 50%;
+  background: rgba(0, 0, 0, 0.6);
+  backdrop-filter: blur(5px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 20;
+  cursor: pointer;
+  border: 2px solid rgba(255, 255, 255, 0.3);
+  transition: all 0.3s;
+}
+
+.flash-icon i {
+  font-size: 20px;
+  color: white;
+  transition: all 0.3s;
+}
+
+.flash-icon.active {
+  background: var(--amber);
+}
+
+.flash-icon.active i {
+  color: black;
+}
+
+.flash-icon:active {
+  transform: scale(0.9);
 }
 
 .scanner-controls {
@@ -684,7 +704,7 @@ td {
   cursor: pointer;
   box-shadow: 0 4px 15px rgba(99, 102, 241, 0.4);
   z-index: 100;
-  display: none !important; /* Hidden by default, shown by JS */
+  display: none !important;
   align-items: center;
   justify-content: center;
   transition: all 0.3s;
@@ -892,12 +912,12 @@ td {
   #sync-status,
   .action-btn,
   .cam-btn-active,
-  .flash-btn,
   .file-label,
   .add-btn,
   .del-btn,
   .scanner-container,
-  .scanner-controls {
+  .scanner-controls,
+  .flash-icon {
     display: none !important;
   }
 
@@ -945,5 +965,16 @@ td {
 
   .menu-box .icon {
     font-size: 32px;
+  }
+
+  .flash-icon {
+    width: 40px;
+    height: 40px;
+    top: 10px;
+    right: 10px;
+  }
+
+  .flash-icon i {
+    font-size: 18px;
   }
 }
