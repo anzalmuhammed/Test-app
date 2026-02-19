@@ -6,10 +6,56 @@ let accessToken = localStorage.getItem('google_token');
 let tokenExpiry = localStorage.getItem('token_expiry');
 let torchEnabled = false;
 let currentScannerType = null;
+let lastBackPress = 0;
 
 // ===== YOUR GOOGLE CLIENT ID =====
-const CLIENT_ID = '265618310384-mvgcqs0j7tk1fvi6k1b902s8batrehmj.apps.googleusercontent.com'; // Replace with your actual Client ID
+const CLIENT_ID = '265618310384-mvgcqs0j7tk1fvi6k1b902s8batrehmj.apps.googleusercontent.com';
 const BACKUP_FILE_NAME = 'workshop_backup.json';
+
+// ==================== DOUBLE TAP TO EXIT ====================
+function handleBackPress() {
+    const now = new Date().getTime();
+
+    if (now - lastBackPress < 2000) {
+        // Double tap detected - exit app
+        if (window.matchMedia('(display-mode: standalone)').matches) {
+            // In PWA mode, we can't directly close the app
+            showToast('Exiting app...', 'info');
+            setTimeout(() => {
+                window.close();
+            }, 500);
+        } else {
+            // In browser - show message
+            showToast('Double tap again to exit', 'warning');
+        }
+    } else {
+        // First tap
+        lastBackPress = now;
+
+        // Show exit indicator
+        const indicator = document.createElement('div');
+        indicator.className = 'exit-indicator';
+        indicator.textContent = 'Tap again to exit';
+        document.body.appendChild(indicator);
+
+        setTimeout(() => {
+            if (indicator.parentNode) {
+                indicator.remove();
+            }
+        }, 2000);
+    }
+}
+
+// Override back button behavior
+window.addEventListener('popstate', function (event) {
+    const activeScreen = document.querySelector('.screen.active');
+    if (activeScreen && activeScreen.id !== 'main-menu') {
+        goToDashboard();
+        history.pushState(null, null, location.href);
+    } else {
+        handleBackPress();
+    }
+});
 
 // ==================== NETWORK STATUS DETECTION ====================
 function updateNetworkStatus() {
@@ -23,7 +69,6 @@ function updateNetworkStatus() {
         if (syncIcon) syncIcon.style.color = '#10b981';
         if (syncText) syncText.textContent = accessToken ? 'Online - Ready to sync' : 'Online';
 
-        // Try to sync if we have token and were offline
         if (accessToken && localStorage.getItem('wasOffline') === 'true') {
             autoSync();
             localStorage.removeItem('wasOffline');
@@ -37,24 +82,21 @@ function updateNetworkStatus() {
     }
 }
 
-// Listen for online/offline events
 window.addEventListener('online', updateNetworkStatus);
 window.addEventListener('offline', updateNetworkStatus);
 
-// ==================== AUTO-SYNC FUNCTION ====================
+// ==================== AUTO-SYNC ====================
 async function autoSync() {
-    // Auto sync after any data change if online and have token
     if (navigator.onLine && accessToken) {
         console.log('Auto-syncing...');
         await uploadToDrive();
     } else {
-        // Mark that we have pending changes
         localStorage.setItem('pendingSync', 'true');
         showToast('Changes saved offline. Will sync when online.', 'info');
     }
 }
 
-// ==================== FAB VISIBILITY CONTROL ====================
+// ==================== FAB VISIBILITY ====================
 function updateFABVisibility(screenId) {
     const fabButton = document.getElementById('fab-button');
     if (!fabButton) return;
@@ -106,7 +148,7 @@ function playBeepAndVibrate() {
     } catch (e) { console.log('Audio feedback error'); }
 }
 
-// ==================== FLASHLIGHT CONTROL ====================
+// ==================== FLASHLIGHT ====================
 async function toggleFlash(type) {
     if (!html5QrCode) return;
 
@@ -114,7 +156,6 @@ async function toggleFlash(type) {
     const flashIcon = document.getElementById(`flash-${type}`);
 
     try {
-        // Try to set torch - this works on many devices
         await html5QrCode.setTorch(torchEnabled);
 
         if (flashIcon) {
@@ -139,12 +180,11 @@ async function toggleFlash(type) {
     }
 }
 
-// ==================== NAVIGATION & MODALS ====================
+// ==================== NAVIGATION ====================
 function goToDashboard() {
     if (html5QrCode) {
         html5QrCode.stop().catch(() => { });
         html5QrCode = null;
-        // Hide scanner overlays and flash icons
         document.getElementById('scanner-overlay-inventory').style.display = 'none';
         document.getElementById('scanner-overlay-bill').style.display = 'none';
         document.getElementById('flash-inventory').style.display = 'none';
@@ -162,7 +202,6 @@ function showScreen(screenId) {
     if (html5QrCode) {
         html5QrCode.stop().catch(() => { });
         html5QrCode = null;
-        // Hide scanner overlays and flash icons
         document.getElementById('scanner-overlay-inventory').style.display = 'none';
         document.getElementById('scanner-overlay-bill').style.display = 'none';
         document.getElementById('flash-inventory').style.display = 'none';
@@ -184,13 +223,6 @@ function showScreen(screenId) {
         clearBill();
     }
 }
-
-// Prevent browser back button from leaving app
-window.addEventListener('popstate', function (event) {
-    goToDashboard();
-    history.pushState(null, null, location.href);
-});
-history.pushState(null, null, location.href);
 
 function toggleQuickMenu() {
     const menu = document.getElementById('quick-actions-menu');
@@ -216,7 +248,7 @@ function closeModal() {
 
 function printBill() { window.print(); }
 
-// ==================== DASHBOARD FUNCTIONS ====================
+// ==================== DASHBOARD ====================
 async function updateDashboard() {
     try {
         const allDocs = await db.allDocs({ include_docs: true });
@@ -268,7 +300,7 @@ async function updateDashboard() {
     }
 }
 
-// ==================== INVENTORY FUNCTIONS ====================
+// ==================== INVENTORY ====================
 async function savePart() {
     const id = document.getElementById('part-id')?.value.trim();
     const name = document.getElementById('part-name')?.value.trim();
@@ -346,7 +378,8 @@ async function updateInventoryUI() {
 
         let totalValue = 0;
         filtered.forEach(item => {
-            totalValue += ((item.totalIn || 0) - (item.totalSold || 0)) * (item.price || 0);
+            const available = (item.totalIn || 0) - (item.totalSold || 0);
+            totalValue += available * (item.price || 0);
         });
 
         const totalValueEl = document.getElementById('total-value');
@@ -361,10 +394,12 @@ async function updateInventoryUI() {
 
             filtered.sort((a, b) => a.name.localeCompare(b.name)).forEach(item => {
                 const available = (item.totalIn || 0) - (item.totalSold || 0);
+                const statusClass = available <= 0 ? 'out-of-stock' : available < (item.minStock || 5) ? 'low-stock' : '';
                 tbody.innerHTML += `
-                    <tr>
+                    <tr class="${statusClass}">
                         <td>${item.name}</td>
                         <td>${item.totalIn || 0}</td>
+                        <td>${item.totalSold || 0}</td>
                         <td><strong>${available}</strong></td>
                         <td>₹${(item.price || 0).toFixed(2)}</td>
                         <td><button class="del-btn" onclick="deleteItem('${item._id}')"><i class="fas fa-trash"></i></button></td>
@@ -391,18 +426,49 @@ async function deleteItem(id) {
     }
 }
 
-// ==================== BILLING FUNCTIONS ====================
-function addItemToCurrentBill() {
+// ==================== BILLING (with Stock Validation) ====================
+async function addItemToCurrentBill() {
     const desc = document.getElementById('bill-desc')?.value.trim();
     const price = parseFloat(document.getElementById('bill-price')?.value) || 0;
     const qty = parseInt(document.getElementById('bill-qty')?.value) || 1;
+    const itemId = document.getElementById('bill-item-id')?.value.trim();
 
     if (!desc) {
         showToast('Please enter item description', 'error');
         return;
     }
 
+    // Check stock availability
+    try {
+        if (itemId) {
+            const doc = await db.get(itemId);
+            if (doc && doc.type === 'inventory') {
+                const available = (doc.totalIn || 0) - (doc.totalSold || 0);
+                if (available < qty) {
+                    showToast(`Only ${available} items in stock!`, 'error');
+                    return;
+                }
+            }
+        } else {
+            // Search by name
+            const result = await db.allDocs({ include_docs: true });
+            for (const row of result.rows) {
+                if (row.doc && row.doc.type === 'inventory' && row.doc.name === desc) {
+                    const available = (row.doc.totalIn || 0) - (row.doc.totalSold || 0);
+                    if (available < qty) {
+                        showToast(`Only ${available} items in stock!`, 'error');
+                        return;
+                    }
+                    break;
+                }
+            }
+        }
+    } catch (e) {
+        console.log('Stock check error:', e);
+    }
+
     currentBillItems.push({
+        itemId: itemId,
         desc: desc,
         price: price,
         qty: qty,
@@ -511,7 +577,20 @@ async function finalizeBill() {
             date: new Date().toISOString()
         });
 
+        // Update inventory with final stock reduction
         for (const item of currentBillItems) {
+            if (item.itemId) {
+                try {
+                    const doc = await db.get(item.itemId);
+                    if (doc && doc.type === 'inventory') {
+                        doc.totalSold = (doc.totalSold || 0) + item.qty;
+                        await db.put(doc);
+                        continue;
+                    }
+                } catch (e) { }
+            }
+
+            // Search by name if no ID
             const result = await db.allDocs({ include_docs: true });
             for (const row of result.rows) {
                 if (row.doc && row.doc.type === 'inventory' && row.doc.name === item.desc) {
@@ -634,15 +713,71 @@ async function updateCustomersUI() {
     }
 }
 
-// ==================== LEDGER FUNCTIONS ====================
+// ==================== ADVANCED LEDGER WITH FILTERS ====================
+function resetLedgerFilters() {
+    document.getElementById('ledger-customer-search').value = '';
+    document.getElementById('ledger-date-from').value = '';
+    document.getElementById('ledger-date-to').value = '';
+    document.getElementById('ledger-filter-type').value = 'all';
+    document.getElementById('ledger-sort').value = 'newest';
+    updateLedgerUI();
+}
+
+function filterTransactionsByDate(transactions, filterType, fromDate, toDate) {
+    const now = new Date();
+    const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    const weekAgo = new Date(today);
+    weekAgo.setDate(weekAgo.getDate() - 7);
+    const monthAgo = new Date(today);
+    monthAgo.setMonth(monthAgo.getMonth() - 1);
+
+    return transactions.filter(t => {
+        const tDate = new Date(t.date);
+
+        switch (filterType) {
+            case 'today':
+                return tDate >= today;
+            case 'week':
+                return tDate >= weekAgo;
+            case 'month':
+                return tDate >= monthAgo;
+            case 'custom':
+                if (fromDate && toDate) {
+                    const from = new Date(fromDate);
+                    const to = new Date(toDate);
+                    to.setHours(23, 59, 59, 999);
+                    return tDate >= from && tDate <= to;
+                }
+                return true;
+            default:
+                return true;
+        }
+    });
+}
+
 async function updateLedgerUI() {
     try {
         const result = await db.allDocs({ include_docs: true });
-        const transactions = result.rows
+        let transactions = result.rows
             .map(r => r.doc)
-            .filter(d => d && d.type === 'ledger')
-            .sort((a, b) => new Date(b.date) - new Date(a.date));
+            .filter(d => d && d.type === 'ledger');
 
+        // Apply customer filter
+        const customerSearch = document.getElementById('ledger-customer-search')?.value.toLowerCase() || '';
+        if (customerSearch) {
+            transactions = transactions.filter(t =>
+                t.customer.toLowerCase().includes(customerSearch)
+            );
+        }
+
+        // Apply date filters
+        const filterType = document.getElementById('ledger-filter-type')?.value || 'all';
+        const fromDate = document.getElementById('ledger-date-from')?.value;
+        const toDate = document.getElementById('ledger-date-to')?.value;
+
+        transactions = filterTransactionsByDate(transactions, filterType, fromDate, toDate);
+
+        // Calculate totals for filtered transactions
         let totalSales = 0;
         let creditDue = 0;
         const balances = {};
@@ -655,12 +790,31 @@ async function updateLedgerUI() {
             }
         });
 
-        const ledgerTotal = document.getElementById('ledger-total');
-        const creditDueEl = document.getElementById('credit-due');
+        // Apply sorting
+        const sortType = document.getElementById('ledger-sort')?.value || 'newest';
+        switch (sortType) {
+            case 'newest':
+                transactions.sort((a, b) => new Date(b.date) - new Date(a.date));
+                break;
+            case 'oldest':
+                transactions.sort((a, b) => new Date(a.date) - new Date(b.date));
+                break;
+            case 'highest':
+                transactions.sort((a, b) => (b.total || 0) - (a.total || 0));
+                break;
+            case 'lowest':
+                transactions.sort((a, b) => (a.total || 0) - (b.total || 0));
+                break;
+        }
 
-        if (ledgerTotal) ledgerTotal.textContent = '₹' + totalSales.toFixed(2);
-        if (creditDueEl) creditDueEl.textContent = '₹' + creditDue.toFixed(2);
+        // Update stats
+        const ledgerFilteredTotal = document.getElementById('ledger-filtered-total');
+        const ledgerFilteredCount = document.getElementById('ledger-filtered-count');
 
+        if (ledgerFilteredTotal) ledgerFilteredTotal.textContent = '₹' + totalSales.toFixed(2);
+        if (ledgerFilteredCount) ledgerFilteredCount.textContent = transactions.length;
+
+        // Show customer balances
         const balancesDiv = document.getElementById('customer-balances-list');
         if (balancesDiv) {
             balancesDiv.innerHTML = '';
@@ -678,22 +832,26 @@ async function updateLedgerUI() {
             }
         }
 
+        // Show transaction history
         const historyDiv = document.getElementById('bill-history-list');
         if (historyDiv) {
             historyDiv.innerHTML = '';
 
             if (transactions.length === 0) {
-                historyDiv.innerHTML = '<p style="text-align: center; opacity: 0.7;">No transactions yet</p>';
+                historyDiv.innerHTML = '<p style="text-align: center; opacity: 0.7;">No transactions found</p>';
             } else {
-                transactions.slice(0, 20).forEach(t => {
+                transactions.slice(0, 50).forEach(t => {
                     historyDiv.innerHTML += `
                         <div class="ledger-card">
                             <div style="display:flex; justify-content:space-between;">
                                 <strong>${t.customer}</strong>
                                 <span>₹${(t.total || 0).toFixed(2)}</span>
                             </div>
-                            <div style="font-size:12px;">${new Date(t.date).toLocaleString()}</div>
-                            ${t.balance > 0 ? `<div style="color:#ef4444;">Due: ₹${t.balance.toFixed(2)}</div>` : ''}
+                            <div style="display:flex; justify-content:space-between; font-size:12px;">
+                                <span>${new Date(t.date).toLocaleString()}</span>
+                                <span>${t.paymentMethod || 'Cash'}</span>
+                            </div>
+                            ${t.balance > 0 ? `<div style="color:#ef4444; font-size:12px;">Due: ₹${t.balance.toFixed(2)}</div>` : ''}
                         </div>
                     `;
                 });
@@ -704,7 +862,7 @@ async function updateLedgerUI() {
     }
 }
 
-// ==================== SCANNER FUNCTIONS ====================
+// ==================== SCANNER ====================
 async function toggleScanner(type) {
     const readerId = type === 'inventory' ? 'reader' : 'bill-reader';
     const element = document.getElementById(readerId);
@@ -715,7 +873,6 @@ async function toggleScanner(type) {
         html5QrCode = null;
     }
 
-    // Show scanner overlay and flash icon
     document.getElementById(`scanner-overlay-${type}`).style.display = 'block';
     document.getElementById(`flash-${type}`).style.display = 'flex';
     torchEnabled = false;
@@ -806,7 +963,7 @@ async function handleScanResult(text, type) {
     }
 }
 
-// ==================== GOOGLE DRIVE SYNC (MERGE MODE - NEVER CLEARS) ====================
+// ==================== GOOGLE DRIVE SYNC ====================
 function handleSync() {
     if (!navigator.onLine) {
         showToast('No internet', 'error');
@@ -840,21 +997,17 @@ async function uploadToDrive() {
     try {
         showToast('Syncing to Cloud...', 'info');
 
-        // First, download existing data from Drive (to merge, not replace)
         await downloadFromDrive();
 
-        // Now get all local data
         const allDocs = await db.allDocs({ include_docs: true });
         const localData = allDocs.rows.map(r => r.doc);
 
-        // Prepare backup data
         const backupData = {
             timestamp: new Date().toISOString(),
             version: '1.0',
             data: localData
         };
 
-        // Search for existing file
         const searchRes = await fetch(`https://www.googleapis.com/drive/v3/files?q=name='${BACKUP_FILE_NAME}' and trashed=false`, {
             headers: { 'Authorization': `Bearer ${accessToken}` }
         });
@@ -912,7 +1065,6 @@ async function uploadToDrive() {
     }
 }
 
-// ==================== DOWNLOAD FROM DRIVE (MERGE MODE) ====================
 async function downloadFromDrive() {
     if (!accessToken || !navigator.onLine) return;
 
@@ -938,22 +1090,17 @@ async function downloadFromDrive() {
 
                 for (const cloudDoc of cloudDocs) {
                     try {
-                        // Check if document exists locally
                         try {
                             const existing = await db.get(cloudDoc._id);
-
-                            // Compare timestamps to keep the newest version
                             const cloudTime = new Date(cloudDoc.updatedAt || 0).getTime();
                             const localTime = new Date(existing.updatedAt || 0).getTime();
 
                             if (cloudTime > localTime) {
-                                // Cloud is newer, update local
                                 cloudDoc._rev = existing._rev;
                                 await db.put(cloudDoc);
                                 updated++;
                             }
                         } catch (e) {
-                            // Document doesn't exist locally, add it
                             await db.put(cloudDoc);
                             imported++;
                         }
@@ -964,7 +1111,6 @@ async function downloadFromDrive() {
 
                 if (imported > 0 || updated > 0) {
                     showToast(`Merged: ${imported} new, ${updated} updated from cloud`, 'success');
-                    // Refresh all UIs
                     updateDashboard();
                     updateInventoryUI();
                     updateLedgerUI();
@@ -977,7 +1123,7 @@ async function downloadFromDrive() {
     }
 }
 
-// ==================== DATA EXPORT FUNCTIONS ====================
+// ==================== EXPORT ====================
 function downloadFile(content, fileName, contentType) {
     const blob = new Blob([content], { type: contentType });
     const url = URL.createObjectURL(blob);
@@ -1006,50 +1152,100 @@ async function exportInventory() {
 async function exportLedger() {
     try {
         showToast('Exporting ledger...', 'info');
+
+        // Get current filtered transactions
         const result = await db.allDocs({ include_docs: true });
-        const transactions = result.rows.map(r => r.doc).filter(d => d && d.type === 'ledger');
+        let transactions = result.rows.map(r => r.doc).filter(d => d && d.type === 'ledger');
+
+        // Apply current filters
+        const customerSearch = document.getElementById('ledger-customer-search')?.value.toLowerCase() || '';
+        if (customerSearch) {
+            transactions = transactions.filter(t => t.customer.toLowerCase().includes(customerSearch));
+        }
+
+        const filterType = document.getElementById('ledger-filter-type')?.value || 'all';
+        const fromDate = document.getElementById('ledger-date-from')?.value;
+        const toDate = document.getElementById('ledger-date-to')?.value;
+
+        transactions = filterTransactionsByDate(transactions, filterType, fromDate, toDate);
+
         let csv = 'Date,Customer,Total,Paid,Balance,Payment Method\n';
         transactions.forEach(t => {
             csv += `"${new Date(t.date).toLocaleString()}","${t.customer}",${t.total || 0},${t.paid || 0},${t.balance || 0},"${t.paymentMethod || 'Cash'}"\n`;
         });
+
         downloadFile(csv, 'ledger_export.csv', 'text/csv');
         showToast('Ledger exported', 'success');
     } catch (error) { showToast('Export failed', 'error'); }
 }
 
+// ==================== PWA INSTALL PROMPT ====================
+let deferredPrompt;
+window.addEventListener('beforeinstallprompt', (e) => {
+    e.preventDefault();
+    deferredPrompt = e;
+
+    // Show install prompt after 30 seconds
+    setTimeout(() => {
+        if (deferredPrompt) {
+            showInstallPrompt();
+        }
+    }, 30000);
+});
+
+function showInstallPrompt() {
+    if (!deferredPrompt) return;
+
+    const installToast = document.createElement('div');
+    installToast.className = 'toast info';
+    installToast.innerHTML = `
+        <i class="fas fa-download"></i>
+        <span>Install app on home screen?</span>
+        <button onclick="installPWA()" style="background: var(--primary); color: white; border: none; padding: 5px 10px; border-radius: 5px; margin-left: 10px;">Install</button>
+        <button onclick="this.parentElement.remove()" style="background: none; border: none; color: white; margin-left: 5px;">✕</button>
+    `;
+    document.getElementById('toast-container').appendChild(installToast);
+}
+
+function installPWA() {
+    if (!deferredPrompt) return;
+
+    deferredPrompt.prompt();
+    deferredPrompt.userChoice.then((choiceResult) => {
+        if (choiceResult.outcome === 'accepted') {
+            showToast('App installed!', 'success');
+        }
+        deferredPrompt = null;
+    });
+}
+
 // ==================== INITIALIZATION ====================
 window.onload = async () => {
-    // Handle OAuth redirect
     if (window.location.hash) {
         const params = new URLSearchParams(window.location.hash.substring(1));
         const token = params.get('access_token');
         if (token) {
             accessToken = token;
             localStorage.setItem('google_token', token);
-            const expiryTime = new Date().getTime() + 3600000; // 1 hour
+            const expiryTime = new Date().getTime() + 3600000;
             localStorage.setItem('token_expiry', expiryTime.toString());
             window.history.replaceState(null, null, window.location.pathname);
             showToast('Google Drive connected!', 'success');
 
-            // Download data from Drive first (don't clear anything)
             setTimeout(async () => {
                 await downloadFromDrive();
-                // Then upload local data (will merge)
                 setTimeout(() => uploadToDrive(), 1000);
             }, 1000);
         }
     }
 
-    // Load all data
     await updateDashboard();
     await updateInventoryUI();
     await updateLedgerUI();
     await updateCustomersUI();
 
-    // Update network status
     updateNetworkStatus();
 
-    // Update sync status
     if (accessToken && accessToken !== 'null') {
         const syncIcon = document.querySelector('#sync-status i');
         const syncText = document.getElementById('sync-status-text');
@@ -1059,20 +1255,27 @@ window.onload = async () => {
         }
         if (syncText) syncText.textContent = 'Ready to sync';
 
-        // Check if we have pending sync
         if (localStorage.getItem('pendingSync') === 'true' && navigator.onLine) {
             autoSync();
         }
 
-        // Download latest data from drive (merge, not replace)
         setTimeout(() => downloadFromDrive(), 2000);
     }
 
-    // Initially hide FAB
     const fabButton = document.getElementById('fab-button');
     if (fabButton) {
         fabButton.style.display = 'none';
     }
 
     updateFABVisibility('main-menu');
+
+    // Register service worker for PWA
+    if ('serviceWorker' in navigator) {
+        try {
+            const registration = await navigator.serviceWorker.register('sw.js');
+            console.log('Service Worker registered');
+        } catch (error) {
+            console.log('Service Worker registration failed');
+        }
+    }
 };

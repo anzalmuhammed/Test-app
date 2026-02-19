@@ -6,6 +6,10 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>Workshop Pro</title>
     <link rel="manifest" href="manifest.json">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="apple-mobile-web-app-title" content="Workshop Pro">
+    <link rel="apple-touch-icon" href="icons/icon-192.png">
 
     <!-- Libraries -->
     <script src="https://cdn.jsdelivr.net/npm/pouchdb@8.0.1/dist/pouchdb.min.js"></script>
@@ -351,6 +355,7 @@
                         <tr>
                             <th>Item</th>
                             <th>In</th>
+                            <th>Sold</th>
                             <th>Left</th>
                             <th>Price</th>
                             <th>Action</th>
@@ -366,24 +371,69 @@
         </section>
     </div>
 
-    <!-- Ledger Screen -->
+    <!-- Ledger Screen with Advanced Search -->
     <div id="ledger-screen" class="screen">
         <button class="back-menu-btn" onclick="goToDashboard()">
             <i class="fas fa-arrow-left"></i> Back to Menu
         </button>
 
         <section class="glass-card">
-            <h4>Customer Balances</h4>
+            <h4>Advanced Search & Filters</h4>
+
+            <div class="form-group">
+                <label><i class="fas fa-user"></i> Search by Customer</label>
+                <input type="text" id="ledger-customer-search" placeholder="Enter customer name..."
+                    onkeyup="updateLedgerUI()">
+            </div>
+
+            <div class="form-row">
+                <div class="form-group half">
+                    <label><i class="fas fa-calendar"></i> From Date</label>
+                    <input type="date" id="ledger-date-from" onchange="updateLedgerUI()">
+                </div>
+                <div class="form-group half">
+                    <label><i class="fas fa-calendar"></i> To Date</label>
+                    <input type="date" id="ledger-date-to" onchange="updateLedgerUI()">
+                </div>
+            </div>
+
+            <div class="form-row">
+                <div class="form-group half">
+                    <label><i class="fas fa-filter"></i> Filter by</label>
+                    <select id="ledger-filter-type" onchange="updateLedgerUI()">
+                        <option value="all">All Transactions</option>
+                        <option value="today">Today</option>
+                        <option value="week">This Week</option>
+                        <option value="month">This Month</option>
+                        <option value="custom">Custom Range</option>
+                    </select>
+                </div>
+                <div class="form-group half">
+                    <label><i class="fas fa-sort"></i> Sort by</label>
+                    <select id="ledger-sort" onchange="updateLedgerUI()">
+                        <option value="newest">Newest First</option>
+                        <option value="oldest">Oldest First</option>
+                        <option value="highest">Highest Amount</option>
+                        <option value="lowest">Lowest Amount</option>
+                    </select>
+                </div>
+            </div>
+
+            <button onclick="resetLedgerFilters()" class="action-btn small" style="background: #64748b;">
+                <i class="fas fa-undo"></i> Reset Filters
+            </button>
+
+            <h4 style="margin-top: 20px;">Customer Balances</h4>
             <div id="customer-balances-list" class="balances-list"></div>
 
             <div class="stats-grid small">
                 <div class="stat-mini">
-                    <span class="label">Total Sales</span>
-                    <span class="value" id="ledger-total">₹0</span>
+                    <span class="label">Filtered Total</span>
+                    <span class="value" id="ledger-filtered-total">₹0</span>
                 </div>
                 <div class="stat-mini">
-                    <span class="label">Due Amount</span>
-                    <span class="value" id="credit-due">₹0</span>
+                    <span class="label">Transactions</span>
+                    <span class="value" id="ledger-filtered-count">0</span>
                 </div>
             </div>
 
@@ -391,7 +441,7 @@
             <div id="bill-history-list" class="transaction-list"></div>
 
             <button onclick="exportLedger()" class="action-btn export">
-                <i class="fas fa-download"></i> Export Ledger
+                <i class="fas fa-download"></i> Export Filtered Ledger
             </button>
         </section>
     </div>

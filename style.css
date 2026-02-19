@@ -18,6 +18,7 @@
   touch-action: manipulation;
   margin: 0;
   padding: 0;
+  -webkit-tap-highlight-color: transparent;
 }
 
 body {
@@ -28,6 +29,8 @@ body {
   padding-bottom: 80px;
   overflow-x: hidden;
   position: relative;
+  user-select: none;
+  -webkit-user-select: none;
 }
 
 .background-blob {
@@ -813,6 +816,35 @@ td {
   border-left: 4px solid var(--amber);
 }
 
+/* Double Tap Exit Indicator */
+.exit-indicator {
+  position: fixed;
+  bottom: 100px;
+  left: 50%;
+  transform: translateX(-50%);
+  background: var(--glass);
+  backdrop-filter: blur(10px);
+  padding: 10px 20px;
+  border-radius: 30px;
+  color: white;
+  font-size: 14px;
+  z-index: 2000;
+  border: 1px solid var(--glass-border);
+  animation: fadeOut 2s forwards;
+}
+
+@keyframes fadeOut {
+  0% {
+    opacity: 1;
+  }
+  70% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0;
+  }
+}
+
 /* Bill Summary */
 .bill-summary {
   margin-top: 15px;
@@ -902,6 +934,18 @@ td {
   }
 }
 
+/* PWA Fullscreen Styles */
+@media all and (display-mode: standalone) {
+  body {
+    padding-top: env(safe-area-inset-top);
+    padding-bottom: env(safe-area-inset-bottom);
+  }
+
+  .top-nav {
+    padding-top: max(12px, env(safe-area-inset-top));
+  }
+}
+
 /* Print Styles */
 @media print {
   .top-nav,
@@ -912,11 +956,13 @@ td {
   #sync-status,
   .action-btn,
   .cam-btn-active,
+  .flash-icon,
   .file-label,
   .add-btn,
   .del-btn,
   .scanner-container,
   .scanner-controls,
+  .fab,
   .flash-icon {
     display: none !important;
   }
