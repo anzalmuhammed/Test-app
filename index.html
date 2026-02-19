@@ -41,8 +41,63 @@
         <span id="sync-status-text">Offline Mode</span>
     </div>
 
-    <!-- Main Menu Screen -->
-    <div id="main-menu" class="screen active">
+    <!-- Dashboard Screen - Now the Home Screen -->
+    <div id="dashboard-screen" class="screen active">
+        <!-- Dashboard Content at Top -->
+        <div class="glass-card">
+            <h3>Dashboard Overview</h3>
+            <div class="stats-grid">
+                <div class="stat-card" onclick="showScreen('stock-list-screen')">
+                    <div class="stat-label">Total Items</div>
+                    <div class="stat-value" id="dash-total-items">0</div>
+                </div>
+                <div class="stat-card" onclick="showScreen('ledger-screen')">
+                    <div class="stat-label">Total Sales</div>
+                    <div class="stat-value" id="dash-total-sales">₹0</div>
+                </div>
+                <div class="stat-card" onclick="showScreen('customers-screen')">
+                    <div class="stat-label">Customers</div>
+                    <div class="stat-value" id="dash-total-customers">0</div>
+                </div>
+                <div class="stat-card" onclick="showScreen('stock-list-screen')">
+                    <div class="stat-label">Low Stock</div>
+                    <div class="stat-value" id="dash-low-stock">0</div>
+                </div>
+            </div>
+        </div>
+
+        <div class="glass-card">
+            <h4>Recent Transactions</h4>
+            <div id="dash-recent" class="recent-list"></div>
+        </div>
+
+        <!-- Bottom Menu Items -->
+        <div class="bottom-menu-grid">
+            <div class="menu-box" onclick="showScreen('inventory-screen')">
+                <div class="icon">📦</div>
+                <span>Add Stock</span>
+            </div>
+            <div class="menu-box" onclick="showScreen('quick-bill-screen')">
+                <div class="icon">🧾</div>
+                <span>Quick Bill</span>
+            </div>
+            <div class="menu-box" onclick="showScreen('stock-list-screen')">
+                <div class="icon">📊</div>
+                <span>Reports</span>
+            </div>
+            <div class="menu-box" onclick="showScreen('ledger-screen')">
+                <div class="icon">📋</div>
+                <span>Ledger</span>
+            </div>
+            <div class="menu-box" onclick="showScreen('customers-screen')">
+                <div class="icon">👥</div>
+                <span>Customers</span>
+            </div>
+        </div>
+    </div>
+
+    <!-- Main Menu Screen (Hidden - No longer used as home) -->
+    <div id="main-menu" class="screen" style="display:none;">
         <div class="menu-grid">
             <div class="menu-box" onclick="showScreen('inventory-screen')">
                 <div class="icon">📦</div>
@@ -71,51 +126,18 @@
         </div>
     </div>
 
-    <!-- Dashboard Screen -->
-    <div id="dashboard-screen" class="screen">
-        <button class="back-menu-btn" onclick="goToDashboard()">
-            <i class="fas fa-arrow-left"></i> Back to Menu
-        </button>
-
-        <div class="glass-card">
-            <h3>Dashboard Overview</h3>
-            <div class="stats-grid">
-                <div class="stat-card">
-                    <div class="stat-label">Total Items</div>
-                    <div class="stat-value" id="dash-total-items">0</div>
-                </div>
-                <div class="stat-card">
-                    <div class="stat-label">Total Sales</div>
-                    <div class="stat-value" id="dash-total-sales">₹0</div>
-                </div>
-                <div class="stat-card">
-                    <div class="stat-label">Customers</div>
-                    <div class="stat-value" id="dash-total-customers">0</div>
-                </div>
-                <div class="stat-card">
-                    <div class="stat-label">Low Stock</div>
-                    <div class="stat-value" id="dash-low-stock">0</div>
-                </div>
-            </div>
-        </div>
-
-        <div class="glass-card">
-            <h4>Recent Transactions</h4>
-            <div id="dash-recent" class="recent-list"></div>
-        </div>
-    </div>
-
     <!-- Inventory Screen (Add Stock) -->
     <div id="inventory-screen" class="screen">
         <button class="back-menu-btn" onclick="goToDashboard()">
-            <i class="fas fa-arrow-left"></i> Back to Menu
+            <i class="fas fa-arrow-left"></i> Back to Dashboard
         </button>
 
         <section class="glass-card">
             <div class="scanner-container">
                 <div id="reader"></div>
                 <div class="scanner-overlay" id="scanner-overlay-inventory" style="display: none;">
-                    <div class="scanner-line"></div>
+                    <div class="scanner-line-horizontal"></div>
+                    <div class="scanner-line-vertical"></div>
                 </div>
                 <div class="flash-icon" id="flash-inventory" style="display: none;" onclick="toggleFlash('inventory')">
                     <i class="fas fa-bolt"></i>
@@ -192,14 +214,15 @@
     <!-- Quick Bill Screen -->
     <div id="quick-bill-screen" class="screen">
         <button class="back-menu-btn" onclick="goToDashboard()">
-            <i class="fas fa-arrow-left"></i> Back to Menu
+            <i class="fas fa-arrow-left"></i> Back to Dashboard
         </button>
 
         <section class="glass-card">
             <div class="scanner-container">
                 <div id="bill-reader"></div>
                 <div class="scanner-overlay" id="scanner-overlay-bill" style="display: none;">
-                    <div class="scanner-line"></div>
+                    <div class="scanner-line-horizontal"></div>
+                    <div class="scanner-line-vertical"></div>
                 </div>
                 <div class="flash-icon" id="flash-bill" style="display: none;" onclick="toggleFlash('bill')">
                     <i class="fas fa-bolt"></i>
@@ -319,7 +342,7 @@
     <!-- Reports Screen (Stock List) -->
     <div id="stock-list-screen" class="screen">
         <button class="back-menu-btn" onclick="goToDashboard()">
-            <i class="fas fa-arrow-left"></i> Back to Menu
+            <i class="fas fa-arrow-left"></i> Back to Dashboard
         </button>
 
         <section class="glass-card">
@@ -374,7 +397,7 @@
     <!-- Ledger Screen with Advanced Search -->
     <div id="ledger-screen" class="screen">
         <button class="back-menu-btn" onclick="goToDashboard()">
-            <i class="fas fa-arrow-left"></i> Back to Menu
+            <i class="fas fa-arrow-left"></i> Back to Dashboard
         </button>
 
         <section class="glass-card">
@@ -449,7 +472,7 @@
     <!-- Customers Screen -->
     <div id="customers-screen" class="screen">
         <button class="back-menu-btn" onclick="goToDashboard()">
-            <i class="fas fa-arrow-left"></i> Back to Menu
+            <i class="fas fa-arrow-left"></i> Back to Dashboard
         </button>
 
         <section class="glass-card">

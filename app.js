@@ -7,6 +7,7 @@ let tokenExpiry = localStorage.getItem('token_expiry');
 let torchEnabled = false;
 let currentScannerType = null;
 let lastBackPress = 0;
+let cameraPermissionDenied = false;
 
 // ===== YOUR GOOGLE CLIENT ID =====
 const CLIENT_ID = '265618310384-mvgcqs0j7tk1fvi6k1b902s8batrehmj.apps.googleusercontent.com';
@@ -49,7 +50,7 @@ function handleBackPress() {
 // Override back button behavior
 window.addEventListener('popstate', function (event) {
     const activeScreen = document.querySelector('.screen.active');
-    if (activeScreen && activeScreen.id !== 'main-menu') {
+    if (activeScreen && activeScreen.id !== 'dashboard-screen') {
         goToDashboard();
         history.pushState(null, null, location.href);
     } else {
@@ -101,7 +102,7 @@ function updateFABVisibility(screenId) {
     const fabButton = document.getElementById('fab-button');
     if (!fabButton) return;
 
-    if (screenId === 'dashboard-screen' || screenId === 'main-menu') {
+    if (screenId === 'dashboard-screen') {
         fabButton.style.display = 'flex';
     } else {
         fabButton.style.display = 'none';
@@ -192,10 +193,11 @@ function goToDashboard() {
         torchEnabled = false;
     }
     document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
-    const mainMenu = document.getElementById('main-menu');
-    if (mainMenu) mainMenu.classList.add('active');
+    const dashboard = document.getElementById('dashboard-screen');
+    if (dashboard) dashboard.classList.add('active');
 
-    updateFABVisibility('main-menu');
+    updateFABVisibility('dashboard-screen');
+    updateDashboard(); // Refresh dashboard data
 }
 
 function showScreen(screenId) {
@@ -317,6 +319,8 @@ async function savePart() {
         try {
             doc = await db.get(id);
             doc.totalIn = (doc.totalIn || 0) + qty;
+            // Update price to new price (don't keep old price)
+            doc.price = price;
         } catch (e) {
             doc = {
                 _id: id,
@@ -345,6 +349,7 @@ async function savePart() {
 
         showToast('Stock saved successfully!', 'success');
         updateInventoryUI();
+        updateDashboard(); // Update dashboard stats
 
         await autoSync();
 
@@ -418,6 +423,7 @@ async function deleteItem(id) {
             const doc = await db.get(id);
             await db.remove(doc);
             updateInventoryUI();
+            updateDashboard();
             showToast('Item deleted', 'success');
             await autoSync();
         } catch (error) {
@@ -429,7 +435,7 @@ async function deleteItem(id) {
 // ==================== BILLING (with Stock Validation) ====================
 async function addItemToCurrentBill() {
     const desc = document.getElementById('bill-desc')?.value.trim();
-    const price = parseFloat(document.getElementById('bill-price')?.value) || 0;
+    let price = parseFloat(document.getElementById('bill-price')?.value) || 0;
     const qty = parseInt(document.getElementById('bill-qty')?.value) || 1;
     const itemId = document.getElementById('bill-item-id')?.value.trim();
 
@@ -448,6 +454,10 @@ async function addItemToCurrentBill() {
                     showToast(`Only ${available} items in stock!`, 'error');
                     return;
                 }
+                // If price is 0, use stored price
+                if (price === 0) {
+                    price = doc.price || 0;
+                }
             }
         } else {
             // Search by name
@@ -458,6 +468,10 @@ async function addItemToCurrentBill() {
                     if (available < qty) {
                         showToast(`Only ${available} items in stock!`, 'error');
                         return;
+                    }
+                    // If price is 0, use stored price
+                    if (price === 0) {
+                        price = row.doc.price || 0;
                     }
                     break;
                 }
@@ -496,7 +510,7 @@ function renderBillList() {
             <tr>
                 <td>${item.desc}</td>
                 <td>${item.qty}</td>
-                <td>₹${item.price.toFixed(2)}</td>
+                <td><input type="number" value="${item.price}" step="0.01" min="0" style="width:80px; padding:5px;" onchange="updateBillItemPrice(${index}, this.value)"></td>
                 <td>₹${item.total.toFixed(2)}</td>
                 <td><button class="del-btn" onclick="removeBillItem(${index})"><i class="fas fa-times"></i></button></td>
             </tr>
@@ -506,6 +520,13 @@ function renderBillList() {
     document.getElementById('bill-subtotal').textContent = subtotal.toFixed(2);
     document.getElementById('current-items-section').style.display = 'block';
     updateBillTotal();
+}
+
+function updateBillItemPrice(index, newPrice) {
+    newPrice = parseFloat(newPrice) || 0;
+    currentBillItems[index].price = newPrice;
+    currentBillItems[index].total = newPrice * currentBillItems[index].qty;
+    renderBillList();
 }
 
 function removeBillItem(index) {
@@ -577,7 +598,7 @@ async function finalizeBill() {
             date: new Date().toISOString()
         });
 
-        // Update inventory with final stock reduction
+        // Update inventory with final stock reduction (using original prices from DB, not edited bill prices)
         for (const item of currentBillItems) {
             if (item.itemId) {
                 try {
@@ -604,6 +625,7 @@ async function finalizeBill() {
         showBillPreview(customer, total, paid, balance);
         clearBill();
         showToast('Bill saved successfully!', 'success');
+        updateDashboard(); // Update dashboard stats
 
         await autoSync();
 
@@ -683,6 +705,7 @@ async function saveCustomer() {
         document.getElementById('cust-gst').value = '';
 
         await updateCustomersUI();
+        updateDashboard();
         showToast('Customer saved', 'success');
         await autoSync();
     } catch (error) {
@@ -868,12 +891,16 @@ async function toggleScanner(type) {
     const element = document.getElementById(readerId);
     if (!element) return;
 
+    // Reset permission flag on each attempt
+    cameraPermissionDenied = false;
+
     if (html5QrCode) {
         await html5QrCode.stop();
         html5QrCode = null;
     }
 
-    document.getElementById(`scanner-overlay-${type}`).style.display = 'block';
+    // Show scanner overlay
+    document.getElementById(`scanner-overlay-${type}`).style.display = 'flex';
     document.getElementById(`flash-${type}`).style.display = 'flex';
     torchEnabled = false;
     currentScannerType = type;
@@ -896,10 +923,11 @@ async function toggleScanner(type) {
         );
         showToast('Scanner started', 'success');
     } catch (error) {
-        showToast('Camera access denied', 'error');
-        console.error(error);
+        console.error('Camera error:', error);
+        showToast('Camera access denied. Please allow camera permission.', 'error');
         document.getElementById(`scanner-overlay-${type}`).style.display = 'none';
         document.getElementById(`flash-${type}`).style.display = 'none';
+        cameraPermissionDenied = true;
     }
 }
 
@@ -963,7 +991,7 @@ async function handleScanResult(text, type) {
     }
 }
 
-// ==================== GOOGLE DRIVE SYNC - FIXED (NEVER CLEARS DATA) ====================
+// ==================== GOOGLE DRIVE SYNC ====================
 function handleSync() {
     if (!navigator.onLine) {
         showToast('No internet', 'error');
@@ -1137,7 +1165,7 @@ async function uploadToDrive() {
     }
 }
 
-// ==================== DOWNLOAD FROM DRIVE - FIXED (NEVER CLEARS) ====================
+// ==================== DOWNLOAD FROM DRIVE ====================
 async function downloadFromDrive() {
     if (!accessToken || !navigator.onLine) return;
 
@@ -1349,7 +1377,7 @@ window.onload = async () => {
         fabButton.style.display = 'none';
     }
 
-    updateFABVisibility('main-menu');
+    updateFABVisibility('dashboard-screen');
 
     // Register service worker for PWA
     if ('serviceWorker' in navigator) {
@@ -1360,4 +1388,7 @@ window.onload = async () => {
             console.log('Service Worker registration failed');
         }
     }
+
+    // Push initial state for back button handling
+    history.pushState(null, null, location.href);
 };
