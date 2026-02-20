@@ -97,7 +97,7 @@
         </div>
     </div>
 
-    <!-- Inventory Screen (Add Stock) -->
+    <!-- Inventory Screen (Add Stock) with Item Search -->
     <div id="inventory-screen" class="screen">
         <button class="back-menu-btn" onclick="goToDashboard()">
             <i class="fas fa-arrow-left"></i> Back to Dashboard
@@ -130,20 +130,22 @@
         </section>
 
         <section class="glass-card">
-            <div class="form-group">
-                <label><i class="fas fa-barcode"></i> Barcode ID</label>
-                <input type="text" id="part-id" placeholder="Enter or scan barcode">
+            <div class="form-group" style="position: relative;">
+                <label><i class="fas fa-barcode"></i> Barcode ID / Search Item</label>
+                <input type="text" id="part-id" placeholder="Enter or scan barcode" onkeyup="searchInventoryItems()"
+                    autocomplete="off">
+                <div id="inventory-item-search-results" class="search-results"></div>
             </div>
 
             <div class="form-group">
                 <label><i class="fas fa-tag"></i> Part Name</label>
-                <input type="text" id="part-name" placeholder="Enter part name">
+                <input type="text" id="part-name" placeholder="Enter part name" readonly>
             </div>
 
             <div class="form-row">
                 <div class="form-group half">
                     <label><i class="fas fa-rupee-sign"></i> Price (₹)</label>
-                    <input type="number" id="part-price" placeholder="0.00" step="0.01" min="0">
+                    <input type="number" id="part-price" placeholder="0.00" step="0.01" min="0" readonly>
                 </div>
 
                 <div class="form-group half">
@@ -185,7 +187,7 @@
         </section>
     </div>
 
-    <!-- Quick Bill Screen (with Customer Search) -->
+    <!-- Quick Bill Screen with Item Search -->
     <div id="quick-bill-screen" class="screen">
         <button class="back-menu-btn" onclick="goToDashboard()">
             <i class="fas fa-arrow-left"></i> Back to Dashboard
@@ -232,20 +234,22 @@
                     style="text-transform:uppercase;" oninput="this.value = this.value.toUpperCase()" readonly>
             </div>
 
-            <div class="form-group">
-                <label><i class="fas fa-barcode"></i> Barcode</label>
-                <input type="text" id="bill-item-id" placeholder="Scan barcode">
+            <div class="form-group" style="position: relative;">
+                <label><i class="fas fa-barcode"></i> Barcode / Search Item</label>
+                <input type="text" id="bill-item-id" placeholder="Scan or type to search items"
+                    onkeyup="searchBillItems()" autocomplete="off">
+                <div id="bill-item-search-results" class="search-results"></div>
             </div>
 
             <div class="form-group">
                 <label><i class="fas fa-box"></i> Item Name</label>
-                <input type="text" id="bill-desc" placeholder="Item description">
+                <input type="text" id="bill-desc" placeholder="Item description" readonly>
             </div>
 
             <div class="form-row">
                 <div class="form-group half">
                     <label><i class="fas fa-rupee-sign"></i> Price</label>
-                    <input type="number" id="bill-price" placeholder="0.00" step="0.01">
+                    <input type="number" id="bill-price" placeholder="0.00" step="0.01" readonly>
                 </div>
                 <div class="form-group half">
                     <label><i class="fas fa-sort-amount-up"></i> Quantity</label>
@@ -330,7 +334,7 @@
         </section>
     </div>
 
-    <!-- Reports Screen (Stock List) with Apply Button -->
+    <!-- Reports Screen (Stock List) with Search -->
     <div id="stock-list-screen" class="screen">
         <button class="back-menu-btn" onclick="goToDashboard()">
             <i class="fas fa-arrow-left"></i> Back to Dashboard
@@ -339,9 +343,11 @@
         <section class="glass-card">
             <h4>Inventory Reports</h4>
 
-            <div class="form-group">
+            <div class="form-group" style="position: relative;">
                 <label><i class="fas fa-search"></i> Search Items</label>
-                <input type="text" id="stock-search" placeholder="Search by name or barcode...">
+                <input type="text" id="stock-search" placeholder="Search by name or barcode..."
+                    onkeyup="searchReportsItems()" autocomplete="off">
+                <div id="reports-item-search-results" class="search-results"></div>
             </div>
 
             <div class="form-group">
@@ -422,7 +428,7 @@
         </section>
     </div>
 
-    <!-- Ledger Screen with Apply Button -->
+    <!-- Ledger Screen with Search -->
     <div id="ledger-screen" class="screen">
         <button class="back-menu-btn" onclick="goToDashboard()">
             <i class="fas fa-arrow-left"></i> Back to Dashboard
@@ -431,9 +437,11 @@
         <section class="glass-card">
             <h4>Advanced Search & Filters</h4>
 
-            <div class="form-group">
+            <div class="form-group" style="position: relative;">
                 <label><i class="fas fa-user"></i> Search by Customer</label>
-                <input type="text" id="ledger-customer-search" placeholder="Enter customer name...">
+                <input type="text" id="ledger-customer-search" placeholder="Enter customer name..."
+                    onkeyup="searchLedgerCustomers()" autocomplete="off">
+                <div id="ledger-customer-search-results" class="search-results"></div>
             </div>
 
             <div class="form-row">
@@ -516,7 +524,7 @@
         </section>
     </div>
 
-    <!-- Customers Screen (with Vehicle Registration) -->
+    <!-- Customers Screen with Details View -->
     <div id="customers-screen" class="screen">
         <button class="back-menu-btn" onclick="goToDashboard()">
             <i class="fas fa-arrow-left"></i> Back to Dashboard
@@ -524,10 +532,11 @@
 
         <section class="glass-card">
             <div class="search-add-bar">
-                <div class="form-group" style="flex: 1;">
+                <div class="form-group" style="flex: 1; position: relative;">
                     <label><i class="fas fa-search"></i> Search Customers</label>
                     <input type="text" id="customer-search" placeholder="Search by name or vehicle..."
-                        onkeyup="updateCustomersUI()">
+                        onkeyup="searchCustomersList()" autocomplete="off">
+                    <div id="customer-list-search-results" class="search-results"></div>
                 </div>
                 <button onclick="showAddCustomerModal()" class="add-btn">
                     <i class="fas fa-plus"></i> Add
@@ -536,6 +545,17 @@
 
             <div id="customers-list" class="customers-grid"></div>
         </section>
+    </div>
+
+    <!-- Customer Details Modal -->
+    <div id="customer-details-modal" class="modal">
+        <div class="modal-content glass-card" style="max-width: 600px;">
+            <div class="modal-header">
+                <h3><i class="fas fa-user"></i> Customer Details</h3>
+                <button onclick="closeCustomerDetailsModal()" class="close-btn"><i class="fas fa-times"></i></button>
+            </div>
+            <div id="customer-details-content" class="customer-details-content"></div>
+        </div>
     </div>
 
     <!-- Add Customer Modal (with Vehicle Registration - Uppercase & Mobile Validation) -->
@@ -582,7 +602,7 @@
         </div>
     </div>
 
-    <!-- Bill Preview Modal -->
+    <!-- Bill Preview Modal with Footer -->
     <div id="bill-preview-modal" class="modal">
         <div class="modal-content glass-card">
             <div class="modal-header">

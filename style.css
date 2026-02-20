@@ -179,6 +179,11 @@ textarea {
   outline: none;
 }
 
+input[readonly] {
+  background: #f0f0f0;
+  cursor: default;
+}
+
 /* Remove arrows from number inputs */
 input[type="number"]::-webkit-inner-spin-button,
 input[type="number"]::-webkit-outer-spin-button {
@@ -197,7 +202,7 @@ select:focus {
   border: 2px solid var(--primary);
 }
 
-/* Customer Search Results */
+/* Search Results */
 .search-results {
   position: absolute;
   top: 100%;
@@ -229,6 +234,22 @@ select:focus {
 
 .search-result-item:last-child {
   border-bottom: none;
+}
+
+.search-result-item .item-name {
+  font-weight: 600;
+  font-size: 14px;
+}
+
+.search-result-item .item-details {
+  font-size: 12px;
+  color: #666;
+  display: flex;
+  gap: 10px;
+}
+
+.search-result-item:hover .item-details {
+  color: #ddd;
 }
 
 .search-result-item .customer-name {
@@ -392,7 +413,7 @@ select:focus {
   transform: scale(0.95);
 }
 
-/* Fixed Dashed Border for File Label - Full Coverage */
+/* Fixed Dashed Border for File Label */
 .file-label {
   display: block;
   text-align: center;
@@ -411,7 +432,6 @@ select:focus {
   overflow: hidden;
 }
 
-/* Ensure dashed border is visible on all corners */
 .file-label::before {
   content: "";
   position: absolute;
@@ -447,7 +467,7 @@ select:focus {
   margin-top: 23px;
 }
 
-/* Menu Box (for bottom menu) */
+/* Menu Box */
 .menu-box {
   background: var(--glass);
   backdrop-filter: blur(10px);
@@ -500,7 +520,6 @@ select:focus {
   z-index: 10;
 }
 
-/* Professional Scanner Line - Single Red Line with Animation */
 .scanner-line {
   position: absolute;
   top: 50%;
@@ -527,7 +546,6 @@ select:focus {
   }
 }
 
-/* Scanner Corners for Professional Look */
 .scanner-corner {
   position: absolute;
   width: 30px;
@@ -564,7 +582,7 @@ select:focus {
   border-top: none;
 }
 
-/* Flash Icon - Like Mobile Camera App */
+/* Flash Icon */
 .flash-icon {
   position: absolute;
   top: 15px;
@@ -748,6 +766,97 @@ td {
   margin-bottom: 3px;
 }
 
+/* Customer Details Modal */
+.customer-details-content {
+  color: #333;
+  max-height: 70vh;
+  overflow-y: auto;
+}
+
+.customer-info {
+  background: #f5f5f5;
+  padding: 15px;
+  border-radius: 10px;
+  margin-bottom: 20px;
+}
+
+.customer-info p {
+  margin: 8px 0;
+  font-size: 14px;
+}
+
+.customer-info strong {
+  color: var(--primary);
+  width: 100px;
+  display: inline-block;
+}
+
+.customer-summary {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 10px;
+  margin-bottom: 20px;
+}
+
+.summary-box {
+  background: var(--primary);
+  color: white;
+  padding: 15px;
+  border-radius: 10px;
+  text-align: center;
+}
+
+.summary-box .label {
+  font-size: 12px;
+  opacity: 0.9;
+}
+
+.summary-box .value {
+  font-size: 20px;
+  font-weight: 700;
+}
+
+.customer-history {
+  margin-top: 20px;
+}
+
+.customer-history h4 {
+  color: var(--primary);
+  margin-bottom: 10px;
+}
+
+.history-item {
+  background: #f9f9f9;
+  padding: 12px;
+  border-radius: 8px;
+  margin-bottom: 8px;
+  border-left: 4px solid var(--primary);
+}
+
+.history-item .date {
+  font-size: 11px;
+  color: #666;
+}
+
+.history-item .amounts {
+  display: flex;
+  justify-content: space-between;
+  margin-top: 5px;
+}
+
+.history-item .total {
+  font-weight: 600;
+}
+
+.history-item .balance {
+  color: var(--danger);
+  font-weight: 600;
+}
+
+.history-item .paid {
+  color: var(--success);
+}
+
 /* Ledger Cards */
 .ledger-card {
   background: rgba(0, 0, 0, 0.2);
@@ -881,7 +990,7 @@ td {
   background: var(--primary);
 }
 
-/* Floating Action Button - Hidden by default */
+/* Floating Action Button */
 .fab {
   position: fixed;
   bottom: 20px;
@@ -933,6 +1042,12 @@ td {
   max-width: 500px;
   max-height: 90vh;
   overflow-y: auto;
+  background: white;
+  color: black;
+}
+
+.modal-content.glass-card {
+  background: white;
 }
 
 .modal-header {
@@ -940,6 +1055,12 @@ td {
   justify-content: space-between;
   align-items: center;
   margin-bottom: 20px;
+  padding-bottom: 10px;
+  border-bottom: 1px solid #eee;
+}
+
+.modal-header h3 {
+  color: var(--primary);
 }
 
 .modal-actions {
@@ -956,10 +1077,14 @@ td {
 .close-btn {
   background: none;
   border: none;
-  color: white;
+  color: #666;
   font-size: 20px;
   cursor: pointer;
   padding: 5px;
+}
+
+.close-btn:hover {
+  color: var(--danger);
 }
 
 /* Toast */
@@ -1249,5 +1374,9 @@ td {
   .search-result-item {
     padding: 10px;
     font-size: 13px;
+  }
+
+  .customer-summary {
+    grid-template-columns: 1fr;
   }
 }

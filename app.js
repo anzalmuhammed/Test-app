@@ -6,8 +6,8 @@ let accessToken = localStorage.getItem('google_token');
 let tokenExpiry = localStorage.getItem('token_expiry');
 let torchEnabled = false;
 let lastBackPress = 0;
-let currentScanner = null; // Track active scanner
 let customers = []; // Cache for customers
+let inventoryItems = []; // Cache for inventory items
 
 // ===== YOUR GOOGLE CLIENT ID =====
 const CLIENT_ID = '265618310384-mvgcqs0j7tk1fvi6k1b902s8batrehmj.apps.googleusercontent.com';
@@ -170,9 +170,8 @@ async function showScreen(screenId) {
     // Stop any active scanner when changing screens
     await stopScanner();
 
-    // Hide search results when changing screens
-    const searchResults = document.getElementById('customer-search-results');
-    if (searchResults) searchResults.style.display = 'none';
+    // Hide all search results
+    hideAllSearchResults();
 
     document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
     const target = document.getElementById(screenId);
@@ -181,9 +180,18 @@ async function showScreen(screenId) {
     updateFABVisibility(screenId);
 
     // Refresh data based on screen
-    if (screenId === 'stock-list-screen') await updateInventoryUI();
-    if (screenId === 'ledger-screen') await updateLedgerUI();
-    if (screenId === 'customers-screen') await updateCustomersUI();
+    if (screenId === 'stock-list-screen') {
+        await loadInventoryItems();
+        await updateInventoryUI();
+    }
+    if (screenId === 'ledger-screen') {
+        await loadCustomers();
+        await updateLedgerUI();
+    }
+    if (screenId === 'customers-screen') {
+        await loadCustomers();
+        await updateCustomersUI();
+    }
     if (screenId === 'dashboard-screen') await updateDashboard();
     if (screenId === 'quick-bill-screen') {
         document.getElementById('bill-cust-name').value = '';
@@ -201,13 +209,36 @@ function closeModal() {
     document.querySelectorAll('.modal').forEach(m => m.classList.remove('active'));
 }
 
-// ==================== CUSTOMER SEARCH ====================
-async function loadCustomersForSearch() {
+function hideAllSearchResults() {
+    const searchResults = [
+        'customer-search-results',
+        'inventory-item-search-results',
+        'bill-item-search-results',
+        'reports-item-search-results',
+        'ledger-customer-search-results',
+        'customer-list-search-results'
+    ];
+
+    searchResults.forEach(id => {
+        const el = document.getElementById(id);
+        if (el) el.style.display = 'none';
+    });
+}
+
+// ==================== LOAD DATA ====================
+async function loadCustomers() {
     const result = await db.allDocs({ include_docs: true });
     customers = result.rows.map(r => r.doc).filter(d => d && d.type === 'customer');
     return customers;
 }
 
+async function loadInventoryItems() {
+    const result = await db.allDocs({ include_docs: true });
+    inventoryItems = result.rows.map(r => r.doc).filter(d => d && d.type === 'inventory');
+    return inventoryItems;
+}
+
+// ==================== CUSTOMER SEARCH (Quick Bill) ====================
 async function searchCustomers() {
     const searchInput = document.getElementById('bill-cust-name');
     const searchTerm = searchInput.value.trim().toLowerCase();
@@ -218,12 +249,8 @@ async function searchCustomers() {
         return;
     }
 
-    // Load customers if not already loaded
-    if (customers.length === 0) {
-        await loadCustomersForSearch();
-    }
+    await loadCustomers();
 
-    // Filter customers
     const filtered = customers.filter(c =>
         c.name.toLowerCase().includes(searchTerm) ||
         (c.vehicleNo && c.vehicleNo.toLowerCase().includes(searchTerm))
@@ -234,7 +261,6 @@ async function searchCustomers() {
         return;
     }
 
-    // Display results
     resultsDiv.innerHTML = '';
     filtered.slice(0, 5).forEach(customer => {
         const item = document.createElement('div');
@@ -253,18 +279,362 @@ async function searchCustomers() {
 function selectCustomer(customer) {
     document.getElementById('bill-cust-name').value = customer.name;
     document.getElementById('bill-vehicle-no').value = customer.vehicleNo || '';
-
-    // Hide results
     document.getElementById('customer-search-results').style.display = 'none';
 }
 
-// Close search results when clicking outside
-document.addEventListener('click', function (e) {
-    const searchInput = document.getElementById('bill-cust-name');
-    const resultsDiv = document.getElementById('customer-search-results');
+// ==================== INVENTORY ITEM SEARCH (Add Stock) ====================
+async function searchInventoryItems() {
+    const searchInput = document.getElementById('part-id');
+    const searchTerm = searchInput.value.trim().toLowerCase();
+    const resultsDiv = document.getElementById('inventory-item-search-results');
 
-    if (searchInput && resultsDiv && !searchInput.contains(e.target) && !resultsDiv.contains(e.target)) {
+    if (searchTerm.length < 1) {
         resultsDiv.style.display = 'none';
+        return;
+    }
+
+    await loadInventoryItems();
+
+    const filtered = inventoryItems.filter(item =>
+        item.name.toLowerCase().includes(searchTerm) ||
+        (item._id && item._id.toLowerCase().includes(searchTerm))
+    );
+
+    if (filtered.length === 0) {
+        resultsDiv.style.display = 'none';
+        return;
+    }
+
+    resultsDiv.innerHTML = '';
+    filtered.slice(0, 5).forEach(item => {
+        const available = (item.totalIn || 0) - (item.totalSold || 0);
+        const result = document.createElement('div');
+        result.className = 'search-result-item';
+        result.innerHTML = `
+            <div class="item-name">${item.name}</div>
+            <div class="item-details">
+                <span>ID: ${item._id}</span>
+                <span>Price: ₹${item.price || 0}</span>
+                <span>Stock: ${available}</span>
+            </div>
+        `;
+        result.onclick = () => selectInventoryItem(item);
+        resultsDiv.appendChild(result);
+    });
+
+    resultsDiv.style.display = 'block';
+}
+
+function selectInventoryItem(item) {
+    document.getElementById('part-id').value = item._id;
+    document.getElementById('part-name').value = item.name || '';
+    document.getElementById('part-price').value = item.price || '';
+    document.getElementById('part-category').value = item.category || 'general';
+    document.getElementById('part-location').value = item.location || '';
+    document.getElementById('part-min-stock').value = item.minStock || 5;
+    document.getElementById('inventory-item-search-results').style.display = 'none';
+}
+
+// ==================== BILL ITEM SEARCH ====================
+async function searchBillItems() {
+    const searchInput = document.getElementById('bill-item-id');
+    const searchTerm = searchInput.value.trim().toLowerCase();
+    const resultsDiv = document.getElementById('bill-item-search-results');
+
+    if (searchTerm.length < 1) {
+        resultsDiv.style.display = 'none';
+        return;
+    }
+
+    await loadInventoryItems();
+
+    const filtered = inventoryItems.filter(item =>
+        item.name.toLowerCase().includes(searchTerm) ||
+        (item._id && item._id.toLowerCase().includes(searchTerm))
+    );
+
+    if (filtered.length === 0) {
+        resultsDiv.style.display = 'none';
+        return;
+    }
+
+    resultsDiv.innerHTML = '';
+    filtered.slice(0, 5).forEach(item => {
+        const available = (item.totalIn || 0) - (item.totalSold || 0);
+        const result = document.createElement('div');
+        result.className = 'search-result-item';
+        result.innerHTML = `
+            <div class="item-name">${item.name}</div>
+            <div class="item-details">
+                <span>Price: ₹${item.price || 0}</span>
+                <span>Stock: ${available}</span>
+            </div>
+        `;
+        result.onclick = () => selectBillItem(item);
+        resultsDiv.appendChild(result);
+    });
+
+    resultsDiv.style.display = 'block';
+}
+
+function selectBillItem(item) {
+    document.getElementById('bill-item-id').value = item._id;
+    document.getElementById('bill-desc').value = item.name || '';
+    document.getElementById('bill-price').value = item.price || '';
+    document.getElementById('bill-item-search-results').style.display = 'none';
+}
+
+// ==================== REPORTS ITEM SEARCH ====================
+async function searchReportsItems() {
+    const searchInput = document.getElementById('stock-search');
+    const searchTerm = searchInput.value.trim().toLowerCase();
+    const resultsDiv = document.getElementById('reports-item-search-results');
+
+    if (searchTerm.length < 1) {
+        resultsDiv.style.display = 'none';
+        return;
+    }
+
+    await loadInventoryItems();
+
+    const filtered = inventoryItems.filter(item =>
+        item.name.toLowerCase().includes(searchTerm) ||
+        (item._id && item._id.toLowerCase().includes(searchTerm))
+    );
+
+    if (filtered.length === 0) {
+        resultsDiv.style.display = 'none';
+        return;
+    }
+
+    resultsDiv.innerHTML = '';
+    filtered.slice(0, 5).forEach(item => {
+        const available = (item.totalIn || 0) - (item.totalSold || 0);
+        const result = document.createElement('div');
+        result.className = 'search-result-item';
+        result.innerHTML = `
+            <div class="item-name">${item.name}</div>
+            <div class="item-details">
+                <span>Price: ₹${item.price || 0}</span>
+                <span>Stock: ${available}</span>
+            </div>
+        `;
+        result.onclick = () => selectReportsItem(item);
+        resultsDiv.appendChild(result);
+    });
+
+    resultsDiv.style.display = 'block';
+}
+
+function selectReportsItem(item) {
+    document.getElementById('stock-search').value = item.name;
+    document.getElementById('reports-item-search-results').style.display = 'none';
+    applyInventoryFilters(); // Apply filter with this item
+}
+
+// ==================== LEDGER CUSTOMER SEARCH ====================
+async function searchLedgerCustomers() {
+    const searchInput = document.getElementById('ledger-customer-search');
+    const searchTerm = searchInput.value.trim().toLowerCase();
+    const resultsDiv = document.getElementById('ledger-customer-search-results');
+
+    if (searchTerm.length < 1) {
+        resultsDiv.style.display = 'none';
+        return;
+    }
+
+    await loadCustomers();
+
+    const filtered = customers.filter(c =>
+        c.name.toLowerCase().includes(searchTerm)
+    );
+
+    if (filtered.length === 0) {
+        resultsDiv.style.display = 'none';
+        return;
+    }
+
+    resultsDiv.innerHTML = '';
+    filtered.slice(0, 5).forEach(customer => {
+        const item = document.createElement('div');
+        item.className = 'search-result-item';
+        item.innerHTML = `
+            <div class="customer-name">${customer.name}</div>
+            ${customer.vehicleNo ? `<div class="customer-vehicle">${customer.vehicleNo}</div>` : ''}
+        `;
+        item.onclick = () => selectLedgerCustomer(customer);
+        resultsDiv.appendChild(item);
+    });
+
+    resultsDiv.style.display = 'block';
+}
+
+function selectLedgerCustomer(customer) {
+    document.getElementById('ledger-customer-search').value = customer.name;
+    document.getElementById('ledger-customer-search-results').style.display = 'none';
+    applyLedgerFilters();
+}
+
+// ==================== CUSTOMER LIST SEARCH ====================
+async function searchCustomersList() {
+    const searchInput = document.getElementById('customer-search');
+    const searchTerm = searchInput.value.trim().toLowerCase();
+    const resultsDiv = document.getElementById('customer-list-search-results');
+
+    if (searchTerm.length < 1) {
+        resultsDiv.style.display = 'none';
+        updateCustomersUI();
+        return;
+    }
+
+    await loadCustomers();
+
+    const filtered = customers.filter(c =>
+        c.name.toLowerCase().includes(searchTerm) ||
+        (c.vehicleNo && c.vehicleNo.toLowerCase().includes(searchTerm))
+    );
+
+    if (filtered.length === 0) {
+        resultsDiv.style.display = 'none';
+        updateCustomersUI();
+        return;
+    }
+
+    resultsDiv.innerHTML = '';
+    filtered.slice(0, 5).forEach(customer => {
+        const item = document.createElement('div');
+        item.className = 'search-result-item';
+        item.innerHTML = `
+            <div class="customer-name">${customer.name}</div>
+            ${customer.vehicleNo ? `<div class="customer-vehicle">${customer.vehicleNo}</div>` : ''}
+        `;
+        item.onclick = () => selectCustomerList(customer);
+        resultsDiv.appendChild(item);
+    });
+
+    resultsDiv.style.display = 'block';
+}
+
+function selectCustomerList(customer) {
+    document.getElementById('customer-search').value = customer.name;
+    document.getElementById('customer-list-search-results').style.display = 'none';
+    showCustomerDetails(customer);
+}
+
+// ==================== CUSTOMER DETAILS ====================
+async function showCustomerDetails(customer) {
+    // Get all transactions for this customer
+    const result = await db.allDocs({ include_docs: true });
+    const transactions = result.rows
+        .map(r => r.doc)
+        .filter(d => d && d.type === 'ledger' && d.customer === customer.name)
+        .sort((a, b) => new Date(b.date) - new Date(a.date));
+
+    // Calculate totals
+    let totalSpent = 0;
+    let totalPaid = 0;
+    let totalDue = 0;
+
+    transactions.forEach(t => {
+        totalSpent += t.total || 0;
+        totalPaid += t.paid || 0;
+        totalDue += t.balance || 0;
+    });
+
+    // Create transaction history HTML
+    let historyHtml = '';
+    if (transactions.length === 0) {
+        historyHtml = '<p>No transactions found</p>';
+    } else {
+        transactions.slice(0, 10).forEach(t => {
+            historyHtml += `
+                <div class="history-item">
+                    <div class="date">${new Date(t.date).toLocaleString()}</div>
+                    <div class="amounts">
+                        <span class="total">Total: ₹${(t.total || 0).toFixed(2)}</span>
+                        <span class="paid">Paid: ₹${(t.paid || 0).toFixed(2)}</span>
+                        <span class="balance">Due: ₹${(t.balance || 0).toFixed(2)}</span>
+                    </div>
+                </div>
+            `;
+        });
+    }
+
+    const content = `
+        <div class="customer-info">
+            <p><strong>Name:</strong> ${customer.name}</p>
+            ${customer.vehicleNo ? `<p><strong>Vehicle:</strong> ${customer.vehicleNo}</p>` : ''}
+            ${customer.phone ? `<p><strong>Phone:</strong> ${customer.phone}</p>` : ''}
+            ${customer.email ? `<p><strong>Email:</strong> ${customer.email}</p>` : ''}
+            ${customer.address ? `<p><strong>Address:</strong> ${customer.address}</p>` : ''}
+            ${customer.gst ? `<p><strong>GST:</strong> ${customer.gst}</p>` : ''}
+        </div>
+        
+        <div class="customer-summary">
+            <div class="summary-box">
+                <div class="label">Total Spent</div>
+                <div class="value">₹${totalSpent.toFixed(2)}</div>
+            </div>
+            <div class="summary-box" style="background: var(--success);">
+                <div class="label">Total Paid</div>
+                <div class="value">₹${totalPaid.toFixed(2)}</div>
+            </div>
+            <div class="summary-box" style="background: var(--danger);">
+                <div class="label">Total Due</div>
+                <div class="value">₹${totalDue.toFixed(2)}</div>
+            </div>
+        </div>
+        
+        <div class="customer-history">
+            <h4>Transaction History (Last 10)</h4>
+            ${historyHtml}
+        </div>
+    `;
+
+    document.getElementById('customer-details-content').innerHTML = content;
+    document.getElementById('customer-details-modal').classList.add('active');
+}
+
+function closeCustomerDetailsModal() {
+    document.getElementById('customer-details-modal').classList.remove('active');
+}
+
+// Click outside to close search results
+document.addEventListener('click', function (e) {
+    const searchInputs = [
+        'bill-cust-name', 'part-id', 'bill-item-id', 'stock-search',
+        'ledger-customer-search', 'customer-search'
+    ];
+
+    const resultsDivs = [
+        'customer-search-results', 'inventory-item-search-results',
+        'bill-item-search-results', 'reports-item-search-results',
+        'ledger-customer-search-results', 'customer-list-search-results'
+    ];
+
+    let shouldHide = true;
+
+    // Check if click is inside any search input or results
+    for (let i = 0; i < searchInputs.length; i++) {
+        const input = document.getElementById(searchInputs[i]);
+        if (input && (input.contains(e.target) || input === e.target)) {
+            shouldHide = false;
+            break;
+        }
+    }
+
+    if (shouldHide) {
+        for (let i = 0; i < resultsDivs.length; i++) {
+            const div = document.getElementById(resultsDivs[i]);
+            if (div && div.contains(e.target)) {
+                shouldHide = false;
+                break;
+            }
+        }
+    }
+
+    if (shouldHide) {
+        hideAllSearchResults();
     }
 });
 
@@ -295,7 +665,6 @@ async function updateDashboard() {
         document.getElementById('dash-low-stock').textContent = lowStock;
         document.getElementById('dash-due-amount').textContent = '₹' + dueAmount.toFixed(2);
 
-        // Show recent transactions
         const recentDiv = document.getElementById('dash-recent');
         if (recentDiv) {
             recentDiv.innerHTML = '';
@@ -355,7 +724,6 @@ async function savePart() {
         await db.put(doc);
         showToast('Stock saved!', 'success');
 
-        // Clear form
         document.getElementById('part-id').value = '';
         document.getElementById('part-name').value = '';
         document.getElementById('part-price').value = '';
@@ -364,6 +732,7 @@ async function savePart() {
         document.getElementById('part-location').value = '';
         document.getElementById('part-min-stock').value = '5';
 
+        await loadInventoryItems();
         await updateInventoryUI();
         await updateDashboard();
         await autoSync();
@@ -372,7 +741,7 @@ async function savePart() {
     }
 }
 
-// ==================== INVENTORY FILTERS WITH APPLY BUTTON ====================
+// ==================== INVENTORY FILTERS ====================
 let currentInventoryFilters = {
     search: '',
     filter: 'all',
@@ -405,11 +774,9 @@ function resetInventoryFilters() {
 
 async function updateInventoryUI() {
     try {
-        console.log('Updating inventory UI...');
-        const result = await db.allDocs({ include_docs: true });
-        let items = result.rows.map(r => r.doc).filter(d => d && d.type === 'inventory');
+        await loadInventoryItems();
+        let items = [...inventoryItems];
 
-        // Apply search filter
         const search = currentInventoryFilters.search.toLowerCase();
         if (search) {
             items = items.filter(item =>
@@ -418,7 +785,6 @@ async function updateInventoryUI() {
             );
         }
 
-        // Apply stock filter
         const filter = currentInventoryFilters.filter;
         if (filter === 'low') {
             items = items.filter(item =>
@@ -430,13 +796,11 @@ async function updateInventoryUI() {
             );
         }
 
-        // Apply category filter
         const category = currentInventoryFilters.category;
         if (category !== 'all') {
             items = items.filter(item => item.category === category);
         }
 
-        // Apply sorting
         const sort = currentInventoryFilters.sort;
         switch (sort) {
             case 'name':
@@ -480,7 +844,6 @@ async function updateInventoryUI() {
             });
         }
 
-        // Update total value
         const totalValue = items.reduce((sum, item) => {
             const available = (item.totalIn || 0) - (item.totalSold || 0);
             return sum + (available * (item.price || 0));
@@ -501,6 +864,7 @@ async function deleteItem(id) {
     try {
         const doc = await db.get(id);
         await db.remove(doc);
+        await loadInventoryItems();
         await updateInventoryUI();
         await updateDashboard();
         await autoSync();
@@ -510,7 +874,7 @@ async function deleteItem(id) {
     }
 }
 
-// ==================== BILLING (STOCK PROTECTION) ====================
+// ==================== BILLING ====================
 async function addItemToCurrentBill() {
     const desc = document.getElementById('bill-desc').value.trim();
     const price = parseFloat(document.getElementById('bill-price').value) || 0;
@@ -519,7 +883,6 @@ async function addItemToCurrentBill() {
 
     if (!desc) return showToast('Enter item description', 'warning');
 
-    // CHECK STOCK AVAILABILITY
     try {
         const allDocs = await db.allDocs({ include_docs: true });
         const stockItem = allDocs.rows.find(r =>
@@ -537,7 +900,6 @@ async function addItemToCurrentBill() {
             showToast('Item not found in inventory. Proceeding as service/misc.', 'info');
         }
 
-        // ADD TO BILL LIST
         currentBillItems.push({
             id: itemId || null,
             desc,
@@ -549,7 +911,6 @@ async function addItemToCurrentBill() {
         renderBillList();
         showToast('Item added to bill', 'success');
 
-        // Clear inputs
         document.getElementById('bill-desc').value = '';
         document.getElementById('bill-price').value = '';
         document.getElementById('bill-qty').value = '1';
@@ -626,7 +987,6 @@ async function finalizeBill() {
         const balance = total - paid;
         const billId = 'ledger_' + Date.now();
 
-        // Save to Ledger with vehicle number
         await db.put({
             _id: billId,
             type: 'ledger',
@@ -641,7 +1001,6 @@ async function finalizeBill() {
             updatedAt: new Date().toISOString()
         });
 
-        // DEDUCT FROM INVENTORY
         const result = await db.allDocs({ include_docs: true });
         for (const billItem of currentBillItems) {
             const match = result.rows.find(r =>
@@ -657,6 +1016,7 @@ async function finalizeBill() {
 
         showBillPreview(customer, vehicleNo, total, paid, balance);
         clearBill();
+        await loadInventoryItems();
         await updateDashboard();
         await updateInventoryUI();
         await autoSync();
@@ -697,7 +1057,7 @@ function showBillPreview(customer, vehicleNo, total, paid, balance) {
             <p><strong>Subtotal:</strong> ₹${total.toFixed(2)}</p>
             <p><strong>Paid:</strong> ₹${paid.toFixed(2)}</p>
             <p><strong>Balance:</strong> ₹${balance.toFixed(2)}</p>
-            <p style="text-align: center; margin-top: 30px; color: #666;">Thank you for your business!</p>
+            <p style="text-align: center; margin-top: 30px; color: #666;">Thank you for your business!<br>Visit Again</p>
         </div>
     `;
 
@@ -705,7 +1065,6 @@ function showBillPreview(customer, vehicleNo, total, paid, balance) {
     document.getElementById('bill-preview-modal').classList.add('active');
 }
 
-// ==================== PDF DOWNLOAD FUNCTION WITH VEHICLE ====================
 function downloadBillPDF() {
     const { jsPDF } = window.jspdf;
     const doc = new jsPDF();
@@ -718,7 +1077,6 @@ function downloadBillPDF() {
     const paid = parseFloat(document.getElementById('amount-paid').value) || 0;
     const balance = total - paid;
 
-    // Add header
     doc.setFontSize(20);
     doc.setTextColor(99, 102, 241);
     doc.text('WORKSHOP PRO', 105, 20, { align: 'center' });
@@ -727,7 +1085,6 @@ function downloadBillPDF() {
     doc.setTextColor(0, 0, 0);
     doc.text('INVOICE', 105, 30, { align: 'center' });
 
-    // Add bill details
     doc.setFontSize(10);
     doc.text(`Bill No: ${billNo}`, 20, 40);
     doc.text(`Date: ${date}`, 20, 45);
@@ -736,7 +1093,6 @@ function downloadBillPDF() {
         doc.text(`Vehicle No: ${vehicleNo}`, 20, 55);
     }
 
-    // Add table
     const startY = vehicleNo ? 65 : 60;
     const tableColumn = ["Item", "Qty", "Price", "Total"];
     const tableRows = [];
@@ -759,18 +1115,16 @@ function downloadBillPDF() {
         headStyles: { fillColor: [99, 102, 241] }
     });
 
-    // Add totals
     const finalY = doc.lastAutoTable.finalY + 10;
     doc.text(`Subtotal: ₹${total.toFixed(2)}`, 150, finalY);
     doc.text(`Paid: ₹${paid.toFixed(2)}`, 150, finalY + 5);
     doc.text(`Balance: ₹${balance.toFixed(2)}`, 150, finalY + 10);
 
-    // Add footer
     doc.setFontSize(10);
     doc.setTextColor(128, 128, 128);
     doc.text('Thank you for your business!', 105, finalY + 20, { align: 'center' });
+    doc.text('Visit Again', 105, finalY + 25, { align: 'center' });
 
-    // Save PDF
     doc.save(`invoice_${billNo}.pdf`);
     showToast('PDF downloaded', 'success');
 }
@@ -787,13 +1141,7 @@ function clearBill() {
     document.getElementById('bill-subtotal').textContent = '0';
 }
 
-// ==================== CUSTOMER FUNCTIONS WITH VEHICLE ====================
-async function loadCustomers() {
-    const result = await db.allDocs({ include_docs: true });
-    customers = result.rows.map(r => r.doc).filter(d => d && d.type === 'customer');
-    return customers;
-}
-
+// ==================== CUSTOMER FUNCTIONS ====================
 function showAddCustomerModal() {
     document.getElementById('customer-modal').classList.add('active');
 }
@@ -809,7 +1157,6 @@ async function saveCustomer() {
 
     if (!name) return showToast('Name required', 'error');
 
-    // Validate phone number (10 digits)
     if (phone && !/^\d{10}$/.test(phone)) {
         return showToast('Phone number must be 10 digits', 'error');
     }
@@ -836,7 +1183,6 @@ async function saveCustomer() {
         document.getElementById('cust-address').value = '';
         document.getElementById('cust-gst').value = '';
 
-        // Refresh customers cache
         await loadCustomers();
         await updateCustomersUI();
         await updateDashboard();
@@ -848,8 +1194,7 @@ async function saveCustomer() {
 }
 
 async function updateCustomersUI() {
-    console.log('Updating customers UI...');
-    await loadCustomers(); // Refresh cache
+    await loadCustomers();
     const search = document.getElementById('customer-search')?.value.toLowerCase() || '';
 
     const filtered = customers.filter(c =>
@@ -866,7 +1211,7 @@ async function updateCustomersUI() {
     } else {
         filtered.forEach(c => {
             container.innerHTML += `
-                <div class="customer-card">
+                <div class="customer-card" onclick="showCustomerDetails(${JSON.stringify(c).replace(/"/g, '&quot;')})">
                     <strong>${c.name}</strong>
                     ${c.vehicleNo ? `<div class="vehicle"><i class="fas fa-car"></i> ${c.vehicleNo}</div>` : ''}
                     <div style="font-size:12px;">${c.phone || 'No phone'}</div>
@@ -879,7 +1224,7 @@ async function updateCustomersUI() {
     }
 }
 
-// ==================== LEDGER FUNCTIONS WITH APPLY BUTTON ====================
+// ==================== LEDGER FUNCTIONS ====================
 let currentLedgerFilters = {
     customerSearch: '',
     vehicleSearch: '',
@@ -952,13 +1297,11 @@ function filterTransactionsByDate(transactions, filterType, fromDate, toDate) {
 
 async function updateLedgerUI() {
     try {
-        console.log('Updating ledger UI...');
         const result = await db.allDocs({ include_docs: true });
         let transactions = result.rows
             .map(r => r.doc)
             .filter(d => d && d.type === 'ledger');
 
-        // Apply filters
         if (currentLedgerFilters.customerSearch) {
             transactions = transactions.filter(t =>
                 t.customer.toLowerCase().includes(currentLedgerFilters.customerSearch.toLowerCase())
@@ -973,7 +1316,6 @@ async function updateLedgerUI() {
 
         transactions = filterTransactionsByDate(transactions, currentLedgerFilters.filterType, currentLedgerFilters.fromDate, currentLedgerFilters.toDate);
 
-        // Calculate totals
         let totalSales = 0, creditDue = 0;
         const balances = {};
 
@@ -985,7 +1327,6 @@ async function updateLedgerUI() {
             }
         });
 
-        // Sort
         switch (currentLedgerFilters.sort) {
             case 'newest': transactions.sort((a, b) => new Date(b.date) - new Date(a.date)); break;
             case 'oldest': transactions.sort((a, b) => new Date(a.date) - new Date(b.date)); break;
@@ -993,19 +1334,16 @@ async function updateLedgerUI() {
             case 'lowest': transactions.sort((a, b) => (a.total || 0) - (b.total || 0)); break;
         }
 
-        // Update UI
         document.getElementById('ledger-filtered-total').textContent = '₹' + totalSales.toFixed(2);
         document.getElementById('ledger-filtered-count').textContent = transactions.length;
         document.getElementById('credit-due').textContent = '₹' + creditDue.toFixed(2);
 
-        // Show balances (who owes money)
         const balancesDiv = document.getElementById('customer-balances-list');
         if (balancesDiv) {
             balancesDiv.innerHTML = '';
             if (Object.keys(balances).length === 0) {
                 balancesDiv.innerHTML = '<p style="text-align: center;">No pending balances</p>';
             } else {
-                // Sort by amount due (highest first)
                 const sortedBalances = Object.entries(balances).sort((a, b) => b[1] - a[1]);
                 sortedBalances.forEach(([cust, amt]) => {
                     balancesDiv.innerHTML += `
@@ -1018,7 +1356,6 @@ async function updateLedgerUI() {
             }
         }
 
-        // Show transactions with items and vehicle
         const historyDiv = document.getElementById('bill-history-list');
         if (historyDiv) {
             historyDiv.innerHTML = '';
@@ -1026,7 +1363,6 @@ async function updateLedgerUI() {
                 historyDiv.innerHTML = '<p style="text-align: center;">No transactions</p>';
             } else {
                 transactions.slice(0, 50).forEach(t => {
-                    // Create items list
                     let itemsList = '';
                     if (t.items && t.items.length > 0) {
                         itemsList = '<div class="items-list">';
@@ -1038,7 +1374,7 @@ async function updateLedgerUI() {
                     }
 
                     historyDiv.innerHTML += `
-                        <div class="ledger-card">
+                        <div class="ledger-card" onclick='showCustomerDetailsFromLedger("${t.customer}")'>
                             <div style="display:flex; justify-content:space-between;">
                                 <strong>${t.customer}</strong> 
                                 <span>₹${(t.total || 0).toFixed(2)}</span>
@@ -1057,11 +1393,18 @@ async function updateLedgerUI() {
     }
 }
 
+async function showCustomerDetailsFromLedger(customerName) {
+    await loadCustomers();
+    const customer = customers.find(c => c.name === customerName);
+    if (customer) {
+        showCustomerDetails(customer);
+    }
+}
+
 // ==================== SCANNER ====================
 async function toggleScanner(type) {
     const readerId = type === 'inventory' ? 'reader' : 'bill-reader';
 
-    // Stop any existing scanner
     await stopScanner();
 
     document.getElementById(`scanner-overlay-${type}`).style.display = 'block';
@@ -1086,7 +1429,6 @@ async function toggleScanner(type) {
 async function scanFile(input, type) {
     if (!input?.files?.length) return;
 
-    // Stop any existing scanner
     await stopScanner();
 
     const scanner = new Html5Qrcode('reader');
@@ -1095,12 +1437,9 @@ async function scanFile(input, type) {
         const result = await scanner.scanFile(input.files[0], true);
         playBeepAndVibrate();
         handleScanResult(result, type);
-
-        // Clear the file input to prevent reusing the same image
         input.value = '';
     } catch {
         showToast('Could not read barcode', 'error');
-        // Clear the file input even on error
         input.value = '';
     }
 }
@@ -1127,7 +1466,6 @@ async function handleScanResult(text, type) {
         showToast('New Item', 'info');
     }
 
-    // Stop scanner after successful scan
     await stopScanner();
 }
 
@@ -1153,12 +1491,10 @@ async function uploadToDrive() {
     if (syncStatusText) syncStatusText.textContent = 'Syncing...';
 
     try {
-        // GET LOCAL DATA
         const localResult = await db.allDocs({ include_docs: true });
         const localData = localResult.rows.map(r => r.doc);
         console.log('Local data count:', localData.length);
 
-        // DOWNLOAD FROM DRIVE
         let cloudData = [];
         let fileId = null;
 
@@ -1189,7 +1525,6 @@ async function uploadToDrive() {
             }
         }
 
-        // MERGE DATA (KEEP NEWEST)
         const mergedMap = new Map();
 
         cloudData.forEach(doc => mergedMap.set(doc._id, doc));
@@ -1215,7 +1550,6 @@ async function uploadToDrive() {
 
         const mergedData = Array.from(mergedMap.values());
 
-        // UPDATE LOCAL DATABASE
         let localImported = 0, localUpdated = 0;
 
         for (const doc of mergedData) {
@@ -1240,7 +1574,6 @@ async function uploadToDrive() {
             }
         }
 
-        // UPLOAD TO DRIVE
         const payload = {
             timestamp: new Date().toISOString(),
             version: '1.0',
@@ -1270,7 +1603,8 @@ async function uploadToDrive() {
 
             localStorage.removeItem('pendingSync');
 
-            // Refresh UI
+            await loadCustomers();
+            await loadInventoryItems();
             await updateDashboard();
             await updateInventoryUI();
             await updateLedgerUI();
@@ -1347,8 +1681,9 @@ window.onload = async () => {
         }
     }
 
-    // Load all data
     console.log('Loading initial data...');
+    await loadCustomers();
+    await loadInventoryItems();
     await updateDashboard();
     await updateInventoryUI();
     await updateLedgerUI();
@@ -1356,7 +1691,6 @@ window.onload = async () => {
 
     updateNetworkStatus();
 
-    // Periodic sync check
     setInterval(() => {
         if (navigator.onLine && accessToken && localStorage.getItem('pendingSync') === 'true') {
             autoSync();
