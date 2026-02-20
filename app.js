@@ -7,6 +7,7 @@ let tokenExpiry = localStorage.getItem('token_expiry');
 let torchEnabled = false;
 let lastBackPress = 0;
 let currentScanner = null; // Track active scanner
+let customers = []; // Cache for customers
 
 // ===== YOUR GOOGLE CLIENT ID =====
 const CLIENT_ID = '265618310384-mvgcqs0j7tk1fvi6k1b902s8batrehmj.apps.googleusercontent.com';
@@ -169,6 +170,10 @@ async function showScreen(screenId) {
     // Stop any active scanner when changing screens
     await stopScanner();
 
+    // Hide search results when changing screens
+    const searchResults = document.getElementById('customer-search-results');
+    if (searchResults) searchResults.style.display = 'none';
+
     document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
     const target = document.getElementById(screenId);
     if (target) target.classList.add('active');
@@ -176,7 +181,7 @@ async function showScreen(screenId) {
     updateFABVisibility(screenId);
 
     // Refresh data based on screen
-    if (screenId === 'stock-list-screen') await updateInventoryUI(); // Will show default view
+    if (screenId === 'stock-list-screen') await updateInventoryUI();
     if (screenId === 'ledger-screen') await updateLedgerUI();
     if (screenId === 'customers-screen') await updateCustomersUI();
     if (screenId === 'dashboard-screen') await updateDashboard();
@@ -195,6 +200,73 @@ function toggleQuickMenu() {
 function closeModal() {
     document.querySelectorAll('.modal').forEach(m => m.classList.remove('active'));
 }
+
+// ==================== CUSTOMER SEARCH ====================
+async function loadCustomersForSearch() {
+    const result = await db.allDocs({ include_docs: true });
+    customers = result.rows.map(r => r.doc).filter(d => d && d.type === 'customer');
+    return customers;
+}
+
+async function searchCustomers() {
+    const searchInput = document.getElementById('bill-cust-name');
+    const searchTerm = searchInput.value.trim().toLowerCase();
+    const resultsDiv = document.getElementById('customer-search-results');
+
+    if (searchTerm.length < 1) {
+        resultsDiv.style.display = 'none';
+        return;
+    }
+
+    // Load customers if not already loaded
+    if (customers.length === 0) {
+        await loadCustomersForSearch();
+    }
+
+    // Filter customers
+    const filtered = customers.filter(c =>
+        c.name.toLowerCase().includes(searchTerm) ||
+        (c.vehicleNo && c.vehicleNo.toLowerCase().includes(searchTerm))
+    );
+
+    if (filtered.length === 0) {
+        resultsDiv.style.display = 'none';
+        return;
+    }
+
+    // Display results
+    resultsDiv.innerHTML = '';
+    filtered.slice(0, 5).forEach(customer => {
+        const item = document.createElement('div');
+        item.className = 'search-result-item';
+        item.innerHTML = `
+            <div class="customer-name">${customer.name}</div>
+            ${customer.vehicleNo ? `<div class="customer-vehicle">${customer.vehicleNo}</div>` : ''}
+        `;
+        item.onclick = () => selectCustomer(customer);
+        resultsDiv.appendChild(item);
+    });
+
+    resultsDiv.style.display = 'block';
+}
+
+function selectCustomer(customer) {
+    document.getElementById('bill-cust-name').value = customer.name;
+    document.getElementById('bill-vehicle-no').value = customer.vehicleNo || '';
+
+    // Hide results
+    document.getElementById('customer-search-results').style.display = 'none';
+}
+
+// Close search results when clicking outside
+document.addEventListener('click', function (e) {
+    const searchInput = document.getElementById('bill-cust-name');
+    const resultsDiv = document.getElementById('customer-search-results');
+
+    if (searchInput && resultsDiv && !searchInput.contains(e.target) && !resultsDiv.contains(e.target)) {
+        resultsDiv.style.display = 'none';
+    }
+});
 
 // ==================== DASHBOARD ====================
 async function updateDashboard() {
@@ -718,7 +790,8 @@ function clearBill() {
 // ==================== CUSTOMER FUNCTIONS WITH VEHICLE ====================
 async function loadCustomers() {
     const result = await db.allDocs({ include_docs: true });
-    return result.rows.map(r => r.doc).filter(d => d && d.type === 'customer');
+    customers = result.rows.map(r => r.doc).filter(d => d && d.type === 'customer');
+    return customers;
 }
 
 function showAddCustomerModal() {
@@ -732,8 +805,14 @@ function closeCustomerModal() {
 async function saveCustomer() {
     const name = document.getElementById('cust-name')?.value.trim();
     const vehicle = document.getElementById('cust-vehicle')?.value.trim().toUpperCase();
+    const phone = document.getElementById('cust-phone')?.value.trim();
 
     if (!name) return showToast('Name required', 'error');
+
+    // Validate phone number (10 digits)
+    if (phone && !/^\d{10}$/.test(phone)) {
+        return showToast('Phone number must be 10 digits', 'error');
+    }
 
     try {
         await db.put({
@@ -741,7 +820,7 @@ async function saveCustomer() {
             type: 'customer',
             name: name,
             vehicleNo: vehicle || '',
-            phone: document.getElementById('cust-phone')?.value || '',
+            phone: phone || '',
             email: document.getElementById('cust-email')?.value || '',
             address: document.getElementById('cust-address')?.value || '',
             gst: document.getElementById('cust-gst')?.value || '',
@@ -757,6 +836,8 @@ async function saveCustomer() {
         document.getElementById('cust-address').value = '';
         document.getElementById('cust-gst').value = '';
 
+        // Refresh customers cache
+        await loadCustomers();
         await updateCustomersUI();
         await updateDashboard();
         showToast('Customer saved', 'success');
@@ -768,7 +849,7 @@ async function saveCustomer() {
 
 async function updateCustomersUI() {
     console.log('Updating customers UI...');
-    const customers = await loadCustomers();
+    await loadCustomers(); // Refresh cache
     const search = document.getElementById('customer-search')?.value.toLowerCase() || '';
 
     const filtered = customers.filter(c =>

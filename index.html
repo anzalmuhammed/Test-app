@@ -185,7 +185,7 @@
         </section>
     </div>
 
-    <!-- Quick Bill Screen (with Vehicle Registration) -->
+    <!-- Quick Bill Screen (with Customer Search) -->
     <div id="quick-bill-screen" class="screen">
         <button class="back-menu-btn" onclick="goToDashboard()">
             <i class="fas fa-arrow-left"></i> Back to Dashboard
@@ -218,16 +218,18 @@
         </section>
 
         <section class="glass-card">
-            <div class="form-group">
+            <div class="form-group" style="position: relative;">
                 <label><i class="fas fa-user"></i> Customer Name *</label>
-                <input type="text" id="bill-cust-name" placeholder="Enter customer name" required>
+                <input type="text" id="bill-cust-name" placeholder="Type customer name..." required autocomplete="off"
+                    onkeyup="searchCustomers()">
+                <div id="customer-search-results" class="search-results"></div>
             </div>
 
             <!-- Vehicle Registration Number Field - Uppercase -->
             <div class="form-group">
                 <label><i class="fas fa-car"></i> Vehicle Registration No.</label>
                 <input type="text" id="bill-vehicle-no" placeholder="e.g., KA01AB1234" value=""
-                    style="text-transform:uppercase;" oninput="this.value = this.value.toUpperCase()">
+                    style="text-transform:uppercase;" oninput="this.value = this.value.toUpperCase()" readonly>
             </div>
 
             <div class="form-group">
@@ -536,7 +538,7 @@
         </section>
     </div>
 
-    <!-- Add Customer Modal (with Vehicle Registration - Uppercase) -->
+    <!-- Add Customer Modal (with Vehicle Registration - Uppercase & Mobile Validation) -->
     <div id="customer-modal" class="modal">
         <div class="modal-content glass-card">
             <h3><i class="fas fa-user-plus"></i> Add Customer</h3>
@@ -553,8 +555,9 @@
             </div>
 
             <div class="form-group">
-                <label><i class="fas fa-phone"></i> Phone Number</label>
-                <input type="text" id="cust-phone" placeholder="Enter phone number">
+                <label><i class="fas fa-phone"></i> Phone Number (10 digits)</label>
+                <input type="tel" id="cust-phone" placeholder="Enter 10 digit mobile number" maxlength="10"
+                    pattern="[0-9]{10}" oninput="this.value = this.value.replace(/[^0-9]/g, '')">
             </div>
 
             <div class="form-group">
