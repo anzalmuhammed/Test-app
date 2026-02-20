@@ -343,13 +343,13 @@ select:focus {
   transform: scale(0.95);
 }
 
-/* Fixed Dashed Border for File Label */
+/* Fixed Dashed Border for File Label - Full Coverage */
 .file-label {
   display: block;
   text-align: center;
   color: var(--amber);
   font-weight: bold;
-  padding: 12px;
+  padding: 14px 12px;
   border: 2px dashed var(--amber);
   border-radius: 10px;
   cursor: pointer;
@@ -358,6 +358,21 @@ select:focus {
   background: rgba(251, 191, 36, 0.05);
   width: 100%;
   box-sizing: border-box;
+  position: relative;
+  overflow: hidden;
+}
+
+/* Ensure dashed border is visible on all corners */
+.file-label::before {
+  content: "";
+  position: absolute;
+  top: -2px;
+  left: -2px;
+  right: -2px;
+  bottom: -2px;
+  border: 2px dashed var(--amber);
+  border-radius: 10px;
+  pointer-events: none;
 }
 
 .file-label:hover {
@@ -621,6 +636,7 @@ td {
 }
 
 .stats-grid.small {
+  display: grid;
   grid-template-columns: repeat(3, 1fr);
   gap: 10px;
 }
@@ -647,7 +663,7 @@ td {
 /* Customer Cards */
 .customers-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
   gap: 12px;
   margin-top: 10px;
 }
@@ -670,6 +686,12 @@ td {
   display: block;
   margin-bottom: 5px;
   font-size: 16px;
+}
+
+.customer-card .vehicle {
+  font-size: 13px;
+  color: var(--amber);
+  margin-bottom: 3px;
 }
 
 .customer-card div {
@@ -697,6 +719,12 @@ td {
   font-size: 15px;
 }
 
+.ledger-card .vehicle {
+  font-size: 12px;
+  color: var(--amber);
+  margin: 3px 0;
+}
+
 .ledger-card .items-list {
   font-size: 11px;
   margin-top: 5px;
@@ -707,6 +735,9 @@ td {
 .ledger-card .items-list span {
   display: inline-block;
   margin-right: 10px;
+  background: rgba(255, 255, 255, 0.1);
+  padding: 2px 6px;
+  border-radius: 4px;
 }
 
 /* Balances List */
@@ -748,6 +779,11 @@ td {
 
 .recent-item .customer {
   font-weight: 600;
+}
+
+.recent-item .vehicle {
+  font-size: 10px;
+  opacity: 0.7;
 }
 
 .recent-item .amount {

@@ -185,7 +185,7 @@
         </section>
     </div>
 
-    <!-- Quick Bill Screen -->
+    <!-- Quick Bill Screen (with Vehicle Registration) -->
     <div id="quick-bill-screen" class="screen">
         <button class="back-menu-btn" onclick="goToDashboard()">
             <i class="fas fa-arrow-left"></i> Back to Dashboard
@@ -221,6 +221,12 @@
             <div class="form-group">
                 <label><i class="fas fa-user"></i> Customer Name *</label>
                 <input type="text" id="bill-cust-name" placeholder="Enter customer name" required>
+            </div>
+
+            <!-- Vehicle Registration Number Field -->
+            <div class="form-group">
+                <label><i class="fas fa-car"></i> Vehicle Registration No.</label>
+                <input type="text" id="bill-vehicle-no" placeholder="e.g., KA01AB1234" value="">
             </div>
 
             <div class="form-group">
@@ -376,7 +382,7 @@
         </section>
     </div>
 
-    <!-- Ledger Screen with Customer Balances -->
+    <!-- Ledger Screen with Customer Balances and Vehicle Info -->
     <div id="ledger-screen" class="screen">
         <button class="back-menu-btn" onclick="goToDashboard()">
             <i class="fas fa-arrow-left"></i> Back to Dashboard
@@ -393,8 +399,9 @@
 
             <div class="form-row">
                 <div class="form-group half">
-                    <label><i class="fas fa-calendar"></i> From Date</label>
-                    <input type="date" id="ledger-date-from" onchange="updateLedgerUI()">
+                    <label><i class="fas fa-car"></i> Search by Vehicle</label>
+                    <input type="text" id="ledger-vehicle-search" placeholder="Enter vehicle no..."
+                        onkeyup="updateLedgerUI()">
                 </div>
                 <div class="form-group half">
                     <label><i class="fas fa-calendar"></i> To Date</label>
@@ -403,6 +410,10 @@
             </div>
 
             <div class="form-row">
+                <div class="form-group half">
+                    <label><i class="fas fa-calendar"></i> From Date</label>
+                    <input type="date" id="ledger-date-from" onchange="updateLedgerUI()">
+                </div>
                 <div class="form-group half">
                     <label><i class="fas fa-filter"></i> Filter by</label>
                     <select id="ledger-filter-type" onchange="updateLedgerUI()">
@@ -413,6 +424,9 @@
                         <option value="custom">Custom Range</option>
                     </select>
                 </div>
+            </div>
+
+            <div class="form-row">
                 <div class="form-group half">
                     <label><i class="fas fa-sort"></i> Sort by</label>
                     <select id="ledger-sort" onchange="updateLedgerUI()">
@@ -422,11 +436,13 @@
                         <option value="lowest">Lowest Amount</option>
                     </select>
                 </div>
+                <div class="form-group half">
+                    <label>&nbsp;</label>
+                    <button onclick="resetLedgerFilters()" class="action-btn small" style="background: #64748b;">
+                        <i class="fas fa-undo"></i> Reset
+                    </button>
+                </div>
             </div>
-
-            <button onclick="resetLedgerFilters()" class="action-btn small" style="background: #64748b;">
-                <i class="fas fa-undo"></i> Reset Filters
-            </button>
 
             <h4 style="margin-top: 20px;">Customer Balances (Amount Due)</h4>
             <div id="customer-balances-list" class="balances-list"></div>
@@ -455,7 +471,7 @@
         </section>
     </div>
 
-    <!-- Customers Screen -->
+    <!-- Customers Screen (with Vehicle Registration) -->
     <div id="customers-screen" class="screen">
         <button class="back-menu-btn" onclick="goToDashboard()">
             <i class="fas fa-arrow-left"></i> Back to Dashboard
@@ -465,7 +481,7 @@
             <div class="search-add-bar">
                 <div class="form-group" style="flex: 1;">
                     <label><i class="fas fa-search"></i> Search Customers</label>
-                    <input type="text" id="customer-search" placeholder="Search by name..."
+                    <input type="text" id="customer-search" placeholder="Search by name or vehicle..."
                         onkeyup="updateCustomersUI()">
                 </div>
                 <button onclick="showAddCustomerModal()" class="add-btn">
@@ -477,7 +493,7 @@
         </section>
     </div>
 
-    <!-- Add Customer Modal -->
+    <!-- Add Customer Modal (with Vehicle Registration) -->
     <div id="customer-modal" class="modal">
         <div class="modal-content glass-card">
             <h3><i class="fas fa-user-plus"></i> Add Customer</h3>
@@ -485,6 +501,11 @@
             <div class="form-group">
                 <label><i class="fas fa-user"></i> Customer Name *</label>
                 <input type="text" id="cust-name" placeholder="Enter full name">
+            </div>
+
+            <div class="form-group">
+                <label><i class="fas fa-car"></i> Vehicle Registration No.</label>
+                <input type="text" id="cust-vehicle" placeholder="e.g., KA01AB1234">
             </div>
 
             <div class="form-group">

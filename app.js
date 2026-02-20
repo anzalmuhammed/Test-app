@@ -168,6 +168,7 @@ async function showScreen(screenId) {
     if (screenId === 'dashboard-screen') await updateDashboard();
     if (screenId === 'quick-bill-screen') {
         document.getElementById('bill-cust-name').value = '';
+        document.getElementById('bill-vehicle-no').value = '';
         clearBill();
     }
 }
@@ -221,6 +222,7 @@ async function updateDashboard() {
                             <div class="recent-item">
                                 <div>
                                     <span class="customer">${t.customer || 'Customer'}</span>
+                                    ${t.vehicleNo ? `<div class="vehicle">${t.vehicleNo}</div>` : ''}
                                     <div class="date">${new Date(t.date).toLocaleString()}</div>
                                 </div>
                                 <span class="amount">₹${(t.total || 0).toFixed(2)}</span>
@@ -446,6 +448,8 @@ function calculateBalance() {
 
 async function finalizeBill() {
     const customer = document.getElementById('bill-cust-name').value.trim();
+    const vehicleNo = document.getElementById('bill-vehicle-no').value.trim();
+
     if (!customer || currentBillItems.length === 0) return showToast('Add customer and items', 'warning');
 
     try {
@@ -454,11 +458,12 @@ async function finalizeBill() {
         const balance = total - paid;
         const billId = 'ledger_' + Date.now();
 
-        // Save to Ledger
+        // Save to Ledger with vehicle number
         await db.put({
             _id: billId,
             type: 'ledger',
             customer,
+            vehicleNo: vehicleNo || '',
             total,
             paid,
             balance,
@@ -482,7 +487,7 @@ async function finalizeBill() {
             }
         }
 
-        showBillPreview(customer, total, paid, balance);
+        showBillPreview(customer, vehicleNo, total, paid, balance);
         clearBill();
         await updateDashboard();
         await updateInventoryUI();
@@ -494,7 +499,7 @@ async function finalizeBill() {
     }
 }
 
-function showBillPreview(customer, total, paid, balance) {
+function showBillPreview(customer, vehicleNo, total, paid, balance) {
     let itemsHtml = '';
     currentBillItems.forEach(item => {
         itemsHtml += `<tr><td>${item.desc}</td><td>${item.qty}</td><td>₹${item.price.toFixed(2)}</td><td>₹${item.total.toFixed(2)}</td></tr>`;
@@ -502,10 +507,12 @@ function showBillPreview(customer, total, paid, balance) {
 
     const content = `
         <div style="padding: 20px; background: white; color: black; border-radius: 10px;">
-            <h2 style="text-align: center; color: #6366f1;">INVOICE</h2>
+            <h2 style="text-align: center; color: #6366f1;">WORKSHOP PRO</h2>
+            <h3 style="text-align: center;">INVOICE</h3>
             <p><strong>Bill No:</strong> ${'BILL' + Date.now().toString().slice(-8)}</p>
             <p><strong>Date:</strong> ${new Date().toLocaleString()}</p>
             <p><strong>Customer:</strong> ${customer}</p>
+            ${vehicleNo ? `<p><strong>Vehicle No:</strong> ${vehicleNo}</p>` : ''}
             <table style="width:100%; margin:20px 0; border-collapse: collapse;">
                 <thead>
                     <tr style="background: #6366f1; color: white;">
@@ -530,12 +537,13 @@ function showBillPreview(customer, total, paid, balance) {
     document.getElementById('bill-preview-modal').classList.add('active');
 }
 
-// ==================== PDF DOWNLOAD FUNCTION ====================
+// ==================== PDF DOWNLOAD FUNCTION WITH VEHICLE ====================
 function downloadBillPDF() {
     const { jsPDF } = window.jspdf;
     const doc = new jsPDF();
 
     const customer = document.getElementById('bill-cust-name').value || 'Customer';
+    const vehicleNo = document.getElementById('bill-vehicle-no').value || '';
     const date = new Date().toLocaleString();
     const billNo = 'BILL' + Date.now().toString().slice(-8);
     const total = parseFloat(document.getElementById('bill-total').textContent) || 0;
@@ -556,8 +564,12 @@ function downloadBillPDF() {
     doc.text(`Bill No: ${billNo}`, 20, 40);
     doc.text(`Date: ${date}`, 20, 45);
     doc.text(`Customer: ${customer}`, 20, 50);
+    if (vehicleNo) {
+        doc.text(`Vehicle No: ${vehicleNo}`, 20, 55);
+    }
 
     // Add table
+    const startY = vehicleNo ? 65 : 60;
     const tableColumn = ["Item", "Qty", "Price", "Total"];
     const tableRows = [];
 
@@ -574,7 +586,7 @@ function downloadBillPDF() {
     doc.autoTable({
         head: [tableColumn],
         body: tableRows,
-        startY: 60,
+        startY: startY,
         theme: 'striped',
         headStyles: { fillColor: [99, 102, 241] }
     });
@@ -599,6 +611,7 @@ function clearBill() {
     currentBillItems = [];
     document.getElementById('current-items-section').style.display = 'none';
     document.getElementById('bill-cust-name').value = '';
+    document.getElementById('bill-vehicle-no').value = '';
     document.getElementById('bill-discount').value = '0';
     document.getElementById('amount-paid').value = '';
     document.getElementById('balance-due').textContent = '';
@@ -606,7 +619,7 @@ function clearBill() {
     document.getElementById('bill-subtotal').textContent = '0';
 }
 
-// ==================== CUSTOMER FUNCTIONS ====================
+// ==================== CUSTOMER FUNCTIONS WITH VEHICLE ====================
 async function loadCustomers() {
     const result = await db.allDocs({ include_docs: true });
     return result.rows.map(r => r.doc).filter(d => d && d.type === 'customer');
@@ -622,6 +635,8 @@ function closeCustomerModal() {
 
 async function saveCustomer() {
     const name = document.getElementById('cust-name')?.value.trim();
+    const vehicle = document.getElementById('cust-vehicle')?.value.trim();
+
     if (!name) return showToast('Name required', 'error');
 
     try {
@@ -629,6 +644,7 @@ async function saveCustomer() {
             _id: 'cust_' + Date.now(),
             type: 'customer',
             name: name,
+            vehicleNo: vehicle || '',
             phone: document.getElementById('cust-phone')?.value || '',
             email: document.getElementById('cust-email')?.value || '',
             address: document.getElementById('cust-address')?.value || '',
@@ -639,6 +655,7 @@ async function saveCustomer() {
 
         closeCustomerModal();
         document.getElementById('cust-name').value = '';
+        document.getElementById('cust-vehicle').value = '';
         document.getElementById('cust-phone').value = '';
         document.getElementById('cust-email').value = '';
         document.getElementById('cust-address').value = '';
@@ -657,7 +674,11 @@ async function updateCustomersUI() {
     console.log('Updating customers UI...');
     const customers = await loadCustomers();
     const search = document.getElementById('customer-search')?.value.toLowerCase() || '';
-    const filtered = customers.filter(c => c.name.toLowerCase().includes(search));
+
+    const filtered = customers.filter(c =>
+        c.name.toLowerCase().includes(search) ||
+        (c.vehicleNo && c.vehicleNo.toLowerCase().includes(search))
+    );
 
     const container = document.getElementById('customers-list');
     if (!container) return;
@@ -670,6 +691,7 @@ async function updateCustomersUI() {
             container.innerHTML += `
                 <div class="customer-card">
                     <strong>${c.name}</strong>
+                    ${c.vehicleNo ? `<div class="vehicle"><i class="fas fa-car"></i> ${c.vehicleNo}</div>` : ''}
                     <div style="font-size:12px;">${c.phone || 'No phone'}</div>
                     <div style="color:${c.balance > 0 ? '#ef4444' : '#10b981'};">
                         Balance: ₹${(c.balance || 0).toFixed(2)}
@@ -680,7 +702,7 @@ async function updateCustomersUI() {
     }
 }
 
-// ==================== LEDGER FUNCTIONS ====================
+// ==================== LEDGER FUNCTIONS WITH VEHICLE ====================
 function filterTransactionsByDate(transactions, filterType, fromDate, toDate) {
     const now = new Date();
     const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
@@ -723,9 +745,17 @@ async function updateLedgerUI() {
 
         // Apply filters
         const customerSearch = document.getElementById('ledger-customer-search')?.value.toLowerCase() || '';
+        const vehicleSearch = document.getElementById('ledger-vehicle-search')?.value.toLowerCase() || '';
+
         if (customerSearch) {
             transactions = transactions.filter(t =>
                 t.customer.toLowerCase().includes(customerSearch)
+            );
+        }
+
+        if (vehicleSearch) {
+            transactions = transactions.filter(t =>
+                t.vehicleNo && t.vehicleNo.toLowerCase().includes(vehicleSearch)
             );
         }
 
@@ -780,7 +810,7 @@ async function updateLedgerUI() {
             }
         }
 
-        // Show transactions with items
+        // Show transactions with items and vehicle
         const historyDiv = document.getElementById('bill-history-list');
         if (historyDiv) {
             historyDiv.innerHTML = '';
@@ -805,6 +835,7 @@ async function updateLedgerUI() {
                                 <strong>${t.customer}</strong> 
                                 <span>₹${(t.total || 0).toFixed(2)}</span>
                             </div>
+                            ${t.vehicleNo ? `<div class="vehicle"><i class="fas fa-car"></i> ${t.vehicleNo}</div>` : ''}
                             <div style="font-size:11px;">${new Date(t.date).toLocaleString()} | ${t.paymentMethod || 'Cash'}</div>
                             ${itemsList}
                             ${t.balance > 0 ? `<div style="color:#ef4444; font-size:12px; margin-top:5px;">Due: ₹${t.balance.toFixed(2)}</div>` : ''}
@@ -820,6 +851,7 @@ async function updateLedgerUI() {
 
 function resetLedgerFilters() {
     document.getElementById('ledger-customer-search').value = '';
+    document.getElementById('ledger-vehicle-search').value = '';
     document.getElementById('ledger-date-from').value = '';
     document.getElementById('ledger-date-to').value = '';
     document.getElementById('ledger-filter-type').value = 'all';
@@ -1077,9 +1109,9 @@ async function exportLedger() {
         const result = await db.allDocs({ include_docs: true });
         let transactions = result.rows.map(r => r.doc).filter(d => d?.type === 'ledger');
 
-        let csv = 'Date,Customer,Total,Paid,Balance,Payment Method\n';
+        let csv = 'Date,Customer,Vehicle No,Total,Paid,Balance,Payment Method\n';
         transactions.forEach(t => {
-            csv += `"${new Date(t.date).toLocaleString()}","${t.customer}",${t.total || 0},${t.paid || 0},${t.balance || 0},"${t.paymentMethod || 'Cash'}"\n`;
+            csv += `"${new Date(t.date).toLocaleString()}","${t.customer}","${t.vehicleNo || ''}",${t.total || 0},${t.paid || 0},${t.balance || 0},"${t.paymentMethod || 'Cash'}"\n`;
         });
 
         downloadFile(csv, 'ledger_export.csv', 'text/csv');
