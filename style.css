@@ -279,6 +279,9 @@ select:focus {
 .action-btn.finalize {
   background: var(--warning);
 }
+.action-btn.download {
+  background: var(--primary);
+}
 .action-btn.export {
   background: var(--primary);
 }
@@ -290,6 +293,17 @@ select:focus {
 }
 .action-btn.cancel {
   background: #64748b;
+}
+
+.button-group {
+  display: flex;
+  gap: 10px;
+  margin-top: 10px;
+}
+
+.button-group .action-btn {
+  margin-top: 0;
+  flex: 1;
 }
 
 .cam-btn-active {
@@ -329,21 +343,29 @@ select:focus {
   transform: scale(0.95);
 }
 
+/* Fixed Dashed Border for File Label */
 .file-label {
   display: block;
   text-align: center;
   color: var(--amber);
   font-weight: bold;
   padding: 12px;
-  border: 1px dashed var(--amber);
+  border: 2px dashed var(--amber);
   border-radius: 10px;
   cursor: pointer;
   margin-top: 5px;
   transition: all 0.3s;
+  background: rgba(251, 191, 36, 0.05);
+  width: 100%;
+  box-sizing: border-box;
+}
+
+.file-label:hover {
+  background: rgba(251, 191, 36, 0.1);
 }
 
 .file-label:active {
-  background: rgba(251, 191, 36, 0.1);
+  background: rgba(251, 191, 36, 0.2);
 }
 
 .add-btn {
@@ -599,7 +621,7 @@ td {
 }
 
 .stats-grid.small {
-  grid-template-columns: repeat(2, 1fr);
+  grid-template-columns: repeat(3, 1fr);
   gap: 10px;
 }
 
@@ -611,13 +633,13 @@ td {
 }
 
 .stat-mini .label {
-  font-size: 12px;
+  font-size: 11px;
   opacity: 0.7;
   display: block;
 }
 
 .stat-mini .value {
-  font-size: 18px;
+  font-size: 16px;
   font-weight: 600;
   color: var(--amber);
 }
@@ -675,9 +697,23 @@ td {
   font-size: 15px;
 }
 
+.ledger-card .items-list {
+  font-size: 11px;
+  margin-top: 5px;
+  padding-left: 10px;
+  opacity: 0.8;
+}
+
+.ledger-card .items-list span {
+  display: inline-block;
+  margin-right: 10px;
+}
+
 /* Balances List */
 .balances-list {
   margin: 15px 0;
+  max-height: 200px;
+  overflow-y: auto;
 }
 
 .balance-item {
@@ -687,6 +723,7 @@ td {
   margin-bottom: 5px;
   display: flex;
   justify-content: space-between;
+  font-size: 13px;
 }
 
 /* Transaction List */
@@ -699,6 +736,28 @@ td {
 .recent-list {
   max-height: 200px;
   overflow-y: auto;
+}
+
+.recent-item {
+  padding: 10px;
+  border-bottom: 1px solid var(--glass-border);
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.recent-item .customer {
+  font-weight: 600;
+}
+
+.recent-item .amount {
+  color: var(--amber);
+  font-weight: 600;
+}
+
+.recent-item .date {
+  font-size: 10px;
+  opacity: 0.6;
 }
 
 /* Quick Actions Menu */
@@ -1052,6 +1111,18 @@ td {
     font-size: 20px;
   }
 
+  .stats-grid.small {
+    grid-template-columns: repeat(3, 1fr);
+  }
+
+  .stat-mini .label {
+    font-size: 9px;
+  }
+
+  .stat-mini .value {
+    font-size: 14px;
+  }
+
   .menu-box {
     padding: 15px 5px;
   }
@@ -1079,5 +1150,9 @@ td {
     width: 20px;
     height: 20px;
     border-width: 2px;
+  }
+
+  .button-group {
+    flex-direction: column;
   }
 }

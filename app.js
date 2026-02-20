@@ -187,6 +187,7 @@ async function updateDashboard() {
         console.log('Updating dashboard...');
         const result = await db.allDocs({ include_docs: true });
         let itemsCount = 0, salesTotal = 0, customersCount = 0, lowStock = 0;
+        let recentTransactions = [];
 
         result.rows.forEach(r => {
             const d = r.doc;
@@ -196,6 +197,7 @@ async function updateDashboard() {
                 if (available < (d.minStock || 5)) lowStock++;
             } else if (d.type === 'ledger') {
                 salesTotal += d.total || 0;
+                recentTransactions.push(d);
             } else if (d.type === 'customer') {
                 customersCount++;
             }
@@ -205,6 +207,27 @@ async function updateDashboard() {
         document.getElementById('dash-total-sales').textContent = '₹' + salesTotal.toFixed(2);
         document.getElementById('dash-total-customers').textContent = customersCount;
         document.getElementById('dash-low-stock').textContent = lowStock;
+
+        // Show recent transactions
+        const recentDiv = document.getElementById('dash-recent');
+        if (recentDiv) {
+            recentDiv.innerHTML = '';
+            if (recentTransactions.length === 0) {
+                recentDiv.innerHTML = '<p style="text-align: center; opacity: 0.7;">No recent transactions</p>';
+            } else {
+                recentTransactions.sort((a, b) => new Date(b.date) - new Date(a.date))
+                    .slice(0, 5).forEach(t => {
+                        recentDiv.innerHTML += `
+                            <div class="recent-item">
+                                <div>
+                                    <span class="customer">${t.customer || 'Customer'}</span>
+                                    <div class="date">${new Date(t.date).toLocaleString()}</div>
+                                </div>
+                                <span class="amount">₹${(t.total || 0).toFixed(2)}</span>
+                            </div>`;
+                    });
+            }
+        }
     } catch (e) {
         console.error('Dashboard error', e);
     }
@@ -317,7 +340,7 @@ async function deleteItem(id) {
     }
 }
 
-// ==================== BILLING (YOUR STOCK PROTECTION CODE) ====================
+// ==================== BILLING (STOCK PROTECTION) ====================
 async function addItemToCurrentBill() {
     const desc = document.getElementById('bill-desc').value.trim();
     const price = parseFloat(document.getElementById('bill-price').value) || 0;
@@ -326,7 +349,7 @@ async function addItemToCurrentBill() {
 
     if (!desc) return showToast('Enter item description', 'warning');
 
-    // 1. CHECK STOCK AVAILABILITY
+    // CHECK STOCK AVAILABILITY
     try {
         const allDocs = await db.allDocs({ include_docs: true });
         const stockItem = allDocs.rows.find(r =>
@@ -338,14 +361,13 @@ async function addItemToCurrentBill() {
 
             if (qtyRequested > available) {
                 showToast(`Insufficient Stock! Only ${available} left.`, 'error');
-                return; // STOP: Do not add to bill
+                return;
             }
         } else {
-            // If item isn't in inventory, allow as service/misc
             showToast('Item not found in inventory. Proceeding as service/misc.', 'info');
         }
 
-        // 2. ADD TO BILL LIST
+        // ADD TO BILL LIST
         currentBillItems.push({
             id: itemId || null,
             desc,
@@ -475,24 +497,102 @@ async function finalizeBill() {
 function showBillPreview(customer, total, paid, balance) {
     let itemsHtml = '';
     currentBillItems.forEach(item => {
-        itemsHtml += `<tr><td>${item.desc}</td><td>${item.qty}</td><td>₹${item.price}</td><td>₹${item.total}</td></tr>`;
+        itemsHtml += `<tr><td>${item.desc}</td><td>${item.qty}</td><td>₹${item.price.toFixed(2)}</td><td>₹${item.total.toFixed(2)}</td></tr>`;
     });
 
     const content = `
-        <h3>Bill Summary</h3>
-        <p><strong>Customer:</strong> ${customer}</p>
-        <p><strong>Date:</strong> ${new Date().toLocaleString()}</p>
-        <table style="width:100%; margin:10px 0;">
-            <tr><th>Item</th><th>Qty</th><th>Price</th><th>Total</th></tr>
-            ${itemsHtml}
-        </table>
-        <p><strong>Total:</strong> ₹${total.toFixed(2)}</p>
-        <p><strong>Paid:</strong> ₹${paid.toFixed(2)}</p>
-        <p><strong>Balance:</strong> ₹${balance.toFixed(2)}</p>
+        <div style="padding: 20px; background: white; color: black; border-radius: 10px;">
+            <h2 style="text-align: center; color: #6366f1;">INVOICE</h2>
+            <p><strong>Bill No:</strong> ${'BILL' + Date.now().toString().slice(-8)}</p>
+            <p><strong>Date:</strong> ${new Date().toLocaleString()}</p>
+            <p><strong>Customer:</strong> ${customer}</p>
+            <table style="width:100%; margin:20px 0; border-collapse: collapse;">
+                <thead>
+                    <tr style="background: #6366f1; color: white;">
+                        <th style="padding: 8px;">Item</th>
+                        <th>Qty</th>
+                        <th>Price</th>
+                        <th>Total</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    ${itemsHtml}
+                </tbody>
+            </table>
+            <p><strong>Subtotal:</strong> ₹${total.toFixed(2)}</p>
+            <p><strong>Paid:</strong> ₹${paid.toFixed(2)}</p>
+            <p><strong>Balance:</strong> ₹${balance.toFixed(2)}</p>
+            <p style="text-align: center; margin-top: 30px; color: #666;">Thank you for your business!</p>
+        </div>
     `;
 
     document.getElementById('bill-preview-content').innerHTML = content;
     document.getElementById('bill-preview-modal').classList.add('active');
+}
+
+// ==================== PDF DOWNLOAD FUNCTION ====================
+function downloadBillPDF() {
+    const { jsPDF } = window.jspdf;
+    const doc = new jsPDF();
+
+    const customer = document.getElementById('bill-cust-name').value || 'Customer';
+    const date = new Date().toLocaleString();
+    const billNo = 'BILL' + Date.now().toString().slice(-8);
+    const total = parseFloat(document.getElementById('bill-total').textContent) || 0;
+    const paid = parseFloat(document.getElementById('amount-paid').value) || 0;
+    const balance = total - paid;
+
+    // Add header
+    doc.setFontSize(20);
+    doc.setTextColor(99, 102, 241);
+    doc.text('WORKSHOP PRO', 105, 20, { align: 'center' });
+
+    doc.setFontSize(16);
+    doc.setTextColor(0, 0, 0);
+    doc.text('INVOICE', 105, 30, { align: 'center' });
+
+    // Add bill details
+    doc.setFontSize(10);
+    doc.text(`Bill No: ${billNo}`, 20, 40);
+    doc.text(`Date: ${date}`, 20, 45);
+    doc.text(`Customer: ${customer}`, 20, 50);
+
+    // Add table
+    const tableColumn = ["Item", "Qty", "Price", "Total"];
+    const tableRows = [];
+
+    currentBillItems.forEach(item => {
+        const itemData = [
+            item.desc,
+            item.qty.toString(),
+            '₹' + item.price.toFixed(2),
+            '₹' + item.total.toFixed(2)
+        ];
+        tableRows.push(itemData);
+    });
+
+    doc.autoTable({
+        head: [tableColumn],
+        body: tableRows,
+        startY: 60,
+        theme: 'striped',
+        headStyles: { fillColor: [99, 102, 241] }
+    });
+
+    // Add totals
+    const finalY = doc.lastAutoTable.finalY + 10;
+    doc.text(`Subtotal: ₹${total.toFixed(2)}`, 150, finalY);
+    doc.text(`Paid: ₹${paid.toFixed(2)}`, 150, finalY + 5);
+    doc.text(`Balance: ₹${balance.toFixed(2)}`, 150, finalY + 10);
+
+    // Add footer
+    doc.setFontSize(10);
+    doc.setTextColor(128, 128, 128);
+    doc.text('Thank you for your business!', 105, finalY + 20, { align: 'center' });
+
+    // Save PDF
+    doc.save(`invoice_${billNo}.pdf`);
+    showToast('PDF downloaded', 'success');
 }
 
 function clearBill() {
@@ -660,24 +760,27 @@ async function updateLedgerUI() {
         document.getElementById('ledger-filtered-count').textContent = transactions.length;
         document.getElementById('credit-due').textContent = '₹' + creditDue.toFixed(2);
 
-        // Show balances
+        // Show balances (who owes money)
         const balancesDiv = document.getElementById('customer-balances-list');
         if (balancesDiv) {
             balancesDiv.innerHTML = '';
             if (Object.keys(balances).length === 0) {
                 balancesDiv.innerHTML = '<p style="text-align: center;">No pending balances</p>';
             } else {
-                Object.entries(balances).forEach(([cust, amt]) => {
+                // Sort by amount due (highest first)
+                const sortedBalances = Object.entries(balances).sort((a, b) => b[1] - a[1]);
+                sortedBalances.forEach(([cust, amt]) => {
                     balancesDiv.innerHTML += `
-                        <div style="padding:8px; background:rgba(0,0,0,0.2); border-radius:8px; margin-bottom:5px;">
-                            <strong>${cust}</strong>: ₹${amt.toFixed(2)}
+                        <div class="balance-item">
+                            <strong>${cust}</strong>
+                            <span style="color:#ef4444;">₹${amt.toFixed(2)}</span>
                         </div>
                     `;
                 });
             }
         }
 
-        // Show transactions
+        // Show transactions with items
         const historyDiv = document.getElementById('bill-history-list');
         if (historyDiv) {
             historyDiv.innerHTML = '';
@@ -685,13 +788,26 @@ async function updateLedgerUI() {
                 historyDiv.innerHTML = '<p style="text-align: center;">No transactions</p>';
             } else {
                 transactions.slice(0, 50).forEach(t => {
+                    // Create items list
+                    let itemsList = '';
+                    if (t.items && t.items.length > 0) {
+                        itemsList = '<div class="items-list">';
+                        t.items.slice(0, 3).forEach(item => {
+                            itemsList += `<span>${item.qty}x ${item.desc}</span> `;
+                        });
+                        if (t.items.length > 3) itemsList += `...`;
+                        itemsList += '</div>';
+                    }
+
                     historyDiv.innerHTML += `
                         <div class="ledger-card">
                             <div style="display:flex; justify-content:space-between;">
-                                <strong>${t.customer}</strong> <span>₹${(t.total || 0).toFixed(2)}</span>
+                                <strong>${t.customer}</strong> 
+                                <span>₹${(t.total || 0).toFixed(2)}</span>
                             </div>
                             <div style="font-size:11px;">${new Date(t.date).toLocaleString()} | ${t.paymentMethod || 'Cash'}</div>
-                            ${t.balance > 0 ? `<div style="color:#ef4444;">Due: ₹${t.balance.toFixed(2)}</div>` : ''}
+                            ${itemsList}
+                            ${t.balance > 0 ? `<div style="color:#ef4444; font-size:12px; margin-top:5px;">Due: ₹${t.balance.toFixed(2)}</div>` : ''}
                         </div>
                     `;
                 });
@@ -777,7 +893,7 @@ async function handleScanResult(text, type) {
     }
 }
 
-// ==================== FIXED GOOGLE DRIVE SYNC (WITH UI REFRESH) ====================
+// ==================== GOOGLE DRIVE SYNC ====================
 function handleSync() {
     if (!navigator.onLine) return showToast('No internet', 'error');
     const now = new Date().getTime();
@@ -799,12 +915,12 @@ async function uploadToDrive() {
     if (syncStatusText) syncStatusText.textContent = 'Syncing...';
 
     try {
-        // 1. GET LOCAL DATA FIRST
+        // GET LOCAL DATA
         const localResult = await db.allDocs({ include_docs: true });
         const localData = localResult.rows.map(r => r.doc);
         console.log('Local data count:', localData.length);
 
-        // 2. DOWNLOAD EXISTING DATA FROM DRIVE
+        // DOWNLOAD FROM DRIVE
         let cloudData = [];
         let fileId = null;
 
@@ -835,17 +951,12 @@ async function uploadToDrive() {
             }
         }
 
-        // 3. MERGE DATA (KEEP ALL, NEVER DELETE)
+        // MERGE DATA (KEEP NEWEST)
         const mergedMap = new Map();
 
-        // Add all cloud data first
-        cloudData.forEach(doc => {
-            mergedMap.set(doc._id, doc);
-        });
+        cloudData.forEach(doc => mergedMap.set(doc._id, doc));
 
-        // Add/update with local data (keep newest based on timestamp)
-        let newCount = 0;
-        let updatedCount = 0;
+        let newCount = 0, updatedCount = 0;
 
         for (const localDoc of localData) {
             const cloudDoc = mergedMap.get(localDoc._id);
@@ -865,11 +976,9 @@ async function uploadToDrive() {
         }
 
         const mergedData = Array.from(mergedMap.values());
-        console.log(`Merged data: ${mergedData.length} records (${newCount} new, ${updatedCount} updated)`);
 
-        // 4. UPDATE LOCAL DATABASE WITH MERGED DATA
-        let localImported = 0;
-        let localUpdated = 0;
+        // UPDATE LOCAL DATABASE
+        let localImported = 0, localUpdated = 0;
 
         for (const doc of mergedData) {
             try {
@@ -884,7 +993,6 @@ async function uploadToDrive() {
                         localUpdated++;
                     }
                 } else {
-                    // Remove revision for new docs
                     if (doc._rev) delete doc._rev;
                     await db.put(doc);
                     localImported++;
@@ -894,7 +1002,7 @@ async function uploadToDrive() {
             }
         }
 
-        // 5. UPLOAD MERGED DATA TO DRIVE
+        // UPLOAD TO DRIVE
         const payload = {
             timestamp: new Date().toISOString(),
             version: '1.0',
@@ -920,41 +1028,15 @@ async function uploadToDrive() {
             }
             if (syncStatusText) syncStatusText.textContent = `Synced at ${time}`;
 
-            if (localImported > 0 || localUpdated > 0) {
-                showToast(`Sync complete: ${localImported} new, ${localUpdated} updated`, 'success');
-            } else {
-                showToast('Sync complete (no changes)', 'success');
-            }
+            showToast(`Sync complete: ${localImported} new, ${localUpdated} updated`, 'success');
 
             localStorage.removeItem('pendingSync');
 
-            // CRITICAL: Refresh ALL UI components after sync
-            console.log('Refreshing all UI components after sync...');
-
-            // Force a small delay to ensure database writes are complete
-            await new Promise(resolve => setTimeout(resolve, 500));
-
-            // Refresh all UI components
+            // Refresh UI
             await updateDashboard();
             await updateInventoryUI();
             await updateLedgerUI();
             await updateCustomersUI();
-
-            // Also update the current screen if it's not dashboard
-            const activeScreen = document.querySelector('.screen.active')?.id;
-            if (activeScreen === 'stock-list-screen') {
-                await updateInventoryUI();
-            } else if (activeScreen === 'ledger-screen') {
-                await updateLedgerUI();
-            } else if (activeScreen === 'customers-screen') {
-                await updateCustomersUI();
-            } else if (activeScreen === 'dashboard-screen') {
-                await updateDashboard();
-            }
-
-            console.log('UI refresh complete');
-        } else {
-            throw new Error('Upload failed');
         }
     } catch (e) {
         console.error('Sync error:', e);
@@ -1021,14 +1103,13 @@ window.onload = async () => {
             window.history.replaceState(null, null, window.location.pathname);
             showToast('Connected to Google Drive', 'success');
 
-            // Download from Drive and update UI
             setTimeout(async () => {
                 await uploadToDrive();
             }, 1500);
         }
     }
 
-    // Load all data initially
+    // Load all data
     console.log('Loading initial data...');
     await updateDashboard();
     await updateInventoryUI();
@@ -1037,7 +1118,7 @@ window.onload = async () => {
 
     updateNetworkStatus();
 
-    // Set up periodic sync check (every 30 minutes)
+    // Periodic sync check
     setInterval(() => {
         if (navigator.onLine && accessToken && localStorage.getItem('pendingSync') === 'true') {
             autoSync();
@@ -1048,6 +1129,5 @@ window.onload = async () => {
         navigator.serviceWorker.register('sw.js').catch(() => { });
     }
 
-    // Push initial state for back button
     history.pushState(null, null, location.href);
 };
