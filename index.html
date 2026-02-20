@@ -328,26 +328,63 @@
         </section>
     </div>
 
-    <!-- Reports Screen (Stock List) -->
+    <!-- Reports Screen (Stock List) with Apply Button -->
     <div id="stock-list-screen" class="screen">
         <button class="back-menu-btn" onclick="goToDashboard()">
             <i class="fas fa-arrow-left"></i> Back to Dashboard
         </button>
 
         <section class="glass-card">
+            <h4>Inventory Reports</h4>
+
             <div class="form-group">
                 <label><i class="fas fa-search"></i> Search Items</label>
-                <input type="text" id="stock-search" placeholder="Search by name or barcode..."
-                    onkeyup="updateInventoryUI()">
+                <input type="text" id="stock-search" placeholder="Search by name or barcode...">
             </div>
 
             <div class="form-group">
-                <label><i class="fas fa-filter"></i> Filter</label>
-                <select id="stock-filter" onchange="updateInventoryUI()">
+                <label><i class="fas fa-filter"></i> Filter by Stock</label>
+                <select id="stock-filter">
                     <option value="all">All Items</option>
                     <option value="low">Low Stock</option>
                     <option value="out">Out of Stock</option>
                 </select>
+            </div>
+
+            <div class="form-row">
+                <div class="form-group half">
+                    <label><i class="fas fa-tag"></i> Category</label>
+                    <select id="stock-category">
+                        <option value="all">All Categories</option>
+                        <option value="general">General</option>
+                        <option value="brake">Brake System</option>
+                        <option value="engine">Engine</option>
+                        <option value="electrical">Electrical</option>
+                        <option value="body">Body Parts</option>
+                    </select>
+                </div>
+                <div class="form-group half">
+                    <label><i class="fas fa-sort"></i> Sort by</label>
+                    <select id="stock-sort">
+                        <option value="name">Name (A-Z)</option>
+                        <option value="name-desc">Name (Z-A)</option>
+                        <option value="price-low">Price (Low to High)</option>
+                        <option value="price-high">Price (High to Low)</option>
+                        <option value="stock-low">Stock (Low to High)</option>
+                        <option value="stock-high">Stock (High to Low)</option>
+                    </select>
+                </div>
+            </div>
+
+            <div style="display: flex; gap: 10px; margin-top: 5px; margin-bottom: 15px;">
+                <button onclick="applyInventoryFilters()" class="action-btn small"
+                    style="background: var(--primary); flex: 2;">
+                    <i class="fas fa-search"></i> Apply Filters
+                </button>
+                <button onclick="resetInventoryFilters()" class="action-btn small"
+                    style="background: #64748b; flex: 1;">
+                    <i class="fas fa-undo"></i> Reset
+                </button>
             </div>
 
             <div class="stats-grid small">
@@ -383,7 +420,7 @@
         </section>
     </div>
 
-    <!-- Ledger Screen with Apply Filter Button -->
+    <!-- Ledger Screen with Apply Button -->
     <div id="ledger-screen" class="screen">
         <button class="back-menu-btn" onclick="goToDashboard()">
             <i class="fas fa-arrow-left"></i> Back to Dashboard

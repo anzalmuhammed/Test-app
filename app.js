@@ -176,7 +176,7 @@ async function showScreen(screenId) {
     updateFABVisibility(screenId);
 
     // Refresh data based on screen
-    if (screenId === 'stock-list-screen') await updateInventoryUI();
+    if (screenId === 'stock-list-screen') await updateInventoryUI(); // Will show default view
     if (screenId === 'ledger-screen') await updateLedgerUI();
     if (screenId === 'customers-screen') await updateCustomersUI();
     if (screenId === 'dashboard-screen') await updateDashboard();
@@ -300,19 +300,101 @@ async function savePart() {
     }
 }
 
+// ==================== INVENTORY FILTERS WITH APPLY BUTTON ====================
+let currentInventoryFilters = {
+    search: '',
+    filter: 'all',
+    category: 'all',
+    sort: 'name'
+};
+
+function applyInventoryFilters() {
+    currentInventoryFilters.search = document.getElementById('stock-search')?.value || '';
+    currentInventoryFilters.filter = document.getElementById('stock-filter')?.value || 'all';
+    currentInventoryFilters.category = document.getElementById('stock-category')?.value || 'all';
+    currentInventoryFilters.sort = document.getElementById('stock-sort')?.value || 'name';
+    updateInventoryUI();
+}
+
+function resetInventoryFilters() {
+    document.getElementById('stock-search').value = '';
+    document.getElementById('stock-filter').value = 'all';
+    document.getElementById('stock-category').value = 'all';
+    document.getElementById('stock-sort').value = 'name';
+
+    currentInventoryFilters = {
+        search: '',
+        filter: 'all',
+        category: 'all',
+        sort: 'name'
+    };
+    updateInventoryUI();
+}
+
 async function updateInventoryUI() {
     try {
         console.log('Updating inventory UI...');
         const result = await db.allDocs({ include_docs: true });
-        const items = result.rows.map(r => r.doc).filter(d => d && d.type === 'inventory');
+        let items = result.rows.map(r => r.doc).filter(d => d && d.type === 'inventory');
+
+        // Apply search filter
+        const search = currentInventoryFilters.search.toLowerCase();
+        if (search) {
+            items = items.filter(item =>
+                item.name.toLowerCase().includes(search) ||
+                (item._id && item._id.toLowerCase().includes(search))
+            );
+        }
+
+        // Apply stock filter
+        const filter = currentInventoryFilters.filter;
+        if (filter === 'low') {
+            items = items.filter(item =>
+                (item.totalIn - item.totalSold) < (item.minStock || 5)
+            );
+        } else if (filter === 'out') {
+            items = items.filter(item =>
+                (item.totalIn - item.totalSold) <= 0
+            );
+        }
+
+        // Apply category filter
+        const category = currentInventoryFilters.category;
+        if (category !== 'all') {
+            items = items.filter(item => item.category === category);
+        }
+
+        // Apply sorting
+        const sort = currentInventoryFilters.sort;
+        switch (sort) {
+            case 'name':
+                items.sort((a, b) => a.name.localeCompare(b.name));
+                break;
+            case 'name-desc':
+                items.sort((a, b) => b.name.localeCompare(a.name));
+                break;
+            case 'price-low':
+                items.sort((a, b) => (a.price || 0) - (b.price || 0));
+                break;
+            case 'price-high':
+                items.sort((a, b) => (b.price || 0) - (a.price || 0));
+                break;
+            case 'stock-low':
+                items.sort((a, b) => ((a.totalIn - a.totalSold) - (b.totalIn - b.totalSold)));
+                break;
+            case 'stock-high':
+                items.sort((a, b) => ((b.totalIn - b.totalSold) - (a.totalIn - a.totalSold)));
+                break;
+        }
+
         const tbody = document.getElementById('inventory-list-table');
         if (!tbody) return;
 
         tbody.innerHTML = '';
         if (items.length === 0) {
-            tbody.innerHTML = '<tr><td colspan="6" style="text-align: center;">No items</td></tr>';
+            tbody.innerHTML = '<tr><td colspan="6" style="text-align: center;">No items match your filters</td></tr>';
         } else {
-            items.sort((a, b) => a.name.localeCompare(b.name)).forEach(item => {
+            items.forEach(item => {
                 const available = (item.totalIn || 0) - (item.totalSold || 0);
                 tbody.innerHTML += `
                     <tr>
@@ -717,6 +799,44 @@ async function updateCustomersUI() {
 }
 
 // ==================== LEDGER FUNCTIONS WITH APPLY BUTTON ====================
+let currentLedgerFilters = {
+    customerSearch: '',
+    vehicleSearch: '',
+    filterType: 'all',
+    fromDate: '',
+    toDate: '',
+    sort: 'newest'
+};
+
+function applyLedgerFilters() {
+    currentLedgerFilters.customerSearch = document.getElementById('ledger-customer-search')?.value || '';
+    currentLedgerFilters.vehicleSearch = document.getElementById('ledger-vehicle-search')?.value || '';
+    currentLedgerFilters.filterType = document.getElementById('ledger-filter-type')?.value || 'all';
+    currentLedgerFilters.fromDate = document.getElementById('ledger-date-from')?.value || '';
+    currentLedgerFilters.toDate = document.getElementById('ledger-date-to')?.value || '';
+    currentLedgerFilters.sort = document.getElementById('ledger-sort')?.value || 'newest';
+    updateLedgerUI();
+}
+
+function resetLedgerFilters() {
+    document.getElementById('ledger-customer-search').value = '';
+    document.getElementById('ledger-vehicle-search').value = '';
+    document.getElementById('ledger-date-from').value = '';
+    document.getElementById('ledger-date-to').value = '';
+    document.getElementById('ledger-filter-type').value = 'all';
+    document.getElementById('ledger-sort').value = 'newest';
+
+    currentLedgerFilters = {
+        customerSearch: '',
+        vehicleSearch: '',
+        filterType: 'all',
+        fromDate: '',
+        toDate: '',
+        sort: 'newest'
+    };
+    updateLedgerUI();
+}
+
 function filterTransactionsByDate(transactions, filterType, fromDate, toDate) {
     const now = new Date();
     const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
@@ -749,10 +869,6 @@ function filterTransactionsByDate(transactions, filterType, fromDate, toDate) {
     });
 }
 
-async function applyLedgerFilters() {
-    await updateLedgerUI();
-}
-
 async function updateLedgerUI() {
     try {
         console.log('Updating ledger UI...');
@@ -762,25 +878,19 @@ async function updateLedgerUI() {
             .filter(d => d && d.type === 'ledger');
 
         // Apply filters
-        const customerSearch = document.getElementById('ledger-customer-search')?.value.toLowerCase() || '';
-        const vehicleSearch = document.getElementById('ledger-vehicle-search')?.value.toLowerCase() || '';
-
-        if (customerSearch) {
+        if (currentLedgerFilters.customerSearch) {
             transactions = transactions.filter(t =>
-                t.customer.toLowerCase().includes(customerSearch)
+                t.customer.toLowerCase().includes(currentLedgerFilters.customerSearch.toLowerCase())
             );
         }
 
-        if (vehicleSearch) {
+        if (currentLedgerFilters.vehicleSearch) {
             transactions = transactions.filter(t =>
-                t.vehicleNo && t.vehicleNo.toLowerCase().includes(vehicleSearch)
+                t.vehicleNo && t.vehicleNo.toLowerCase().includes(currentLedgerFilters.vehicleSearch.toLowerCase())
             );
         }
 
-        const filterType = document.getElementById('ledger-filter-type')?.value || 'all';
-        const fromDate = document.getElementById('ledger-date-from')?.value;
-        const toDate = document.getElementById('ledger-date-to')?.value;
-        transactions = filterTransactionsByDate(transactions, filterType, fromDate, toDate);
+        transactions = filterTransactionsByDate(transactions, currentLedgerFilters.filterType, currentLedgerFilters.fromDate, currentLedgerFilters.toDate);
 
         // Calculate totals
         let totalSales = 0, creditDue = 0;
@@ -795,8 +905,7 @@ async function updateLedgerUI() {
         });
 
         // Sort
-        const sortType = document.getElementById('ledger-sort')?.value || 'newest';
-        switch (sortType) {
+        switch (currentLedgerFilters.sort) {
             case 'newest': transactions.sort((a, b) => new Date(b.date) - new Date(a.date)); break;
             case 'oldest': transactions.sort((a, b) => new Date(a.date) - new Date(b.date)); break;
             case 'highest': transactions.sort((a, b) => (b.total || 0) - (a.total || 0)); break;
@@ -865,16 +974,6 @@ async function updateLedgerUI() {
     } catch (error) {
         console.error('Ledger error:', error);
     }
-}
-
-function resetLedgerFilters() {
-    document.getElementById('ledger-customer-search').value = '';
-    document.getElementById('ledger-vehicle-search').value = '';
-    document.getElementById('ledger-date-from').value = '';
-    document.getElementById('ledger-date-to').value = '';
-    document.getElementById('ledger-filter-type').value = 'all';
-    document.getElementById('ledger-sort').value = 'newest';
-    updateLedgerUI();
 }
 
 // ==================== SCANNER ====================
