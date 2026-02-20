@@ -6,6 +6,7 @@ let accessToken = localStorage.getItem('google_token');
 let tokenExpiry = localStorage.getItem('token_expiry');
 let torchEnabled = false;
 let lastBackPress = 0;
+let currentScanner = null; // Track active scanner
 
 // ===== YOUR GOOGLE CLIENT ID =====
 const CLIENT_ID = '265618310384-mvgcqs0j7tk1fvi6k1b902s8batrehmj.apps.googleusercontent.com';
@@ -138,23 +139,36 @@ async function toggleFlash(type) {
     }
 }
 
+// ==================== STOP SCANNER ====================
+async function stopScanner() {
+    if (html5QrCode) {
+        try {
+            await html5QrCode.stop();
+        } catch (e) {
+            console.log('Error stopping scanner:', e);
+        }
+        html5QrCode = null;
+    }
+
+    // Hide scanner overlays
+    ['inventory', 'bill'].forEach(t => {
+        const overlay = document.getElementById(`scanner-overlay-${t}`);
+        const flash = document.getElementById(`flash-${t}`);
+        if (overlay) overlay.style.display = 'none';
+        if (flash) flash.style.display = 'none';
+    });
+    torchEnabled = false;
+}
+
 // ==================== NAVIGATION ====================
 function goToDashboard() {
     showScreen('dashboard-screen');
 }
 
 async function showScreen(screenId) {
-    if (html5QrCode) {
-        await html5QrCode.stop().catch(() => { });
-        html5QrCode = null;
-        ['inventory', 'bill'].forEach(t => {
-            const overlay = document.getElementById(`scanner-overlay-${t}`);
-            const flash = document.getElementById(`flash-${t}`);
-            if (overlay) overlay.style.display = 'none';
-            if (flash) flash.style.display = 'none';
-        });
-        torchEnabled = false;
-    }
+    // Stop any active scanner when changing screens
+    await stopScanner();
+
     document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
     const target = document.getElementById(screenId);
     if (target) target.classList.add('active');
@@ -187,7 +201,7 @@ async function updateDashboard() {
     try {
         console.log('Updating dashboard...');
         const result = await db.allDocs({ include_docs: true });
-        let itemsCount = 0, salesTotal = 0, customersCount = 0, lowStock = 0;
+        let itemsCount = 0, customersCount = 0, lowStock = 0, dueAmount = 0;
         let recentTransactions = [];
 
         result.rows.forEach(r => {
@@ -197,7 +211,7 @@ async function updateDashboard() {
                 const available = (d.totalIn || 0) - (d.totalSold || 0);
                 if (available < (d.minStock || 5)) lowStock++;
             } else if (d.type === 'ledger') {
-                salesTotal += d.total || 0;
+                if (d.balance > 0) dueAmount += d.balance;
                 recentTransactions.push(d);
             } else if (d.type === 'customer') {
                 customersCount++;
@@ -205,9 +219,9 @@ async function updateDashboard() {
         });
 
         document.getElementById('dash-total-items').textContent = itemsCount;
-        document.getElementById('dash-total-sales').textContent = '₹' + salesTotal.toFixed(2);
         document.getElementById('dash-total-customers').textContent = customersCount;
         document.getElementById('dash-low-stock').textContent = lowStock;
+        document.getElementById('dash-due-amount').textContent = '₹' + dueAmount.toFixed(2);
 
         // Show recent transactions
         const recentDiv = document.getElementById('dash-recent');
@@ -448,7 +462,7 @@ function calculateBalance() {
 
 async function finalizeBill() {
     const customer = document.getElementById('bill-cust-name').value.trim();
-    const vehicleNo = document.getElementById('bill-vehicle-no').value.trim();
+    const vehicleNo = document.getElementById('bill-vehicle-no').value.trim().toUpperCase();
 
     if (!customer || currentBillItems.length === 0) return showToast('Add customer and items', 'warning');
 
@@ -635,7 +649,7 @@ function closeCustomerModal() {
 
 async function saveCustomer() {
     const name = document.getElementById('cust-name')?.value.trim();
-    const vehicle = document.getElementById('cust-vehicle')?.value.trim();
+    const vehicle = document.getElementById('cust-vehicle')?.value.trim().toUpperCase();
 
     if (!name) return showToast('Name required', 'error');
 
@@ -702,7 +716,7 @@ async function updateCustomersUI() {
     }
 }
 
-// ==================== LEDGER FUNCTIONS WITH VEHICLE ====================
+// ==================== LEDGER FUNCTIONS WITH APPLY BUTTON ====================
 function filterTransactionsByDate(transactions, filterType, fromDate, toDate) {
     const now = new Date();
     const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
@@ -733,6 +747,10 @@ function filterTransactionsByDate(transactions, filterType, fromDate, toDate) {
             default: return true;
         }
     });
+}
+
+async function applyLedgerFilters() {
+    await updateLedgerUI();
 }
 
 async function updateLedgerUI() {
@@ -862,7 +880,9 @@ function resetLedgerFilters() {
 // ==================== SCANNER ====================
 async function toggleScanner(type) {
     const readerId = type === 'inventory' ? 'reader' : 'bill-reader';
-    if (html5QrCode) { await html5QrCode.stop(); html5QrCode = null; }
+
+    // Stop any existing scanner
+    await stopScanner();
 
     document.getElementById(`scanner-overlay-${type}`).style.display = 'block';
     document.getElementById(`flash-${type}`).style.display = 'flex';
@@ -885,13 +905,23 @@ async function toggleScanner(type) {
 
 async function scanFile(input, type) {
     if (!input?.files?.length) return;
+
+    // Stop any existing scanner
+    await stopScanner();
+
     const scanner = new Html5Qrcode('reader');
     try {
+        showToast('Processing image...', 'info');
         const result = await scanner.scanFile(input.files[0], true);
         playBeepAndVibrate();
         handleScanResult(result, type);
+
+        // Clear the file input to prevent reusing the same image
+        input.value = '';
     } catch {
         showToast('Could not read barcode', 'error');
+        // Clear the file input even on error
+        input.value = '';
     }
 }
 
@@ -917,12 +947,8 @@ async function handleScanResult(text, type) {
         showToast('New Item', 'info');
     }
 
-    if (html5QrCode) {
-        await html5QrCode.stop();
-        html5QrCode = null;
-        document.getElementById(`scanner-overlay-${type}`).style.display = 'none';
-        document.getElementById(`flash-${type}`).style.display = 'none';
-    }
+    // Stop scanner after successful scan
+    await stopScanner();
 }
 
 // ==================== GOOGLE DRIVE SYNC ====================

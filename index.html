@@ -52,10 +52,6 @@
                     <div class="stat-label">Total Items</div>
                     <div class="stat-value" id="dash-total-items">0</div>
                 </div>
-                <div class="stat-card" onclick="showScreen('ledger-screen')">
-                    <div class="stat-label">Total Sales</div>
-                    <div class="stat-value" id="dash-total-sales">₹0</div>
-                </div>
                 <div class="stat-card" onclick="showScreen('customers-screen')">
                     <div class="stat-label">Customers</div>
                     <div class="stat-value" id="dash-total-customers">0</div>
@@ -63,6 +59,10 @@
                 <div class="stat-card" onclick="showScreen('stock-list-screen')">
                     <div class="stat-label">Low Stock</div>
                     <div class="stat-value" id="dash-low-stock">0</div>
+                </div>
+                <div class="stat-card" onclick="showScreen('ledger-screen')">
+                    <div class="stat-label">Due Amount</div>
+                    <div class="stat-value" id="dash-due-amount">₹0</div>
                 </div>
             </div>
         </div>
@@ -223,10 +223,11 @@
                 <input type="text" id="bill-cust-name" placeholder="Enter customer name" required>
             </div>
 
-            <!-- Vehicle Registration Number Field -->
+            <!-- Vehicle Registration Number Field - Uppercase -->
             <div class="form-group">
                 <label><i class="fas fa-car"></i> Vehicle Registration No.</label>
-                <input type="text" id="bill-vehicle-no" placeholder="e.g., KA01AB1234" value="">
+                <input type="text" id="bill-vehicle-no" placeholder="e.g., KA01AB1234" value=""
+                    style="text-transform:uppercase;" oninput="this.value = this.value.toUpperCase()">
             </div>
 
             <div class="form-group">
@@ -382,7 +383,7 @@
         </section>
     </div>
 
-    <!-- Ledger Screen with Customer Balances and Vehicle Info -->
+    <!-- Ledger Screen with Apply Filter Button -->
     <div id="ledger-screen" class="screen">
         <button class="back-menu-btn" onclick="goToDashboard()">
             <i class="fas fa-arrow-left"></i> Back to Dashboard
@@ -393,30 +394,28 @@
 
             <div class="form-group">
                 <label><i class="fas fa-user"></i> Search by Customer</label>
-                <input type="text" id="ledger-customer-search" placeholder="Enter customer name..."
-                    onkeyup="updateLedgerUI()">
+                <input type="text" id="ledger-customer-search" placeholder="Enter customer name...">
             </div>
 
             <div class="form-row">
                 <div class="form-group half">
                     <label><i class="fas fa-car"></i> Search by Vehicle</label>
-                    <input type="text" id="ledger-vehicle-search" placeholder="Enter vehicle no..."
-                        onkeyup="updateLedgerUI()">
+                    <input type="text" id="ledger-vehicle-search" placeholder="Enter vehicle no...">
                 </div>
                 <div class="form-group half">
                     <label><i class="fas fa-calendar"></i> To Date</label>
-                    <input type="date" id="ledger-date-to" onchange="updateLedgerUI()">
+                    <input type="date" id="ledger-date-to">
                 </div>
             </div>
 
             <div class="form-row">
                 <div class="form-group half">
                     <label><i class="fas fa-calendar"></i> From Date</label>
-                    <input type="date" id="ledger-date-from" onchange="updateLedgerUI()">
+                    <input type="date" id="ledger-date-from">
                 </div>
                 <div class="form-group half">
                     <label><i class="fas fa-filter"></i> Filter by</label>
-                    <select id="ledger-filter-type" onchange="updateLedgerUI()">
+                    <select id="ledger-filter-type">
                         <option value="all">All Transactions</option>
                         <option value="today">Today</option>
                         <option value="week">This Week</option>
@@ -429,7 +428,7 @@
             <div class="form-row">
                 <div class="form-group half">
                     <label><i class="fas fa-sort"></i> Sort by</label>
-                    <select id="ledger-sort" onchange="updateLedgerUI()">
+                    <select id="ledger-sort">
                         <option value="newest">Newest First</option>
                         <option value="oldest">Oldest First</option>
                         <option value="highest">Highest Amount</option>
@@ -438,9 +437,16 @@
                 </div>
                 <div class="form-group half">
                     <label>&nbsp;</label>
-                    <button onclick="resetLedgerFilters()" class="action-btn small" style="background: #64748b;">
-                        <i class="fas fa-undo"></i> Reset
-                    </button>
+                    <div style="display: flex; gap: 5px;">
+                        <button onclick="applyLedgerFilters()" class="action-btn small"
+                            style="background: var(--primary); flex: 2;">
+                            <i class="fas fa-search"></i> Apply
+                        </button>
+                        <button onclick="resetLedgerFilters()" class="action-btn small"
+                            style="background: #64748b; flex: 1;">
+                            <i class="fas fa-undo"></i> Reset
+                        </button>
+                    </div>
                 </div>
             </div>
 
@@ -493,7 +499,7 @@
         </section>
     </div>
 
-    <!-- Add Customer Modal (with Vehicle Registration) -->
+    <!-- Add Customer Modal (with Vehicle Registration - Uppercase) -->
     <div id="customer-modal" class="modal">
         <div class="modal-content glass-card">
             <h3><i class="fas fa-user-plus"></i> Add Customer</h3>
@@ -505,7 +511,8 @@
 
             <div class="form-group">
                 <label><i class="fas fa-car"></i> Vehicle Registration No.</label>
-                <input type="text" id="cust-vehicle" placeholder="e.g., KA01AB1234">
+                <input type="text" id="cust-vehicle" placeholder="e.g., KA01AB1234" style="text-transform:uppercase;"
+                    oninput="this.value = this.value.toUpperCase()">
             </div>
 
             <div class="form-group">
