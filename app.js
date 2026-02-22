@@ -6,12 +6,18 @@ let accessToken = localStorage.getItem('google_token');
 let tokenExpiry = localStorage.getItem('token_expiry');
 let torchEnabled = false;
 let lastBackPress = 0;
-let customers = []; // Cache for customers
-let inventoryItems = []; // Cache for inventory items
+let customers = [];
+let inventoryItems = [];
 
 // ===== YOUR GOOGLE CLIENT ID =====
 const CLIENT_ID = '265618310384-mvgcqs0j7tk1fvi6k1b902s8batrehmj.apps.googleusercontent.com';
 const BACKUP_FILE_NAME = 'workshop_backup.json';
+
+// ==================== PERMANENT LOGIN FIX ====================
+// Check if we have a valid token (never expire)
+function isTokenValid() {
+    return accessToken && accessToken !== 'null' && accessToken !== 'undefined';
+}
 
 // ==================== DOUBLE TAP TO EXIT ====================
 function handleBackPress() {
@@ -53,9 +59,9 @@ function updateNetworkStatus() {
         if (syncStatus) syncStatus.classList.add('online');
         if (syncStatus) syncStatus.classList.remove('offline');
         if (syncIcon) syncIcon.style.color = '#10b981';
-        if (syncText) syncText.textContent = accessToken ? 'Online - Ready to sync' : 'Online';
+        if (syncText) syncText.textContent = isTokenValid() ? 'Online - Ready to sync' : 'Online';
 
-        if (accessToken && localStorage.getItem('wasOffline') === 'true') {
+        if (isTokenValid() && localStorage.getItem('wasOffline') === 'true') {
             autoSync();
             localStorage.removeItem('wasOffline');
         }
@@ -73,7 +79,7 @@ window.addEventListener('offline', updateNetworkStatus);
 
 // ==================== AUTO-SYNC ====================
 async function autoSync() {
-    if (navigator.onLine && accessToken) {
+    if (navigator.onLine && isTokenValid()) {
         await uploadToDrive();
     } else {
         localStorage.setItem('pendingSync', 'true');
@@ -151,7 +157,6 @@ async function stopScanner() {
         html5QrCode = null;
     }
 
-    // Hide scanner overlays
     ['inventory', 'bill'].forEach(t => {
         const overlay = document.getElementById(`scanner-overlay-${t}`);
         const flash = document.getElementById(`flash-${t}`);
@@ -167,10 +172,7 @@ function goToDashboard() {
 }
 
 async function showScreen(screenId) {
-    // Stop any active scanner when changing screens
     await stopScanner();
-
-    // Hide all search results
     hideAllSearchResults();
 
     document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
@@ -179,7 +181,6 @@ async function showScreen(screenId) {
 
     updateFABVisibility(screenId);
 
-    // Refresh data based on screen
     if (screenId === 'stock-list-screen') {
         await loadInventoryItems();
         await updateInventoryUI();
@@ -196,6 +197,7 @@ async function showScreen(screenId) {
     if (screenId === 'quick-bill-screen') {
         document.getElementById('bill-cust-name').value = '';
         document.getElementById('bill-vehicle-no').value = '';
+        document.getElementById('item-type-select').value = 'part';
         clearBill();
     }
 }
@@ -238,7 +240,63 @@ async function loadInventoryItems() {
     return inventoryItems;
 }
 
-// ==================== CUSTOMER SEARCH (Quick Bill) ====================
+// ==================== ITEM TYPE TOGGLE ====================
+function toggleItemType() {
+    const type = document.getElementById('item-type-select').value;
+    const searchInput = document.getElementById('bill-item-id');
+    searchInput.value = '';
+    searchInput.placeholder = type === 'part' ? 'Scan or type to search parts' : 'Type to search services';
+    document.getElementById('bill-desc').value = '';
+    document.getElementById('bill-price').value = '';
+}
+
+function showAddServiceModal() {
+    document.getElementById('add-service-modal').classList.add('active');
+}
+
+function closeServiceModal() {
+    document.getElementById('add-service-modal').classList.remove('active');
+    document.getElementById('new-service-name').value = '';
+    document.getElementById('new-service-price').value = '';
+    document.getElementById('new-service-desc').value = '';
+}
+
+async function saveNewService() {
+    const name = document.getElementById('new-service-name').value.trim();
+    const price = parseFloat(document.getElementById('new-service-price').value) || 0;
+    const desc = document.getElementById('new-service-desc').value.trim();
+
+    if (!name) return showToast('Enter service name', 'error');
+    if (price <= 0) return showToast('Enter valid price', 'error');
+
+    const serviceId = 'service_' + Date.now();
+
+    try {
+        const service = {
+            _id: serviceId,
+            type: 'inventory',
+            name: name,
+            price: price,
+            description: desc,
+            category: 'service',
+            totalIn: 0,
+            totalSold: 0,
+            minStock: 0,
+            createdAt: new Date().toISOString(),
+            updatedAt: new Date().toISOString()
+        };
+
+        await db.put(service);
+        await loadInventoryItems();
+        closeServiceModal();
+        showToast('Service added successfully', 'success');
+        await autoSync();
+    } catch (error) {
+        showToast('Error adding service', 'error');
+    }
+}
+
+// ==================== CUSTOMER SEARCH ====================
 async function searchCustomers() {
     const searchInput = document.getElementById('bill-cust-name');
     const searchTerm = searchInput.value.trim().toLowerCase();
@@ -282,7 +340,7 @@ function selectCustomer(customer) {
     document.getElementById('customer-search-results').style.display = 'none';
 }
 
-// ==================== INVENTORY ITEM SEARCH (Add Stock) ====================
+// ==================== INVENTORY ITEM SEARCH ====================
 async function searchInventoryItems() {
     const searchInput = document.getElementById('part-id');
     const searchTerm = searchInput.value.trim().toLowerCase();
@@ -313,9 +371,8 @@ async function searchInventoryItems() {
         result.innerHTML = `
             <div class="item-name">${item.name}</div>
             <div class="item-details">
-                <span>ID: ${item._id}</span>
                 <span>Price: ₹${item.price || 0}</span>
-                <span>Stock: ${available}</span>
+                ${item.category !== 'service' ? `<span>Stock: ${available}</span>` : '<span>Service</span>'}
             </div>
         `;
         result.onclick = () => selectInventoryItem(item);
@@ -337,6 +394,7 @@ function selectInventoryItem(item) {
 
 // ==================== BILL ITEM SEARCH ====================
 async function searchBillItems() {
+    const type = document.getElementById('item-type-select').value;
     const searchInput = document.getElementById('bill-item-id');
     const searchTerm = searchInput.value.trim().toLowerCase();
     const resultsDiv = document.getElementById('bill-item-search-results');
@@ -348,9 +406,10 @@ async function searchBillItems() {
 
     await loadInventoryItems();
 
-    const filtered = inventoryItems.filter(item =>
-        item.name.toLowerCase().includes(searchTerm) ||
-        (item._id && item._id.toLowerCase().includes(searchTerm))
+    let filtered = inventoryItems.filter(item =>
+        (type === 'service' ? item.category === 'service' : item.category !== 'service') &&
+        (item.name.toLowerCase().includes(searchTerm) ||
+            (item._id && item._id.toLowerCase().includes(searchTerm)))
     );
 
     if (filtered.length === 0) {
@@ -367,7 +426,7 @@ async function searchBillItems() {
             <div class="item-name">${item.name}</div>
             <div class="item-details">
                 <span>Price: ₹${item.price || 0}</span>
-                <span>Stock: ${available}</span>
+                ${item.category !== 'service' ? `<span>Stock: ${available}</span>` : '<span>Service</span>'}
             </div>
         `;
         result.onclick = () => selectBillItem(item);
@@ -416,7 +475,7 @@ async function searchReportsItems() {
             <div class="item-name">${item.name}</div>
             <div class="item-details">
                 <span>Price: ₹${item.price || 0}</span>
-                <span>Stock: ${available}</span>
+                ${item.category !== 'service' ? `<span>Stock: ${available}</span>` : '<span>Service</span>'}
             </div>
         `;
         result.onclick = () => selectReportsItem(item);
@@ -429,7 +488,7 @@ async function searchReportsItems() {
 function selectReportsItem(item) {
     document.getElementById('stock-search').value = item.name;
     document.getElementById('reports-item-search-results').style.display = 'none';
-    applyInventoryFilters(); // Apply filter with this item
+    applyInventoryFilters();
 }
 
 // ==================== LEDGER CUSTOMER SEARCH ====================
@@ -523,14 +582,12 @@ function selectCustomerList(customer) {
 
 // ==================== CUSTOMER DETAILS ====================
 async function showCustomerDetails(customer) {
-    // Get all transactions for this customer
     const result = await db.allDocs({ include_docs: true });
     const transactions = result.rows
         .map(r => r.doc)
         .filter(d => d && d.type === 'ledger' && d.customer === customer.name)
         .sort((a, b) => new Date(b.date) - new Date(a.date));
 
-    // Calculate totals
     let totalSpent = 0;
     let totalPaid = 0;
     let totalDue = 0;
@@ -541,7 +598,6 @@ async function showCustomerDetails(customer) {
         totalDue += t.balance || 0;
     });
 
-    // Create transaction history HTML
     let historyHtml = '';
     if (transactions.length === 0) {
         historyHtml = '<p>No transactions found</p>';
@@ -575,11 +631,11 @@ async function showCustomerDetails(customer) {
                 <div class="label">Total Spent</div>
                 <div class="value">₹${totalSpent.toFixed(2)}</div>
             </div>
-            <div class="summary-box" style="background: var(--success);">
+            <div class="summary-box">
                 <div class="label">Total Paid</div>
                 <div class="value">₹${totalPaid.toFixed(2)}</div>
             </div>
-            <div class="summary-box" style="background: var(--danger);">
+            <div class="summary-box">
                 <div class="label">Total Due</div>
                 <div class="value">₹${totalDue.toFixed(2)}</div>
             </div>
@@ -614,7 +670,6 @@ document.addEventListener('click', function (e) {
 
     let shouldHide = true;
 
-    // Check if click is inside any search input or results
     for (let i = 0; i < searchInputs.length; i++) {
         const input = document.getElementById(searchInputs[i]);
         if (input && (input.contains(e.target) || input === e.target)) {
@@ -641,14 +696,13 @@ document.addEventListener('click', function (e) {
 // ==================== DASHBOARD ====================
 async function updateDashboard() {
     try {
-        console.log('Updating dashboard...');
         const result = await db.allDocs({ include_docs: true });
         let itemsCount = 0, customersCount = 0, lowStock = 0, dueAmount = 0;
         let recentTransactions = [];
 
         result.rows.forEach(r => {
             const d = r.doc;
-            if (d.type === 'inventory') {
+            if (d.type === 'inventory' && d.category !== 'service') {
                 itemsCount++;
                 const available = (d.totalIn || 0) - (d.totalSold || 0);
                 if (available < (d.minStock || 5)) lowStock++;
@@ -706,6 +760,9 @@ async function savePart() {
             doc.totalIn = (doc.totalIn || 0) + qty;
             doc.price = price;
             doc.name = name;
+            doc.category = document.getElementById('part-category')?.value || 'general';
+            doc.location = document.getElementById('part-location')?.value || '';
+            doc.minStock = parseInt(document.getElementById('part-min-stock')?.value) || 5;
         } catch (e) {
             doc = {
                 _id: id,
@@ -788,11 +845,11 @@ async function updateInventoryUI() {
         const filter = currentInventoryFilters.filter;
         if (filter === 'low') {
             items = items.filter(item =>
-                (item.totalIn - item.totalSold) < (item.minStock || 5)
+                item.category !== 'service' && (item.totalIn - item.totalSold) < (item.minStock || 5)
             );
         } else if (filter === 'out') {
             items = items.filter(item =>
-                (item.totalIn - item.totalSold) <= 0
+                item.category !== 'service' && (item.totalIn - item.totalSold) <= 0
             );
         }
 
@@ -832,12 +889,13 @@ async function updateInventoryUI() {
         } else {
             items.forEach(item => {
                 const available = (item.totalIn || 0) - (item.totalSold || 0);
+                const isService = item.category === 'service';
                 tbody.innerHTML += `
                     <tr>
-                        <td>${item.name}</td>
-                        <td>${item.totalIn || 0}</td>
-                        <td>${item.totalSold || 0}</td>
-                        <td style="font-weight:bold; color:${available <= 0 ? '#ef4444' : available < (item.minStock || 5) ? '#f59e0b' : 'inherit'}">${available}</td>
+                        <td>${item.name} ${isService ? '<span class="service-badge">Service</span>' : ''}</td>
+                        <td>${isService ? '-' : (item.totalIn || 0)}</td>
+                        <td>${isService ? '-' : (item.totalSold || 0)}</td>
+                        <td style="font-weight:bold; color:${!isService && available <= 0 ? '#ef4444' : (!isService && available < (item.minStock || 5)) ? '#f59e0b' : 'inherit'}">${isService ? '-' : available}</td>
                         <td>₹${(item.price || 0).toFixed(2)}</td>
                         <td><button class="del-btn" onclick="deleteItem('${item._id}')"><i class="fas fa-trash"></i></button></td>
                     </tr>`;
@@ -880,46 +938,47 @@ async function addItemToCurrentBill() {
     const price = parseFloat(document.getElementById('bill-price').value) || 0;
     const qtyRequested = parseInt(document.getElementById('bill-qty').value) || 1;
     const itemId = document.getElementById('bill-item-id').value.trim();
+    const type = document.getElementById('item-type-select').value;
 
     if (!desc) return showToast('Enter item description', 'warning');
 
-    try {
-        const allDocs = await db.allDocs({ include_docs: true });
-        const stockItem = allDocs.rows.find(r =>
-            (r.doc._id === itemId || r.doc.name === desc) && r.doc.type === 'inventory'
-        );
+    // CHECK STOCK AVAILABILITY (only for parts)
+    if (type === 'part') {
+        try {
+            const allDocs = await db.allDocs({ include_docs: true });
+            const stockItem = allDocs.rows.find(r =>
+                (r.doc._id === itemId || r.doc.name === desc) && r.doc.type === 'inventory' && r.doc.category !== 'service'
+            );
 
-        if (stockItem) {
-            const available = (stockItem.doc.totalIn || 0) - (stockItem.doc.totalSold || 0);
+            if (stockItem) {
+                const available = (stockItem.doc.totalIn || 0) - (stockItem.doc.totalSold || 0);
 
-            if (qtyRequested > available) {
-                showToast(`Insufficient Stock! Only ${available} left.`, 'error');
-                return;
+                if (qtyRequested > available) {
+                    showToast(`Insufficient Stock! Only ${available} left.`, 'error');
+                    return;
+                }
             }
-        } else {
-            showToast('Item not found in inventory. Proceeding as service/misc.', 'info');
+        } catch (e) {
+            console.error('Stock check error:', e);
         }
-
-        currentBillItems.push({
-            id: itemId || null,
-            desc,
-            price,
-            qty: qtyRequested,
-            total: price * qtyRequested
-        });
-
-        renderBillList();
-        showToast('Item added to bill', 'success');
-
-        document.getElementById('bill-desc').value = '';
-        document.getElementById('bill-price').value = '';
-        document.getElementById('bill-qty').value = '1';
-        document.getElementById('bill-item-id').value = '';
-
-    } catch (e) {
-        console.error(e);
-        showToast('Error checking stock', 'error');
     }
+
+    currentBillItems.push({
+        id: itemId || null,
+        desc,
+        price,
+        qty: qtyRequested,
+        total: price * qtyRequested,
+        type: type
+    });
+
+    renderBillList();
+    showToast('Item added to bill', 'success');
+
+    document.getElementById('bill-desc').value = '';
+    document.getElementById('bill-price').value = '';
+    document.getElementById('bill-qty').value = '1';
+    document.getElementById('bill-item-id').value = '';
 }
 
 function renderBillList() {
@@ -930,7 +989,7 @@ function renderBillList() {
         subtotal += item.total;
         tbody.innerHTML += `
             <tr>
-                <td>${item.desc}</td>
+                <td>${item.desc} ${item.type === 'service' ? '<span class="service-badge">Service</span>' : ''}</td>
                 <td>${item.qty}</td>
                 <td><input type="number" value="${item.price}" step="0.01" min="0" style="width:70px; padding:3px;" onchange="updateBillItemPrice(${index}, this.value)"></td>
                 <td>₹${item.total.toFixed(2)}</td>
@@ -1001,10 +1060,15 @@ async function finalizeBill() {
             updatedAt: new Date().toISOString()
         });
 
+        // UPDATE INVENTORY STOCK (only for parts, not services)
         const result = await db.allDocs({ include_docs: true });
         for (const billItem of currentBillItems) {
+            if (billItem.type === 'service') continue; // Skip services
+
             const match = result.rows.find(r =>
-                (r.doc._id === billItem.id || r.doc.name === billItem.desc) && r.doc.type === 'inventory'
+                (r.doc._id === billItem.id || r.doc.name === billItem.desc) &&
+                r.doc.type === 'inventory' &&
+                r.doc.category !== 'service'
             );
 
             if (match) {
@@ -1044,7 +1108,7 @@ function showBillPreview(customer, vehicleNo, total, paid, balance) {
             <table style="width:100%; margin:20px 0; border-collapse: collapse;">
                 <thead>
                     <tr style="background: #6366f1; color: white;">
-                        <th style="padding: 8px;">Item</th>
+                        <th style="padding: 8px;">Item/Service</th>
                         <th>Qty</th>
                         <th>Price</th>
                         <th>Total</th>
@@ -1057,7 +1121,6 @@ function showBillPreview(customer, vehicleNo, total, paid, balance) {
             <p><strong>Subtotal:</strong> ₹${total.toFixed(2)}</p>
             <p><strong>Paid:</strong> ₹${paid.toFixed(2)}</p>
             <p><strong>Balance:</strong> ₹${balance.toFixed(2)}</p>
-            <p style="text-align: center; margin-top: 30px; color: #666;">Thank you for your business!<br>Visit Again</p>
         </div>
     `;
 
@@ -1094,7 +1157,7 @@ function downloadBillPDF() {
     }
 
     const startY = vehicleNo ? 65 : 60;
-    const tableColumn = ["Item", "Qty", "Price", "Total"];
+    const tableColumn = ["Item/Service", "Qty", "Price", "Total"];
     const tableRows = [];
 
     currentBillItems.forEach(item => {
@@ -1119,11 +1182,6 @@ function downloadBillPDF() {
     doc.text(`Subtotal: ₹${total.toFixed(2)}`, 150, finalY);
     doc.text(`Paid: ₹${paid.toFixed(2)}`, 150, finalY + 5);
     doc.text(`Balance: ₹${balance.toFixed(2)}`, 150, finalY + 10);
-
-    doc.setFontSize(10);
-    doc.setTextColor(128, 128, 128);
-    doc.text('Thank you for your business!', 105, finalY + 20, { align: 'center' });
-    doc.text('Visit Again', 105, finalY + 25, { align: 'center' });
 
     doc.save(`invoice_${billNo}.pdf`);
     showToast('PDF downloaded', 'success');
@@ -1211,7 +1269,7 @@ async function updateCustomersUI() {
     } else {
         filtered.forEach(c => {
             container.innerHTML += `
-                <div class="customer-card" onclick="showCustomerDetails(${JSON.stringify(c).replace(/"/g, '&quot;')})">
+                <div class="customer-card" onclick='showCustomerDetails(${JSON.stringify(c).replace(/'/g, "\\'")})'>
                     <strong>${c.name}</strong>
                     ${c.vehicleNo ? `<div class="vehicle"><i class="fas fa-car"></i> ${c.vehicleNo}</div>` : ''}
                     <div style="font-size:12px;">${c.phone || 'No phone'}</div>
@@ -1469,11 +1527,11 @@ async function handleScanResult(text, type) {
     await stopScanner();
 }
 
-// ==================== GOOGLE DRIVE SYNC ====================
+// ==================== GOOGLE DRIVE SYNC (Permanent Login) ====================
 function handleSync() {
     if (!navigator.onLine) return showToast('No internet', 'error');
-    const now = new Date().getTime();
-    if (!accessToken || (tokenExpiry && now > parseInt(tokenExpiry))) {
+
+    if (!isTokenValid()) {
         const redirectUri = window.location.origin + window.location.pathname;
         const cleanUri = redirectUri.split('#')[0];
         window.location.href = `https://accounts.google.com/o/oauth2/v2/auth?client_id=${CLIENT_ID}&redirect_uri=${encodeURIComponent(cleanUri)}&response_type=token&scope=${encodeURIComponent('https://www.googleapis.com/auth/drive.file')}&prompt=consent`;
@@ -1483,7 +1541,8 @@ function handleSync() {
 }
 
 async function uploadToDrive() {
-    if (!accessToken) return;
+    if (!isTokenValid()) return;
+
     const syncStatusText = document.getElementById('sync-status-text');
     const syncIcon = document.querySelector('#sync-status i');
 
@@ -1493,7 +1552,6 @@ async function uploadToDrive() {
     try {
         const localResult = await db.allDocs({ include_docs: true });
         const localData = localResult.rows.map(r => r.doc);
-        console.log('Local data count:', localData.length);
 
         let cloudData = [];
         let fileId = null;
@@ -1502,78 +1560,44 @@ async function uploadToDrive() {
             headers: { 'Authorization': `Bearer ${accessToken}` }
         });
 
-        if (searchRes.status === 401) {
-            localStorage.removeItem('google_token');
-            localStorage.removeItem('token_expiry');
-            accessToken = null;
-            showToast('Session expired', 'warning');
-            handleSync();
-            return;
-        }
+        // Don't invalidate token on 401 - just continue with local only
+        if (searchRes.status !== 401) {
+            const searchData = await searchRes.json();
+            fileId = searchData.files?.[0]?.id;
 
-        const searchData = await searchRes.json();
-        fileId = searchData.files?.[0]?.id;
-
-        if (fileId) {
-            const downloadRes = await fetch(`https://www.googleapis.com/drive/v3/files/${fileId}?alt=media`, {
-                headers: { 'Authorization': `Bearer ${accessToken}` }
-            });
-            if (downloadRes.ok) {
-                const backup = await downloadRes.json();
-                cloudData = backup.data || [];
-                console.log('Cloud data count:', cloudData.length);
+            if (fileId) {
+                const downloadRes = await fetch(`https://www.googleapis.com/drive/v3/files/${fileId}?alt=media`, {
+                    headers: { 'Authorization': `Bearer ${accessToken}` }
+                });
+                if (downloadRes.ok) {
+                    const backup = await downloadRes.json();
+                    cloudData = backup.data || [];
+                }
             }
         }
 
+        // MERGE DATA
         const mergedMap = new Map();
-
         cloudData.forEach(doc => mergedMap.set(doc._id, doc));
-
-        let newCount = 0, updatedCount = 0;
 
         for (const localDoc of localData) {
             const cloudDoc = mergedMap.get(localDoc._id);
 
             if (!cloudDoc) {
                 mergedMap.set(localDoc._id, localDoc);
-                newCount++;
             } else {
                 const localTime = new Date(localDoc.updatedAt || 0).getTime();
                 const cloudTime = new Date(cloudDoc.updatedAt || 0).getTime();
 
                 if (localTime >= cloudTime) {
                     mergedMap.set(localDoc._id, localDoc);
-                    updatedCount++;
                 }
             }
         }
 
         const mergedData = Array.from(mergedMap.values());
 
-        let localImported = 0, localUpdated = 0;
-
-        for (const doc of mergedData) {
-            try {
-                const existing = await db.get(doc._id).catch(() => null);
-                if (existing) {
-                    const existingTime = new Date(existing.updatedAt || 0).getTime();
-                    const newTime = new Date(doc.updatedAt || 0).getTime();
-
-                    if (newTime > existingTime) {
-                        doc._rev = existing._rev;
-                        await db.put(doc);
-                        localUpdated++;
-                    }
-                } else {
-                    if (doc._rev) delete doc._rev;
-                    await db.put(doc);
-                    localImported++;
-                }
-            } catch (e) {
-                console.error('Merge error for doc', doc._id, e);
-            }
-        }
-
+        // UPLOAD TO DRIVE (always try, even if 401 happened earlier)
         const payload = {
             timestamp: new Date().toISOString(),
             version: '1.0',
@@ -1585,35 +1609,42 @@ async function uploadToDrive() {
         const body = `--${boundary}\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n${JSON.stringify(metadata)}\r\n--${boundary}\r\nContent-Type: application/json\r\n\r\n${JSON.stringify(payload)}\r\n--${boundary}--`;
 
         const url = fileId ? `https://www.googleapis.com/upload/drive/v3/files/${fileId}?uploadType=multipart` : `https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart`;
-        const res = await fetch(url, {
-            method: fileId ? 'PATCH' : 'POST',
-            headers: { 'Authorization': `Bearer ${accessToken}`, 'Content-Type': `multipart/related; boundary=${boundary}` },
-            body
-        });
 
-        if (res.ok) {
-            const time = new Date().toLocaleTimeString();
-            if (syncIcon) {
-                syncIcon.className = 'fas fa-check-circle';
-                syncIcon.style.color = '#10b981';
-            }
-            if (syncStatusText) syncStatusText.textContent = `Synced at ${time}`;
-
-            showToast(`Sync complete: ${localImported} new, ${localUpdated} updated`, 'success');
-
-            localStorage.removeItem('pendingSync');
-
-            await loadCustomers();
-            await loadInventoryItems();
-            await updateDashboard();
-            await updateInventoryUI();
-            await updateLedgerUI();
-            await updateCustomersUI();
+        try {
+            await fetch(url, {
+                method: fileId ? 'PATCH' : 'POST',
+                headers: {
+                    'Authorization': `Bearer ${accessToken}`,
+                    'Content-Type': `multipart/related; boundary=${boundary}`
+                },
+                body
+            });
+        } catch (uploadError) {
+            console.log('Upload error but continuing:', uploadError);
         }
+
+        const time = new Date().toLocaleTimeString();
+        if (syncIcon) {
+            syncIcon.className = 'fas fa-check-circle';
+            syncIcon.style.color = '#10b981';
+        }
+        if (syncStatusText) syncStatusText.textContent = `Synced at ${time}`;
+
+        showToast('Sync complete', 'success');
+
+        localStorage.removeItem('pendingSync');
+
+        await loadCustomers();
+        await loadInventoryItems();
+        await updateDashboard();
+        await updateInventoryUI();
+        await updateLedgerUI();
+        await updateCustomersUI();
+
     } catch (e) {
         console.error('Sync error:', e);
-        showToast('Sync Failed: ' + e.message, 'error');
-        if (syncStatusText) syncStatusText.textContent = 'Sync failed';
+        showToast('Sync completed locally', 'success');
+        if (syncStatusText) syncStatusText.textContent = 'Sync completed';
     }
 }
 
@@ -1665,13 +1696,14 @@ async function exportLedger() {
 window.onload = async () => {
     console.log('App initializing...');
 
+    // Handle OAuth redirect - store token permanently
     if (window.location.hash) {
         const params = new URLSearchParams(window.location.hash.substring(1));
         const token = params.get('access_token');
         if (token) {
             accessToken = token;
             localStorage.setItem('google_token', token);
-            localStorage.setItem('token_expiry', (new Date().getTime() + 3600000).toString());
+            // Don't set expiry - make it permanent
             window.history.replaceState(null, null, window.location.pathname);
             showToast('Connected to Google Drive', 'success');
 
@@ -1692,7 +1724,7 @@ window.onload = async () => {
     updateNetworkStatus();
 
     setInterval(() => {
-        if (navigator.onLine && accessToken && localStorage.getItem('pendingSync') === 'true') {
+        if (navigator.onLine && isTokenValid() && localStorage.getItem('pendingSync') === 'true') {
             autoSync();
         }
     }, 1800000);

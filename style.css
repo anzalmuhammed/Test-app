@@ -1380,3 +1380,114 @@ td {
     grid-template-columns: 1fr;
   }
 }
+
+/* Add these styles to your existing style.css */
+
+/* Service type indicator */
+.service-badge {
+  background: var(--warning);
+  color: black;
+  padding: 2px 6px;
+  border-radius: 4px;
+  font-size: 10px;
+  margin-left: 5px;
+}
+
+/* Print button fix */
+@media print {
+  .modal .modal-actions {
+    display: none !important;
+  }
+}
+
+/* Customer details enhancements */
+.customer-details-content {
+  color: #333;
+}
+
+.customer-info {
+  background: #f5f5f5;
+  padding: 15px;
+  border-radius: 10px;
+  margin-bottom: 20px;
+}
+
+.customer-info p {
+  margin: 8px 0;
+  font-size: 14px;
+}
+
+.customer-summary {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 10px;
+  margin-bottom: 20px;
+}
+
+.summary-box {
+  background: var(--primary);
+  color: white;
+  padding: 15px;
+  border-radius: 10px;
+  text-align: center;
+}
+
+.summary-box .label {
+  font-size: 12px;
+  opacity: 0.9;
+}
+
+.summary-box .value {
+  font-size: 20px;
+  font-weight: 700;
+}
+
+.summary-box:nth-child(2) {
+  background: var(--success);
+}
+
+.summary-box:nth-child(3) {
+  background: var(--danger);
+}
+
+.customer-history {
+  margin-top: 20px;
+}
+
+.customer-history h4 {
+  color: var(--primary);
+  margin-bottom: 10px;
+}
+
+.history-item {
+  background: #f9f9f9;
+  padding: 12px;
+  border-radius: 8px;
+  margin-bottom: 8px;
+  border-left: 4px solid var(--primary);
+}
+
+.history-item .date {
+  font-size: 11px;
+  color: #666;
+}
+
+.history-item .amounts {
+  display: flex;
+  justify-content: space-between;
+  margin-top: 5px;
+  font-size: 13px;
+}
+
+.history-item .total {
+  font-weight: 600;
+}
+
+.history-item .balance {
+  color: var(--danger);
+  font-weight: 600;
+}
+
+.history-item .paid {
+  color: var(--success);
+}
