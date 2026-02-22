@@ -14,9 +14,24 @@ const CLIENT_ID = '265618310384-mvgcqs0j7tk1fvi6k1b902s8batrehmj.apps.googleuser
 const BACKUP_FILE_NAME = 'workshop_backup.json';
 
 // ==================== PERMANENT LOGIN FIX ====================
-// Check if we have a valid token (never expire)
 function isTokenValid() {
     return accessToken && accessToken !== 'null' && accessToken !== 'undefined';
+}
+
+// ==================== UI REFRESH FUNCTION ====================
+async function refreshAllUI() {
+    console.log('Refreshing all UI components...');
+    try {
+        await loadCustomers();
+        await loadInventoryItems();
+        await updateDashboard();
+        await updateInventoryUI();
+        await updateLedgerUI();
+        await updateCustomersUI();
+        console.log('UI refresh complete');
+    } catch (error) {
+        console.error('UI refresh error:', error);
+    }
 }
 
 // ==================== DOUBLE TAP TO EXIT ====================
@@ -696,6 +711,7 @@ document.addEventListener('click', function (e) {
 // ==================== DASHBOARD ====================
 async function updateDashboard() {
     try {
+        console.log('Updating dashboard...');
         const result = await db.allDocs({ include_docs: true });
         let itemsCount = 0, customersCount = 0, lowStock = 0, dueAmount = 0;
         let recentTransactions = [];
@@ -831,6 +847,7 @@ function resetInventoryFilters() {
 
 async function updateInventoryUI() {
     try {
+        console.log('Updating inventory UI...');
         await loadInventoryItems();
         let items = [...inventoryItems];
 
@@ -1252,6 +1269,7 @@ async function saveCustomer() {
 }
 
 async function updateCustomersUI() {
+    console.log('Updating customers UI...');
     await loadCustomers();
     const search = document.getElementById('customer-search')?.value.toLowerCase() || '';
 
@@ -1355,6 +1373,7 @@ function filterTransactionsByDate(transactions, filterType, fromDate, toDate) {
 
 async function updateLedgerUI() {
     try {
+        console.log('Updating ledger UI...');
         const result = await db.allDocs({ include_docs: true });
         let transactions = result.rows
             .map(r => r.doc)
@@ -1527,7 +1546,7 @@ async function handleScanResult(text, type) {
     await stopScanner();
 }
 
-// ==================== GOOGLE DRIVE SYNC (Permanent Login) ====================
+// ==================== GOOGLE DRIVE SYNC ====================
 function handleSync() {
     if (!navigator.onLine) return showToast('No internet', 'error');
 
@@ -1560,8 +1579,10 @@ async function uploadToDrive() {
             headers: { 'Authorization': `Bearer ${accessToken}` }
         });
 
-        // Don't invalidate token on 401 - just continue with local only
-        if (searchRes.status !== 401) {
+        if (searchRes.status === 401) {
+            // Token expired but we keep it - just continue with local
+            console.log('Token expired but continuing with local sync');
+        } else {
             const searchData = await searchRes.json();
             fileId = searchData.files?.[0]?.id;
 
@@ -1597,20 +1618,33 @@ async function uploadToDrive() {
 
         const mergedData = Array.from(mergedMap.values());
 
-        // UPLOAD TO DRIVE (always try, even if 401 happened earlier)
-        const payload = {
-            timestamp: new Date().toISOString(),
-            version: '1.0',
-            data: mergedData
-        };
+        // UPDATE LOCAL DATABASE WITH MERGED DATA
+        for (const doc of mergedData) {
+            try {
+                const existing = await db.get(doc._id).catch(() => null);
+                if (existing) {
+                    doc._rev = existing._rev;
+                }
+                await db.put(doc);
+            } catch (e) {
+                console.log('Error updating doc:', e);
+            }
+        }
 
-        const metadata = { name: BACKUP_FILE_NAME, mimeType: 'application/json' };
-        const boundary = 'foo_bar_baz';
-        const body = `--${boundary}\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n${JSON.stringify(metadata)}\r\n--${boundary}\r\nContent-Type: application/json\r\n\r\n${JSON.stringify(payload)}\r\n--${boundary}--`;
+        // UPLOAD TO DRIVE if we have a valid token
+        if (searchRes.status !== 401) {
+            const payload = {
+                timestamp: new Date().toISOString(),
+                version: '1.0',
+                data: mergedData
+            };
 
-        const url = fileId ? `https://www.googleapis.com/upload/drive/v3/files/${fileId}?uploadType=multipart` : `https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart`;
+            const metadata = { name: BACKUP_FILE_NAME, mimeType: 'application/json' };
+            const boundary = 'foo_bar_baz';
+            const body = `--${boundary}\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n${JSON.stringify(metadata)}\r\n--${boundary}\r\nContent-Type: application/json\r\n\r\n${JSON.stringify(payload)}\r\n--${boundary}--`;
 
-        try {
+            const url = fileId ? `https://www.googleapis.com/upload/drive/v3/files/${fileId}?uploadType=multipart` : `https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart`;
+
             await fetch(url, {
                 method: fileId ? 'PATCH' : 'POST',
                 headers: {
@@ -1619,8 +1653,6 @@ async function uploadToDrive() {
                 },
                 body
             });
-        } catch (uploadError) {
-            console.log('Upload error but continuing:', uploadError);
         }
 
         const time = new Date().toLocaleTimeString();
@@ -1634,17 +1666,16 @@ async function uploadToDrive() {
 
         localStorage.removeItem('pendingSync');
 
-        await loadCustomers();
-        await loadInventoryItems();
-        await updateDashboard();
-        await updateInventoryUI();
-        await updateLedgerUI();
-        await updateCustomersUI();
+        // CRITICAL: Refresh ALL UI after sync
+        await refreshAllUI();
 
     } catch (e) {
         console.error('Sync error:', e);
         showToast('Sync completed locally', 'success');
         if (syncStatusText) syncStatusText.textContent = 'Sync completed';
+
+        // Still refresh UI even if upload fails
+        await refreshAllUI();
     }
 }
 
@@ -1703,23 +1734,19 @@ window.onload = async () => {
         if (token) {
             accessToken = token;
             localStorage.setItem('google_token', token);
-            // Don't set expiry - make it permanent
             window.history.replaceState(null, null, window.location.pathname);
             showToast('Connected to Google Drive', 'success');
 
+            // Wait a moment then sync and refresh UI
             setTimeout(async () => {
                 await uploadToDrive();
+                await refreshAllUI();
             }, 1500);
         }
     }
 
     console.log('Loading initial data...');
-    await loadCustomers();
-    await loadInventoryItems();
-    await updateDashboard();
-    await updateInventoryUI();
-    await updateLedgerUI();
-    await updateCustomersUI();
+    await refreshAllUI();
 
     updateNetworkStatus();
 
