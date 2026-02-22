@@ -13,14 +13,9 @@ let inventoryItems = [];
 const CLIENT_ID = '265618310384-mvgcqs0j7tk1fvi6k1b902s8batrehmj.apps.googleusercontent.com';
 const BACKUP_FILE_NAME = 'workshop_backup.json';
 
-// ==================== PERMANENT LOGIN FIX ====================
-function isTokenValid() {
-    return accessToken && accessToken !== 'null' && accessToken !== 'undefined';
-}
-
 // ==================== UI REFRESH FUNCTION ====================
 async function refreshAllUI() {
-    console.log('Refreshing all UI components...');
+    console.log('🔄 Refreshing all UI components...');
     try {
         await loadCustomers();
         await loadInventoryItems();
@@ -28,10 +23,15 @@ async function refreshAllUI() {
         await updateInventoryUI();
         await updateLedgerUI();
         await updateCustomersUI();
-        console.log('UI refresh complete');
+        console.log('✅ UI refresh complete');
     } catch (error) {
-        console.error('UI refresh error:', error);
+        console.error('❌ UI refresh error:', error);
     }
+}
+
+// ==================== PERMANENT LOGIN ====================
+function isTokenValid() {
+    return accessToken && accessToken !== 'null' && accessToken !== 'undefined';
 }
 
 // ==================== DOUBLE TAP TO EXIT ====================
@@ -646,11 +646,11 @@ async function showCustomerDetails(customer) {
                 <div class="label">Total Spent</div>
                 <div class="value">₹${totalSpent.toFixed(2)}</div>
             </div>
-            <div class="summary-box">
+            <div class="summary-box" style="background: var(--success);">
                 <div class="label">Total Paid</div>
                 <div class="value">₹${totalPaid.toFixed(2)}</div>
             </div>
-            <div class="summary-box">
+            <div class="summary-box" style="background: var(--danger);">
                 <div class="label">Total Due</div>
                 <div class="value">₹${totalDue.toFixed(2)}</div>
             </div>
@@ -1546,32 +1546,34 @@ async function handleScanResult(text, type) {
     await stopScanner();
 }
 
-// ==================== GOOGLE DRIVE SYNC ====================
+// ==================== GOOGLE DRIVE SYNC WITH UI REFRESH ====================
 function handleSync() {
     if (!navigator.onLine) return showToast('No internet', 'error');
 
-    if (!isTokenValid()) {
+    if (!accessToken || accessToken === 'null') {
         const redirectUri = window.location.origin + window.location.pathname;
-        const cleanUri = redirectUri.split('#')[0];
-        window.location.href = `https://accounts.google.com/o/oauth2/v2/auth?client_id=${CLIENT_ID}&redirect_uri=${encodeURIComponent(cleanUri)}&response_type=token&scope=${encodeURIComponent('https://www.googleapis.com/auth/drive.file')}&prompt=consent`;
+        window.location.href = `https://accounts.google.com/o/oauth2/v2/auth?client_id=${CLIENT_ID}&redirect_uri=${encodeURIComponent(redirectUri)}&response_type=token&scope=${encodeURIComponent('https://www.googleapis.com/auth/drive.file')}`;
     } else {
         uploadToDrive();
     }
 }
 
 async function uploadToDrive() {
-    if (!isTokenValid()) return;
+    if (!accessToken) return;
 
-    const syncStatusText = document.getElementById('sync-status-text');
+    const syncText = document.getElementById('sync-status-text');
     const syncIcon = document.querySelector('#sync-status i');
 
     if (syncIcon) syncIcon.className = 'fas fa-sync fa-spin';
-    if (syncStatusText) syncStatusText.textContent = 'Syncing...';
+    if (syncText) syncText.textContent = 'Syncing...';
 
     try {
+        // GET LOCAL DATA
         const localResult = await db.allDocs({ include_docs: true });
         const localData = localResult.rows.map(r => r.doc);
+        console.log('Local data:', localData.length);
 
+        // DOWNLOAD FROM DRIVE
         let cloudData = [];
         let fileId = null;
 
@@ -1580,8 +1582,7 @@ async function uploadToDrive() {
         });
 
         if (searchRes.status === 401) {
-            // Token expired but we keep it - just continue with local
-            console.log('Token expired but continuing with local sync');
+            console.log('Token expired, continuing with local only');
         } else {
             const searchData = await searchRes.json();
             fileId = searchData.files?.[0]?.id;
@@ -1602,23 +1603,12 @@ async function uploadToDrive() {
         cloudData.forEach(doc => mergedMap.set(doc._id, doc));
 
         for (const localDoc of localData) {
-            const cloudDoc = mergedMap.get(localDoc._id);
-
-            if (!cloudDoc) {
-                mergedMap.set(localDoc._id, localDoc);
-            } else {
-                const localTime = new Date(localDoc.updatedAt || 0).getTime();
-                const cloudTime = new Date(cloudDoc.updatedAt || 0).getTime();
-
-                if (localTime >= cloudTime) {
-                    mergedMap.set(localDoc._id, localDoc);
-                }
-            }
+            mergedMap.set(localDoc._id, localDoc);
         }
 
         const mergedData = Array.from(mergedMap.values());
 
-        // UPDATE LOCAL DATABASE WITH MERGED DATA
+        // UPDATE LOCAL DATABASE
         for (const doc of mergedData) {
             try {
                 const existing = await db.get(doc._id).catch(() => null);
@@ -1627,55 +1617,40 @@ async function uploadToDrive() {
                 }
                 await db.put(doc);
             } catch (e) {
-                console.log('Error updating doc:', e);
+                console.log('Error saving doc:', e);
             }
         }
 
-        // UPLOAD TO DRIVE if we have a valid token
-        if (searchRes.status !== 401) {
-            const payload = {
-                timestamp: new Date().toISOString(),
-                version: '1.0',
-                data: mergedData
-            };
+        // UPLOAD TO DRIVE
+        const payload = { data: mergedData };
+        const metadata = { name: BACKUP_FILE_NAME, mimeType: 'application/json' };
+        const boundary = 'foo_bar_baz';
+        const body = `--${boundary}\r\nContent-Type: application/json\r\n\r\n${JSON.stringify(metadata)}\r\n--${boundary}\r\nContent-Type: application/json\r\n\r\n${JSON.stringify(payload)}\r\n--${boundary}--`;
 
-            const metadata = { name: BACKUP_FILE_NAME, mimeType: 'application/json' };
-            const boundary = 'foo_bar_baz';
-            const body = `--${boundary}\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n${JSON.stringify(metadata)}\r\n--${boundary}\r\nContent-Type: application/json\r\n\r\n${JSON.stringify(payload)}\r\n--${boundary}--`;
+        const url = fileId ? `https://www.googleapis.com/upload/drive/v3/files/${fileId}?uploadType=multipart` : `https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart`;
 
-            const url = fileId ? `https://www.googleapis.com/upload/drive/v3/files/${fileId}?uploadType=multipart` : `https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart`;
-
-            await fetch(url, {
-                method: fileId ? 'PATCH' : 'POST',
-                headers: {
-                    'Authorization': `Bearer ${accessToken}`,
-                    'Content-Type': `multipart/related; boundary=${boundary}`
-                },
-                body
-            });
-        }
+        await fetch(url, {
+            method: fileId ? 'PATCH' : 'POST',
+            headers: { 'Authorization': `Bearer ${accessToken}`, 'Content-Type': `multipart/related; boundary=${boundary}` },
+            body
+        });
 
         const time = new Date().toLocaleTimeString();
         if (syncIcon) {
             syncIcon.className = 'fas fa-check-circle';
             syncIcon.style.color = '#10b981';
         }
-        if (syncStatusText) syncStatusText.textContent = `Synced at ${time}`;
+        if (syncText) syncText.textContent = `Synced at ${time}`;
 
-        showToast('Sync complete', 'success');
+        showToast('Sync complete!', 'success');
 
-        localStorage.removeItem('pendingSync');
-
-        // CRITICAL: Refresh ALL UI after sync
+        // CRITICAL: Refresh all UI after sync
         await refreshAllUI();
 
     } catch (e) {
         console.error('Sync error:', e);
-        showToast('Sync completed locally', 'success');
-        if (syncStatusText) syncStatusText.textContent = 'Sync completed';
-
-        // Still refresh UI even if upload fails
-        await refreshAllUI();
+        showToast('Sync failed', 'error');
+        if (syncText) syncText.textContent = 'Sync failed';
     }
 }
 
@@ -1727,7 +1702,7 @@ async function exportLedger() {
 window.onload = async () => {
     console.log('App initializing...');
 
-    // Handle OAuth redirect - store token permanently
+    // Handle OAuth redirect
     if (window.location.hash) {
         const params = new URLSearchParams(window.location.hash.substring(1));
         const token = params.get('access_token');
@@ -1737,7 +1712,7 @@ window.onload = async () => {
             window.history.replaceState(null, null, window.location.pathname);
             showToast('Connected to Google Drive', 'success');
 
-            // Wait a moment then sync and refresh UI
+            // Sync and refresh UI after login
             setTimeout(async () => {
                 await uploadToDrive();
                 await refreshAllUI();
@@ -1745,13 +1720,13 @@ window.onload = async () => {
         }
     }
 
-    console.log('Loading initial data...');
+    // Initial data load
     await refreshAllUI();
 
     updateNetworkStatus();
 
     setInterval(() => {
-        if (navigator.onLine && isTokenValid() && localStorage.getItem('pendingSync') === 'true') {
+        if (navigator.onLine && accessToken && localStorage.getItem('pendingSync') === 'true') {
             autoSync();
         }
     }, 1800000);
