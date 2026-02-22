@@ -138,8 +138,8 @@
             </div>
 
             <div class="form-group">
-                <label><i class="fas fa-tag"></i> Part / Service Name</label>
-                <input type="text" id="part-name" placeholder="Enter name" readonly>
+                <label><i class="fas fa-tag"></i> Part Name</label>
+                <input type="text" id="part-name" placeholder="Enter part name" readonly>
             </div>
 
             <div class="form-row">
@@ -166,14 +166,13 @@
                     <option value="engine">Engine</option>
                     <option value="electrical">Electrical</option>
                     <option value="body">Body Parts</option>
-                    <option value="service">Service</option>
                 </select>
             </div>
 
             <div class="form-row">
                 <div class="form-group half">
                     <label><i class="fas fa-map-marker-alt"></i> Location</label>
-                    <input type="text" id="part-location" placeholder="Shelf / Rack (for parts)">
+                    <input type="text" id="part-location" placeholder="Shelf / Rack">
                 </div>
 
                 <div class="form-group half">
@@ -183,12 +182,12 @@
             </div>
 
             <button onclick="savePart()" class="action-btn save">
-                <i class="fas fa-save"></i> Save Stock / Service
+                <i class="fas fa-save"></i> Save Stock
             </button>
         </section>
     </div>
 
-    <!-- Quick Bill Screen with Item & Service Search -->
+    <!-- Quick Bill Screen with Item Search -->
     <div id="quick-bill-screen" class="screen">
         <button class="back-menu-btn" onclick="goToDashboard()">
             <i class="fas fa-arrow-left"></i> Back to Dashboard
@@ -235,22 +234,6 @@
                     style="text-transform:uppercase;" oninput="this.value = this.value.toUpperCase()" readonly>
             </div>
 
-            <!-- Item/Service Type Toggle -->
-            <div class="form-row">
-                <div class="form-group half">
-                    <label><i class="fas fa-box"></i> Item Type</label>
-                    <select id="item-type-select" onchange="toggleItemType()">
-                        <option value="part">Part / Product</option>
-                        <option value="service">Service</option>
-                    </select>
-                </div>
-                <div class="form-group half">
-                    <label>&nbsp;</label>
-                    <button onclick="addNewService()" class="action-btn small" style="background: var(--success);">+ New
-                        Service</button>
-                </div>
-            </div>
-
             <div class="form-group" style="position: relative;">
                 <label><i class="fas fa-barcode"></i> Barcode / Search Item</label>
                 <input type="text" id="bill-item-id" placeholder="Scan or type to search items"
@@ -259,8 +242,8 @@
             </div>
 
             <div class="form-group">
-                <label><i class="fas fa-box"></i> Item / Service Name</label>
-                <input type="text" id="bill-desc" placeholder="Description" readonly>
+                <label><i class="fas fa-box"></i> Item Name</label>
+                <input type="text" id="bill-desc" placeholder="Item description" readonly>
             </div>
 
             <div class="form-row">
@@ -289,7 +272,7 @@
                 <table>
                     <thead>
                         <tr>
-                            <th>Item/Service</th>
+                            <th>Item</th>
                             <th>Qty</th>
                             <th>Price</th>
                             <th>Total</th>
@@ -351,34 +334,7 @@
         </section>
     </div>
 
-    <!-- Add Service Modal -->
-    <div id="add-service-modal" class="modal">
-        <div class="modal-content glass-card">
-            <h3><i class="fas fa-wrench"></i> Add New Service</h3>
-
-            <div class="form-group">
-                <label><i class="fas fa-tag"></i> Service Name</label>
-                <input type="text" id="new-service-name" placeholder="Enter service name">
-            </div>
-
-            <div class="form-group">
-                <label><i class="fas fa-rupee-sign"></i> Price (₹)</label>
-                <input type="number" id="new-service-price" placeholder="0.00" step="0.01" min="0">
-            </div>
-
-            <div class="form-group">
-                <label><i class="fas fa-align-left"></i> Description (Optional)</label>
-                <textarea id="new-service-desc" placeholder="Service description" rows="2"></textarea>
-            </div>
-
-            <div class="modal-actions">
-                <button onclick="saveNewService()" class="action-btn save">Save Service</button>
-                <button onclick="closeServiceModal()" class="action-btn cancel">Cancel</button>
-            </div>
-        </div>
-    </div>
-
-    <!-- Reports Screen (Stock List) -->
+    <!-- Reports Screen (Stock List) with Search -->
     <div id="stock-list-screen" class="screen">
         <button class="back-menu-btn" onclick="goToDashboard()">
             <i class="fas fa-arrow-left"></i> Back to Dashboard
@@ -413,7 +369,6 @@
                         <option value="engine">Engine</option>
                         <option value="electrical">Electrical</option>
                         <option value="body">Body Parts</option>
-                        <option value="service">Services</option>
                     </select>
                 </div>
                 <div class="form-group half">
@@ -455,7 +410,7 @@
                 <table class="inventory-table">
                     <thead>
                         <tr>
-                            <th>Item/Service</th>
+                            <th>Item</th>
                             <th>In</th>
                             <th>Sold</th>
                             <th>Left</th>
@@ -603,7 +558,7 @@
         </div>
     </div>
 
-    <!-- Add Customer Modal -->
+    <!-- Add Customer Modal (with Vehicle Registration - Uppercase & Mobile Validation) -->
     <div id="customer-modal" class="modal">
         <div class="modal-content glass-card">
             <h3><i class="fas fa-user-plus"></i> Add Customer</h3>
@@ -647,7 +602,7 @@
         </div>
     </div>
 
-    <!-- Bill Preview Modal -->
+    <!-- Bill Preview Modal with Footer -->
     <div id="bill-preview-modal" class="modal">
         <div class="modal-content glass-card">
             <div class="modal-header">
@@ -656,7 +611,7 @@
             </div>
             <div class="modal-body" id="bill-preview-content"></div>
             <div class="modal-actions">
-                <button onclick="window.print()" class="action-btn print">
+                <button onclick="printBill()" class="action-btn print">
                     <i class="fas fa-print"></i> Print
                 </button>
                 <button onclick="downloadBillPDF()" class="action-btn download">
