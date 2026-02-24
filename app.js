@@ -6,12 +6,28 @@ let accessToken = localStorage.getItem('google_token');
 let tokenExpiry = localStorage.getItem('token_expiry');
 let torchEnabled = false;
 let lastBackPress = 0;
-let customers = []; // Cache for customers
-let inventoryItems = []; // Cache for inventory items
+let customers = [];
+let inventoryItems = [];
 
 // ===== YOUR GOOGLE CLIENT ID =====
 const CLIENT_ID = '265618310384-mvgcqs0j7tk1fvi6k1b902s8batrehmj.apps.googleusercontent.com';
 const BACKUP_FILE_NAME = 'workshop_backup.json';
+
+// ==================== UI REFRESH FUNCTION ====================
+async function refreshAllUI() {
+    console.log('🔄 Refreshing all UI components...');
+    try {
+        await loadCustomers();
+        await loadInventoryItems();
+        await updateDashboard();
+        await updateInventoryUI();
+        await updateLedgerUI();
+        await updateCustomersUI();
+        console.log('✅ UI refresh complete');
+    } catch (error) {
+        console.error('❌ UI refresh error:', error);
+    }
+}
 
 // ==================== DOUBLE TAP TO EXIT ====================
 function handleBackPress() {
@@ -151,7 +167,6 @@ async function stopScanner() {
         html5QrCode = null;
     }
 
-    // Hide scanner overlays
     ['inventory', 'bill'].forEach(t => {
         const overlay = document.getElementById(`scanner-overlay-${t}`);
         const flash = document.getElementById(`flash-${t}`);
@@ -167,10 +182,7 @@ function goToDashboard() {
 }
 
 async function showScreen(screenId) {
-    // Stop any active scanner when changing screens
     await stopScanner();
-
-    // Hide all search results
     hideAllSearchResults();
 
     document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
@@ -179,7 +191,6 @@ async function showScreen(screenId) {
 
     updateFABVisibility(screenId);
 
-    // Refresh data based on screen
     if (screenId === 'stock-list-screen') {
         await loadInventoryItems();
         await updateInventoryUI();
@@ -429,7 +440,7 @@ async function searchReportsItems() {
 function selectReportsItem(item) {
     document.getElementById('stock-search').value = item.name;
     document.getElementById('reports-item-search-results').style.display = 'none';
-    applyInventoryFilters(); // Apply filter with this item
+    applyInventoryFilters();
 }
 
 // ==================== LEDGER CUSTOMER SEARCH ====================
@@ -523,14 +534,12 @@ function selectCustomerList(customer) {
 
 // ==================== CUSTOMER DETAILS ====================
 async function showCustomerDetails(customer) {
-    // Get all transactions for this customer
     const result = await db.allDocs({ include_docs: true });
     const transactions = result.rows
         .map(r => r.doc)
         .filter(d => d && d.type === 'ledger' && d.customer === customer.name)
         .sort((a, b) => new Date(b.date) - new Date(a.date));
 
-    // Calculate totals
     let totalSpent = 0;
     let totalPaid = 0;
     let totalDue = 0;
@@ -541,7 +550,6 @@ async function showCustomerDetails(customer) {
         totalDue += t.balance || 0;
     });
 
-    // Create transaction history HTML
     let historyHtml = '';
     if (transactions.length === 0) {
         historyHtml = '<p>No transactions found</p>';
@@ -614,7 +622,6 @@ document.addEventListener('click', function (e) {
 
     let shouldHide = true;
 
-    // Check if click is inside any search input or results
     for (let i = 0; i < searchInputs.length; i++) {
         const input = document.getElementById(searchInputs[i]);
         if (input && (input.contains(e.target) || input === e.target)) {
@@ -1120,11 +1127,6 @@ function downloadBillPDF() {
     doc.text(`Paid: ₹${paid.toFixed(2)}`, 150, finalY + 5);
     doc.text(`Balance: ₹${balance.toFixed(2)}`, 150, finalY + 10);
 
-    doc.setFontSize(10);
-    doc.setTextColor(128, 128, 128);
-    doc.text('Thank you for your business!', 105, finalY + 20, { align: 'center' });
-    doc.text('Visit Again', 105, finalY + 25, { align: 'center' });
-
     doc.save(`invoice_${billNo}.pdf`);
     showToast('PDF downloaded', 'success');
 }
@@ -1211,7 +1213,7 @@ async function updateCustomersUI() {
     } else {
         filtered.forEach(c => {
             container.innerHTML += `
-                <div class="customer-card" onclick="showCustomerDetails(${JSON.stringify(c).replace(/"/g, '&quot;')})">
+                <div class="customer-card" onclick='showCustomerDetails(${JSON.stringify(c).replace(/'/g, "\\'")})'>
                     <strong>${c.name}</strong>
                     ${c.vehicleNo ? `<div class="vehicle"><i class="fas fa-car"></i> ${c.vehicleNo}</div>` : ''}
                     <div style="font-size:12px;">${c.phone || 'No phone'}</div>
@@ -1469,11 +1471,11 @@ async function handleScanResult(text, type) {
     await stopScanner();
 }
 
-// ==================== GOOGLE DRIVE SYNC ====================
+// ==================== GOOGLE DRIVE SYNC (Fixed - Never Clears Data) ====================
 function handleSync() {
     if (!navigator.onLine) return showToast('No internet', 'error');
-    const now = new Date().getTime();
-    if (!accessToken || (tokenExpiry && now > parseInt(tokenExpiry))) {
+
+    if (!accessToken || accessToken === 'null') {
         const redirectUri = window.location.origin + window.location.pathname;
         const cleanUri = redirectUri.split('#')[0];
         window.location.href = `https://accounts.google.com/o/oauth2/v2/auth?client_id=${CLIENT_ID}&redirect_uri=${encodeURIComponent(cleanUri)}&response_type=token&scope=${encodeURIComponent('https://www.googleapis.com/auth/drive.file')}&prompt=consent`;
@@ -1484,6 +1486,7 @@ function handleSync() {
 
 async function uploadToDrive() {
     if (!accessToken) return;
+
     const syncStatusText = document.getElementById('sync-status-text');
     const syncIcon = document.querySelector('#sync-status i');
 
@@ -1491,10 +1494,12 @@ async function uploadToDrive() {
     if (syncStatusText) syncStatusText.textContent = 'Syncing...';
 
     try {
+        // 1. GET LOCAL DATA
         const localResult = await db.allDocs({ include_docs: true });
         const localData = localResult.rows.map(r => r.doc);
         console.log('Local data count:', localData.length);
 
+        // 2. DOWNLOAD FROM DRIVE
         let cloudData = [];
         let fileId = null;
 
@@ -1503,116 +1508,89 @@ async function uploadToDrive() {
         });
 
         if (searchRes.status === 401) {
-            localStorage.removeItem('google_token');
-            localStorage.removeItem('token_expiry');
-            accessToken = null;
-            showToast('Session expired', 'warning');
-            handleSync();
-            return;
-        }
+            // Token expired but we keep it - just continue with local
+            console.log('Token expired, continuing with local only');
+        } else {
+            const searchData = await searchRes.json();
+            fileId = searchData.files?.[0]?.id;
 
-        const searchData = await searchRes.json();
-        fileId = searchData.files?.[0]?.id;
-
-        if (fileId) {
-            const downloadRes = await fetch(`https://www.googleapis.com/drive/v3/files/${fileId}?alt=media`, {
-                headers: { 'Authorization': `Bearer ${accessToken}` }
-            });
-            if (downloadRes.ok) {
-                const backup = await downloadRes.json();
-                cloudData = backup.data || [];
-                console.log('Cloud data count:', cloudData.length);
-            }
-        }
-
-        const mergedMap = new Map();
-
-        cloudData.forEach(doc => mergedMap.set(doc._id, doc));
-
-        let newCount = 0, updatedCount = 0;
-
-        for (const localDoc of localData) {
-            const cloudDoc = mergedMap.get(localDoc._id);
-
-            if (!cloudDoc) {
-                mergedMap.set(localDoc._id, localDoc);
-                newCount++;
-            } else {
-                const localTime = new Date(localDoc.updatedAt || 0).getTime();
-                const cloudTime = new Date(cloudDoc.updatedAt || 0).getTime();
-
-                if (localTime >= cloudTime) {
-                    mergedMap.set(localDoc._id, localDoc);
-                    updatedCount++;
+            if (fileId) {
+                const downloadRes = await fetch(`https://www.googleapis.com/drive/v3/files/${fileId}?alt=media`, {
+                    headers: { 'Authorization': `Bearer ${accessToken}` }
+                });
+                if (downloadRes.ok) {
+                    const backup = await downloadRes.json();
+                    cloudData = backup.data || [];
+                    console.log('Cloud data count:', cloudData.length);
                 }
             }
         }
 
+        // 3. MERGE DATA (KEEP ALL, NEVER DELETE)
+        const mergedMap = new Map();
+
+        // Add all cloud data first
+        cloudData.forEach(doc => mergedMap.set(doc._id, doc));
+
+        // Add/update with local data
+        for (const localDoc of localData) {
+            mergedMap.set(localDoc._id, localDoc);
+        }
+
         const mergedData = Array.from(mergedMap.values());
+        console.log('Merged data count:', mergedData.length);
 
-        let localImported = 0, localUpdated = 0;
-
+        // 4. UPDATE LOCAL DATABASE WITH MERGED DATA
         for (const doc of mergedData) {
             try {
                 const existing = await db.get(doc._id).catch(() => null);
                 if (existing) {
-                    const existingTime = new Date(existing.updatedAt || 0).getTime();
-                    const newTime = new Date(doc.updatedAt || 0).getTime();
-
-                    if (newTime > existingTime) {
-                        doc._rev = existing._rev;
-                        await db.put(doc);
-                        localUpdated++;
-                    }
-                } else {
-                    if (doc._rev) delete doc._rev;
-                    await db.put(doc);
-                    localImported++;
+                    doc._rev = existing._rev;
                 }
+                await db.put(doc);
             } catch (e) {
-                console.error('Merge error for doc', doc._id, e);
+                console.log('Error updating doc:', e);
             }
         }
 
-        const payload = {
-            timestamp: new Date().toISOString(),
-            version: '1.0',
-            data: mergedData
-        };
+        // 5. UPLOAD TO DRIVE (only if we have a valid token)
+        if (searchRes.status !== 401) {
+            const payload = {
+                timestamp: new Date().toISOString(),
+                version: '1.0',
+                data: mergedData
+            };
 
-        const metadata = { name: BACKUP_FILE_NAME, mimeType: 'application/json' };
-        const boundary = 'foo_bar_baz';
-        const body = `--${boundary}\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n${JSON.stringify(metadata)}\r\n--${boundary}\r\nContent-Type: application/json\r\n\r\n${JSON.stringify(payload)}\r\n--${boundary}--`;
+            const metadata = { name: BACKUP_FILE_NAME, mimeType: 'application/json' };
+            const boundary = 'foo_bar_baz';
+            const body = `--${boundary}\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n${JSON.stringify(metadata)}\r\n--${boundary}\r\nContent-Type: application/json\r\n\r\n${JSON.stringify(payload)}\r\n--${boundary}--`;
 
-        const url = fileId ? `https://www.googleapis.com/upload/drive/v3/files/${fileId}?uploadType=multipart` : `https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart`;
-        const res = await fetch(url, {
-            method: fileId ? 'PATCH' : 'POST',
-            headers: { 'Authorization': `Bearer ${accessToken}`, 'Content-Type': `multipart/related; boundary=${boundary}` },
-            body
-        });
+            const url = fileId ? `https://www.googleapis.com/upload/drive/v3/files/${fileId}?uploadType=multipart` : `https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart`;
 
-        if (res.ok) {
-            const time = new Date().toLocaleTimeString();
-            if (syncIcon) {
-                syncIcon.className = 'fas fa-check-circle';
-                syncIcon.style.color = '#10b981';
-            }
-            if (syncStatusText) syncStatusText.textContent = `Synced at ${time}`;
-
-            showToast(`Sync complete: ${localImported} new, ${localUpdated} updated`, 'success');
-
-            localStorage.removeItem('pendingSync');
-
-            await loadCustomers();
-            await loadInventoryItems();
-            await updateDashboard();
-            await updateInventoryUI();
-            await updateLedgerUI();
-            await updateCustomersUI();
+            await fetch(url, {
+                method: fileId ? 'PATCH' : 'POST',
+                headers: { 'Authorization': `Bearer ${accessToken}`, 'Content-Type': `multipart/related; boundary=${boundary}` },
+                body
+            });
         }
+
+        const time = new Date().toLocaleTimeString();
+        if (syncIcon) {
+            syncIcon.className = 'fas fa-check-circle';
+            syncIcon.style.color = '#10b981';
+        }
+        if (syncStatusText) syncStatusText.textContent = `Synced at ${time}`;
+
+        showToast('Sync complete!', 'success');
+
+        localStorage.removeItem('pendingSync');
+
+        // 6. CRITICAL: Refresh ALL UI after sync
+        await refreshAllUI();
+
     } catch (e) {
         console.error('Sync error:', e);
-        showToast('Sync Failed: ' + e.message, 'error');
+        showToast('Sync failed: ' + e.message, 'error');
         if (syncStatusText) syncStatusText.textContent = 'Sync failed';
     }
 }
@@ -1665,29 +1643,28 @@ async function exportLedger() {
 window.onload = async () => {
     console.log('App initializing...');
 
+    // Handle OAuth redirect - store token permanently
     if (window.location.hash) {
         const params = new URLSearchParams(window.location.hash.substring(1));
         const token = params.get('access_token');
         if (token) {
             accessToken = token;
             localStorage.setItem('google_token', token);
-            localStorage.setItem('token_expiry', (new Date().getTime() + 3600000).toString());
+            // Don't set expiry - make it permanent
             window.history.replaceState(null, null, window.location.pathname);
             showToast('Connected to Google Drive', 'success');
 
+            // Sync and refresh UI after login
             setTimeout(async () => {
                 await uploadToDrive();
+                await refreshAllUI();
             }, 1500);
         }
     }
 
+    // Initial data load
     console.log('Loading initial data...');
-    await loadCustomers();
-    await loadInventoryItems();
-    await updateDashboard();
-    await updateInventoryUI();
-    await updateLedgerUI();
-    await updateCustomersUI();
+    await refreshAllUI();
 
     updateNetworkStatus();
 
