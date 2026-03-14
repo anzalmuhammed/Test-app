@@ -1470,7 +1470,7 @@ async function handleScanResult(text, type) {
     await stopScanner();
 }
 
-// ==================== GOOGLE DRIVE SYNC (FIXED - NO CONFLICTS) ====================
+// ==================== GOOGLE DRIVE SYNC (FIXED - FORCES UPDATE) ====================
 function handleSync() {
     if (!navigator.onLine) return showToast('No internet', 'error');
 
@@ -1524,53 +1524,76 @@ async function uploadToDrive() {
             }
         }
 
-        // 3. CREATE MAP OF ALL DOCUMENTS (CLOUD WINS IF NEWER)
-        const mergedMap = new Map();
+        // 3. IF LOCAL IS EMPTY, JUST USE ALL CLOUD DATA
+        let mergedData = [];
 
-        // Add local data first
-        localData.forEach(doc => mergedMap.set(doc._id, doc));
+        if (localData.length === 0 && cloudData.length > 0) {
+            console.log('Local empty, using all cloud data');
+            mergedData = cloudData;
+        } else {
+            // Merge with timestamp comparison
+            const mergedMap = new Map();
 
-        // Add cloud data (will overwrite local if newer)
-        cloudData.forEach(cloudDoc => {
-            const localDoc = mergedMap.get(cloudDoc._id);
-            if (!localDoc) {
-                mergedMap.set(cloudDoc._id, cloudDoc);
-            } else {
-                const cloudTime = new Date(cloudDoc.updatedAt || 0).getTime();
-                const localTime = new Date(localDoc.updatedAt || 0).getTime();
-                if (cloudTime > localTime) {
+            // Add local data first
+            localData.forEach(doc => mergedMap.set(doc._id, doc));
+
+            // Add cloud data (will overwrite local if newer)
+            cloudData.forEach(cloudDoc => {
+                const localDoc = mergedMap.get(cloudDoc._id);
+                if (!localDoc) {
                     mergedMap.set(cloudDoc._id, cloudDoc);
+                } else {
+                    const cloudTime = new Date(cloudDoc.updatedAt || 0).getTime();
+                    const localTime = new Date(localDoc.updatedAt || 0).getTime();
+                    if (cloudTime > localTime) {
+                        mergedMap.set(cloudDoc._id, cloudDoc);
+                    }
                 }
-            }
-        });
+            });
 
-        const mergedData = Array.from(mergedMap.values());
+            mergedData = Array.from(mergedMap.values());
+        }
+
         console.log('Merged data count:', mergedData.length);
 
-        // 4. UPDATE LOCAL DATABASE (BULK OPERATION TO AVOID CONFLICTS)
-        for (const doc of mergedData) {
-            try {
-                // Try to get existing document
-                const existing = await db.get(doc._id).catch(() => null);
+        // 4. CLEAR AND REPOPULATE LOCAL DATABASE IF EMPTY
+        if (localData.length === 0 && mergedData.length > 0) {
+            console.log('Populating empty database with cloud data');
 
-                if (existing) {
-                    // Only update if cloud version is newer
-                    const cloudTime = new Date(doc.updatedAt || 0).getTime();
-                    const existingTime = new Date(existing.updatedAt || 0).getTime();
-
-                    if (cloudTime > existingTime) {
-                        doc._rev = existing._rev;
-                        await db.put(doc);
-                        console.log('Updated:', doc._id);
-                    }
-                } else {
-                    // New document - just add it
+            // Add all documents without revision conflicts
+            for (const doc of mergedData) {
+                try {
+                    // Remove any _rev field to treat as new document
+                    if (doc._rev) delete doc._rev;
                     await db.put(doc);
                     console.log('Added:', doc._id);
+                } catch (e) {
+                    console.log('Error adding:', doc._id, e);
                 }
-            } catch (e) {
-                console.log('Skipped (conflict):', doc._id);
-                // Skip conflicts - local version is fine
+            }
+        } else {
+            // Normal merge with conflict resolution
+            for (const doc of mergedData) {
+                try {
+                    const existing = await db.get(doc._id).catch(() => null);
+
+                    if (existing) {
+                        const cloudTime = new Date(doc.updatedAt || 0).getTime();
+                        const existingTime = new Date(existing.updatedAt || 0).getTime();
+
+                        if (cloudTime > existingTime) {
+                            doc._rev = existing._rev;
+                            await db.put(doc);
+                            console.log('Updated:', doc._id);
+                        }
+                    } else {
+                        if (doc._rev) delete doc._rev;
+                        await db.put(doc);
+                        console.log('Added:', doc._id);
+                    }
+                } catch (e) {
+                    console.log('Skipped (conflict):', doc._id);
+                }
             }
         }
 
