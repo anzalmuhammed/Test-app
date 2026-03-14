@@ -712,6 +712,9 @@ async function savePart() {
             doc.totalIn = (doc.totalIn || 0) + qty;
             doc.price = price;
             doc.name = name;
+            doc.category = document.getElementById('part-category')?.value || 'general';
+            doc.location = document.getElementById('part-location')?.value || '';
+            doc.minStock = parseInt(document.getElementById('part-min-stock')?.value) || 5;
         } catch (e) {
             doc = {
                 _id: id,
@@ -730,6 +733,7 @@ async function savePart() {
         await db.put(doc);
         showToast('Stock saved!', 'success');
 
+        // Clear form
         document.getElementById('part-id').value = '';
         document.getElementById('part-name').value = '';
         document.getElementById('part-price').value = '';
@@ -743,7 +747,7 @@ async function savePart() {
         await updateDashboard();
         await autoSync();
     } catch (error) {
-        showToast('Save failed', 'error');
+        showToast('Save failed: ' + error.message, 'error');
     }
 }
 
