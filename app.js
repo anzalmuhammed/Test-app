@@ -1,941 +1,1682 @@
-/**
- * Workshop Manager Pro - Production PWA App
- * 100/100 Lighthouse | Offline-First | Barcode Scanner | PDF Bills
- * Version: 2.1.0 | Bundle: 18KB gzipped
- */
-
-'use strict';
-
-// ==================== PWA SERVICE WORKER (100/100 PWA) ====================
-if ('serviceWorker' in navigator && 'PushManager' in window) {
-    window.addEventListener('load', () => {
-        navigator.serviceWorker.register('/sw.js', { scope: '/' })
-            .then(registration => {
-                console.log('✅ PWA Service Worker: Active');
-                // Background sync registration
-                if ('sync' in registration) {
-                    registration.sync.register('workshop-sync');
-                }
-            })
-            .catch(error => {
-                console.warn('⚠️ Service Worker registration failed:', error);
-            });
-    });
-}
-
-// ==================== INSTALL PROMPT (90% Conversion Rate) ====================
-let deferredPrompt;
-window.addEventListener('beforeinstallprompt', (e) => {
-    e.preventDefault();
-    deferredPrompt = e;
-    // Only show after good engagement (2nd visit, 30s+)
-    if (performance.getEntriesByType('navigation')[0].type !== 'back_forward') {
-        setTimeout(showInstallPromotion, 2000);
-    }
-});
-
-function showInstallPromotion() {
-    if (!deferredPrompt || window.matchMedia('(display-mode: standalone)').matches) return;
-
-    const btn = document.createElement('button');
-    btn.id = 'install-btn';
-    btn.innerHTML = '<i class="fas fa-download"></i> Install App';
-    btn.className = 'action-btn install-btn';
-    btn.setAttribute('aria-label', 'Install Workshop Manager Pro to home screen');
-    btn.onclick = installPWA;
-
-    document.getElementById('install-prompt').appendChild(btn);
-
-    // Auto-hide after 10s or on install
-    setTimeout(() => {
-        const btn = document.getElementById('install-btn');
-        if (btn) btn.remove();
-    }, 10000);
-}
-
-async function installPWA() {
-    if (!deferredPrompt) return;
-
-    deferredPrompt.prompt();
-    const { outcome } = await deferredPrompt.userChoice;
-
-    if (outcome === 'accepted') {
-        console.log('🎉 PWA Installed!');
-        showToast('Workshop Pro installed on home screen! 📱', 'success');
-        document.getElementById('install-btn')?.remove();
-        localStorage.setItem('pwa-installed', 'true');
-        deferredPrompt = null;
-    }
-}
-
-// App installed event
-window.addEventListener('appinstalled', () => {
-    console.log('🏠 PWA Successfully Installed');
-    localStorage.setItem('pwa-installed', 'true');
-});
-
-// ==================== DATABASE (PouchDB - Offline-First) ====================
-const DB_NAME = 'workshop_pro_v2';
-const db = new PouchDB(DB_NAME);
-
-// App State
-let appState = {
-    items: [],
-    customers: [],
-    bills: [],
-    currentBill: { items: [], total: 0 },
-    isOnline: navigator.onLine,
-    lastSync: null
-};
-
+// ==================== DATABASE INIT ====================
+const db = new PouchDB('workshop_db');
 let html5QrCode = null;
+let currentBillItems = [];
+let accessToken = localStorage.getItem('google_token');
+let tokenExpiry = localStorage.getItem('token_expiry');
+let torchEnabled = false;
+let lastBackPress = 0;
+let customers = [];
+let inventoryItems = [];
 
-// ==================== INIT & LIFECYCLE ====================
-async function initApp() {
-    console.log('🚀 Workshop Manager Pro v2.1.0 initializing...');
+// ===== YOUR GOOGLE CLIENT ID =====
+const CLIENT_ID = '265618310384-mvgcqs0j7tk1fvi6k1b902s8batrehmj.apps.googleusercontent.com';
+const BACKUP_FILE_NAME = 'workshop_backup.json';
 
+// ==================== UI REFRESH FUNCTION ====================
+async function refreshAllUI() {
+    console.log('🔄 Refreshing all UI components...');
     try {
-        // Migrate old DB if exists
-        await migrateDatabase();
-
-        // Load all data
-        await loadAllData();
-
-        // Setup UI
-        updateDashboard();
-        updateNetworkStatus();
-        setupEventListeners();
-
-        // Periodic sync
-        setupPeriodicSync();
-
-        console.log('✅ App initialized - Ready for offline use');
-        showToast('Workshop Pro ready! Works offline 📱', 'success');
-
+        await loadCustomers();
+        await loadInventoryItems();
+        await updateDashboard();
+        await updateInventoryUI();
+        await updateLedgerUI();
+        await updateCustomersUI();
+        console.log('✅ UI refresh complete');
     } catch (error) {
-        console.error('❌ App init failed:', error);
-        showToast('App loaded (offline mode)', 'info');
+        console.error('❌ UI refresh error:', error);
     }
 }
 
-// Migrate from old DB versions
-async function migrateDatabase() {
-    try {
-        const info = await db.info();
-        if (info.doc_count === 0) {
-            // First run - create demo data
-            await createDemoData();
+// ==================== DOUBLE TAP TO EXIT ====================
+function handleBackPress() {
+    const now = new Date().getTime();
+    if (now - lastBackPress < 2000) {
+        if (window.matchMedia('(display-mode: standalone)').matches) {
+            showToast('Exiting app...', 'info');
+            setTimeout(() => { window.close(); }, 500);
+        } else {
+            showToast('Double tap again to exit', 'warning');
         }
-    } catch (e) {
-        console.log('New database created');
+    } else {
+        lastBackPress = now;
+        const indicator = document.createElement('div');
+        indicator.className = 'exit-indicator';
+        indicator.textContent = 'Tap again to exit';
+        document.body.appendChild(indicator);
+        setTimeout(() => { if (indicator.parentNode) indicator.remove(); }, 2000);
     }
 }
 
-async function createDemoData() {
-    const demoItems = [
-        {
-            _id: 'brake-pad',
-            type: 'item',
-            name: 'Brake Pads (Set)',
-            price: 850,
-            stock: 12,
-            category: 'brake',
-            date: new Date().toISOString()
-        },
-        {
-            _id: 'oil-filter',
-            type: 'item',
-            name: 'Oil Filter',
-            price: 250,
-            stock: 25,
-            category: 'engine',
-            date: new Date().toISOString()
-        }
-    ];
-
-    for (const item of demoItems) {
-        await db.put(item);
-    }
-
-    console.log('📦 Demo data created');
-}
-
-// ==================== DATA OPERATIONS (Atomic & Offline-Safe) ====================
-async function loadAllData() {
-    try {
-        const allDocs = await db.allDocs({
-            include_docs: true,
-            attachments: false
-        });
-
-        appState.items = allDocs.rows
-            .map(row => row.doc)
-            .filter(doc => doc.type === 'item')
-            .sort((a, b) => new Date(b.date) - new Date(a.date));
-
-        appState.customers = allDocs.rows
-            .map(row => row.doc)
-            .filter(doc => doc.type === 'customer');
-
-        appState.bills = allDocs.rows
-            .map(row => row.doc)
-            .filter(doc => doc.type === 'bill')
-            .sort((a, b) => new Date(b.date) - new Date(a.date));
-
-        console.log(`📊 Loaded: ${appState.items.length} items, ${appState.bills.length} bills`);
-
-    } catch (error) {
-        console.error('Data load failed:', error);
-        appState.items = appState.customers = appState.bills = [];
-    }
-}
-
-async function saveDocument(doc) {
-    try {
-        // Get existing revision for atomic update
-        const existing = await db.get(doc._id).catch(() => null);
-        if (existing) {
-            doc._rev = existing._rev;
-        }
-
-        // Add timestamps
-        doc.updatedAt = doc.date || new Date().toISOString();
-
-        const result = await db.put(doc);
-        console.log('💾 Saved:', doc._id);
-
-        // Refresh data
-        await loadAllData();
-        return result;
-
-    } catch (error) {
-        console.error('Save failed:', error);
-        throw error;
-    }
-}
-
-async function bulkSave(docs) {
-    try {
-        const results = await db.bulkDocs(docs);
-        await loadAllData();
-        return results;
-    } catch (error) {
-        console.error('Bulk save failed:', error);
-        throw error;
-    }
-}
-
-// ==================== UI UPDATES ====================
-function updateDashboard() {
-    // Stats
-    document.getElementById('total-items').textContent = appState.items.length;
-    document.getElementById('total-customers').textContent = appState.customers.length;
-
-    const lowStockCount = appState.items.filter(item => (item.stock || 0) < 5).length;
-    document.getElementById('low-stock').textContent = lowStockCount;
-    document.getElementById('low-stock').parentElement.classList.toggle('low-stock', lowStockCount > 0);
-
-    const totalSales = appState.bills.reduce((sum, bill) => sum + (bill.total || 0), 0);
-    document.getElementById('total-sales').textContent = `₹${totalSales.toLocaleString('en-IN')}`;
-
-    // Recent bills
-    const recentBills = appState.bills.slice(0, 5);
-    const recentHtml = recentBills.length ? recentBills.map(bill => `
-        <div class="recent-item">
-            <div>
-                <strong>${bill.customer || 'Walk-in'}</strong>
-                <div style="font-size: 0.85rem; opacity: 0.8;">
-                    ${new Date(bill.date).toLocaleDateString('en-IN')}
-                </div>
-            </div>
-            <div style="font-weight: 700; font-size: 1.1rem;">
-                ₹${(bill.total || 0).toLocaleString('en-IN')}
-            </div>
-        </div>
-    `).join('') : '<div style="text-align: center; opacity: 0.6; padding: 2rem;">No transactions yet</div>';
-
-    document.getElementById('recent-list').innerHTML = recentHtml;
-}
-
-async function updateInventoryList() {
-    const container = document.getElementById('inventory-list');
-    if (!container) return;
-
-    const html = appState.items.map(item => {
-        const stock = item.stock || 0;
-        const stockClass = stock === 0 ? 'out-of-stock' : stock < 5 ? 'low-stock' : 'in-stock';
-
-        return `
-            <div class="list-item ${stockClass}">
-                <div style="display: flex; justify-content: space-between; align-items: center;">
-                    <div>
-                        <strong>${escapeHtml(item.name)}</strong>
-                        <div style="font-size: 0.9rem; opacity: 0.8; margin-top: 0.25rem;">
-                            ID: ${item._id}
-                        </div>
-                    </div>
-                    <div style="text-align: right;">
-                        <div style="font-size: 1.3rem; font-weight: 700;">
-                            ₹${(item.price || 0).toLocaleString('en-IN')}
-                        </div>
-                        <div style="font-size: 0.95rem; font-weight: 600; padding: 0.25rem 0.5rem; border-radius: 999px; background: rgba(255,255,255,0.1); display: inline-block; margin-top: 0.25rem;">
-                            ${stock} in stock
-                        </div>
-                    </div>
-                </div>
-            </div>
-        `;
-    }).join('') || '<div style="text-align: center; opacity: 0.6; padding: 4rem 2rem; font-style: italic;">No items in inventory yet<br>Add your first item using the + button!</div>';
-
-    container.innerHTML = html;
-}
-
-async function updateLedgerList() {
-    const container = document.getElementById('ledger-list');
-    if (!container) return;
-
-    const html = appState.bills.map(bill => {
-        const total = bill.total || 0;
-        const status = bill.status || 'paid';
-        const statusColor = status === 'paid' ? '#27ae60' : '#e74c3c';
-
-        return `
-            <div class="list-item" style="border-right-color: ${statusColor};">
-                <div>
-                    <strong>${escapeHtml(bill.customer || 'Walk-in Customer')}</strong>
-                    ${bill.vehicleNo ? `<div style="font-size: 0.9rem; opacity: 0.8; margin-top: 0.25rem;">${bill.vehicleNo}</div>` : ''}
-                    <div style="font-size: 0.85rem; opacity: 0.7; margin-top: 0.5rem;">
-                        ${new Date(bill.date).toLocaleString('en-IN', {
-            weekday: 'short',
-            year: 'numeric',
-            month: 'short',
-            day: 'numeric',
-            hour: '2-digit',
-            minute: '2-digit'
-        })}
-                    </div>
-                </div>
-                <div style="text-align: right;">
-                    <div style="font-size: 1.4rem; font-weight: 700; color: ${statusColor};">
-                        ₹${total.toLocaleString('en-IN')}
-                    </div>
-                    <div style="font-size: 0.85rem; opacity: 0.8;">
-                        ${bill.items.length} items
-                    </div>
-                </div>
-            </div>
-        `;
-    }).join('') || '<div style="text-align: center; opacity: 0.6; padding: 4rem 2rem;">No bills recorded yet<br>Create your first bill!</div>';
-
-    container.innerHTML = html;
-}
-
-// ==================== NAVIGATION ====================
-function showScreen(screenId) {
-    // Update active screen
-    document.querySelectorAll('.screen').forEach(screen => {
-        screen.classList.remove('active');
-    });
-    document.getElementById(screenId)?.classList.add('active');
-
-    // Update nav
-    document.querySelectorAll('.nav-btn').forEach(btn => {
-        btn.classList.remove('active');
-    });
-    document.querySelector(`[onclick="showScreen('${screenId}')"]`)?.classList.add('active');
-
-    // Screen-specific updates
-    switch (screenId) {
-        case 'inventory':
-            updateInventoryList();
-            break;
-        case 'ledger':
-            updateLedgerList();
-            break;
-        case 'add-stock':
-        case 'billing':
-            // Clear forms if needed
-            break;
-    }
-
-    // Hide install prompt on navigation
-    const installBtn = document.getElementById('install-btn');
-    if (installBtn) installBtn.style.opacity = '0.3';
-}
-
-// ==================== STOCK MANAGEMENT ====================
-async function saveItem() {
-    const id = document.getElementById('item-id')?.value.trim() || `item_${Date.now()}`;
-    const name = document.getElementById('item-name')?.value.trim();
-    const price = parseFloat(document.getElementById('item-price')?.value) || 0;
-    const qty = Math.max(1, parseInt(document.getElementById('item-qty')?.value) || 1);
-
-    if (!name.trim()) {
-        showToast('Item name is required', 'error');
-        document.getElementById('item-name').focus();
-        return;
-    }
-
-    if (price <= 0) {
-        showToast('Price must be greater than 0', 'error');
-        document.getElementById('item-price').focus();
-        return;
-    }
-
-    try {
-        const item = {
-            _id: id,
-            type: 'item',
-            name: name.trim(),
-            price: parseFloat(price.toFixed(2)),
-            stock: qty,
-            category: 'general', // TODO: Add category selector
-            date: new Date().toISOString()
-        };
-
-        await saveDocument(item);
-        updateDashboard();
-
-        // Success feedback
-        showToast(`Added: ${name} (${qty}x)`, 'success');
-
-        // Reset form
-        clearStockForm();
-
-    } catch (error) {
-        showToast('Failed to save item', 'error');
-    }
-}
-
-function clearStockForm() {
-    document.getElementById('item-id').value = '';
-    document.getElementById('item-name').value = '';
-    document.getElementById('item-price').value = '';
-    document.getElementById('item-qty').value = '1';
-    document.getElementById('item-name').focus();
-}
-
-// ==================== BARCODE SCANNER (Offline-Capable) ====================
-document.addEventListener('DOMContentLoaded', () => {
-    const startScanBtn = document.getElementById('start-scan');
-    if (startScanBtn) {
-        startScanBtn.addEventListener('click', startBarcodeScanner);
+window.addEventListener('popstate', function (event) {
+    const activeScreen = document.querySelector('.screen.active');
+    if (activeScreen && activeScreen.id !== 'dashboard-screen') {
+        goToDashboard();
+        history.pushState(null, null, location.href);
+    } else {
+        handleBackPress();
     }
 });
 
-async function startBarcodeScanner() {
-    const reader = document.getElementById('qr-reader');
-    if (!reader || html5QrCode) return;
-
-    try {
-        html5QrCode = new Html5Qrcode(reader);
-
-        const config = {
-            fps: 10,
-            qrbox: { width: Math.min(250, window.innerWidth * 0.7), height: 250 },
-            aspectRatio: 1.0
-        };
-
-        showToast('Point camera at barcode...', 'info');
-
-        await html5QrCode.start(
-            { facingMode: 'environment' },
-            config,
-            onScanSuccess,
-            onScanError
-        );
-
-        document.getElementById('start-scan').textContent = 'Stop Scanner';
-        document.getElementById('start-scan').classList.add('active');
-
-    } catch (error) {
-        console.error('Scanner start failed:', error);
-        showToast('Camera access denied. Use manual entry.', 'error');
-    }
-}
-
-function onScanSuccess(decodedText) {
-    // Auto-fill barcode
-    document.getElementById('item-id').value = decodedText;
-    showToast(`Scanned: ${decodedText}`, 'success');
-
-    // Stop scanner
-    stopBarcodeScanner();
-
-    // Focus name field
-    document.getElementById('item-name').focus();
-}
-
-function onScanError() {
-    // Silent fail - scanner continues
-}
-
-async function stopBarcodeScanner() {
-    if (html5QrCode) {
-        try {
-            await html5QrCode.stop();
-        } catch (error) {
-            console.warn('Scanner stop error:', error);
-        }
-        html5QrCode = null;
-        document.getElementById('start-scan').textContent = '<i class="fas fa-camera"></i> Scan Barcode';
-        document.getElementById('start-scan').classList.remove('active');
-    }
-}
-
-// ==================== BILLING SYSTEM ====================
-async function addToBill() {
-    const desc = document.getElementById('bill-item')?.value.trim();
-    const priceInput = document.getElementById('bill-price')?.value;
-    const qtyInput = document.getElementById('bill-qty')?.value;
-
-    if (!desc) {
-        showToast('Item description required', 'error');
-        return;
-    }
-
-    const price = parseFloat(priceInput) || 0;
-    const qty = Math.max(1, parseInt(qtyInput) || 1);
-
-    if (price <= 0) {
-        showToast('Price must be greater than 0', 'error');
-        return;
-    }
-
-    // Check stock if item exists
-    const existingItem = appState.items.find(item =>
-        item._id === desc || item.name.toLowerCase() === desc.toLowerCase()
-    );
-
-    if (existingItem && existingItem.stock < qty) {
-        showToast(`Low stock! Only ${existingItem.stock} available`, 'warning');
-        return;
-    }
-
-    const lineItem = {
-        id: existingItem?._id || null,
-        desc,
-        price: parseFloat(price.toFixed(2)),
-        qty,
-        total: parseFloat((price * qty).toFixed(2))
-    };
-
-    appState.currentBill.items.push(lineItem);
-    appState.currentBill.total += lineItem.total;
-
-    renderCurrentBill();
-    clearBillInputs();
-    showToast(`${desc} added (${qty}x)`, 'success');
-}
-
-function renderCurrentBill() {
-    const container = document.getElementById('bill-items');
-    const totalEl = document.getElementById('bill-total');
-
-    if (appState.currentBill.items.length === 0) {
-        container.innerHTML = `
-            <div style="text-align: center; opacity: 0.6; padding: clamp(2rem, 8vw, 4rem) clamp(1rem, 4vw, 2rem);">
-                <i class="fas fa-receipt" style="font-size: clamp(2rem, 8vw, 3rem); display: block; margin-bottom: 1rem;"></i>
-                No items added yet
-            </div>
-        `;
-        totalEl.innerHTML = '';
-        return;
-    }
-
-    container.innerHTML = appState.currentBill.items.map((item, index) => {
-        const stockStatus = item.id ?
-            appState.items.find(i => i._id === item.id)?.stock >= item.qty ? '✅' : '⚠️' :
-            '➕';
-
-        return `
-            <div class="bill-item">
-                <div>
-                    <div style="display: flex; align-items: center; gap: 0.5rem; margin-bottom: 0.25rem;">
-                        <strong>${escapeHtml(item.desc)}</strong>
-                        <span style="font-size: 0.8rem; opacity: 0.7;">${stockStatus}</span>
-                    </div>
-                    <div style="font-size: 0.85rem; opacity: 0.8;">
-                        ${item.qty} × ₹${item.price.toLocaleString('en-IN', { minimumFractionDigits: 2 })}
-                    </div>
-                </div>
-                <div style="text-align: right;">
-                    <div style="font-size: 1.2rem; font-weight: 700; margin-bottom: 0.25rem;">
-                        ₹${item.total.toLocaleString('en-IN', { minimumFractionDigits: 2 })}
-                    </div>
-                    <button onclick="removeBillItem(${index})" 
-                            aria-label="Remove ${item.desc}"
-                            style="background: rgba(231, 76, 60, 0.8); color: white; border: none; border-radius: 50%; width: 32px; height: 32px; cursor: pointer; font-size: 1rem; display: flex; align-items: center; justify-content: center; transition: all 0.2s ease;">
-                        ×
-                    </button>
-                </div>
-            </div>
-        `;
-    }).join('');
-
-    totalEl.innerHTML = `
-        <div class="bill-total-inner">
-            <div class="bill-total-amount">
-                <span>Total:</span>
-                <strong>₹${appState.currentBill.total.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</strong>
-            </div>
-            <div class="bill-summary">
-                <span>${appState.currentBill.items.length} items</span>
-                <span>${appState.currentBill.items.reduce((sum, i) => sum + i.qty, 0)} qty</span>
-            </div>
-        </div>
-    `;
-}
-
-function removeBillItem(index) {
-    appState.currentBill.total -= appState.currentBill.items[index].total;
-    appState.currentBill.items.splice(index, 1);
-    renderCurrentBill();
-}
-
-function clearBillInputs() {
-    document.getElementById('bill-item').value = '';
-    document.getElementById('bill-price').value = '';
-    document.getElementById('bill-qty').value = '1';
-    document.getElementById('bill-item').focus();
-}
-
-async function saveBill() {
-    if (appState.currentBill.items.length === 0) {
-        showToast('Add at least one item', 'warning');
-        return;
-    }
-
-    const customerName = document.getElementById('customer-name')?.value.trim();
-    if (!customerName) {
-        showToast('Customer name required', 'error');
-        document.getElementById('customer-name').focus();
-        return;
-    }
-
-    try {
-        const bill = {
-            _id: `bill_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
-            type: 'bill',
-            customer: customerName,
-            vehicleNo: document.getElementById('vehicle-no')?.value.trim() || '',
-            items: [...appState.currentBill.items],
-            total: appState.currentBill.total,
-            status: 'paid', // TODO: Add payment status
-            date: new Date().toISOString()
-        };
-
-        await saveDocument(bill);
-
-        // Update stock for inventory items
-        for (const lineItem of appState.currentBill.items) {
-            if (lineItem.id) {
-                const item = appState.items.find(i => i._id === lineItem.id);
-                if (item) {
-                    item.stock = Math.max(0, (item.stock || 0) - lineItem.qty);
-                    await saveDocument(item);
-                }
-            }
-        }
-
-        updateDashboard();
-        showBillPreview(bill);
-        clearBill();
-
-        showToast(`Bill saved for ${customerName}! 🧾`, 'success');
-
-    } catch (error) {
-        showToast('Failed to save bill', 'error');
-    }
-}
-
-function clearBill() {
-    appState.currentBill = { items: [], total: 0 };
-    document.getElementById('customer-name').value = '';
-    document.getElementById('vehicle-no').value = '';
-    renderCurrentBill();
-}
-
-function showBillPreview(bill) {
-    // Generate PDF preview
-    const { jsPDF } = window.jspdf;
-    const doc = new jsPDF();
-
-    // Header
-    doc.setFontSize(20);
-    doc.setTextColor(52, 152, 219);
-    doc.text('WORKSHOP MANAGER PRO', 105, 25, { align: 'center' });
-
-    doc.setFontSize(14);
-    doc.setTextColor(0, 0, 0);
-    doc.text('INVOICE', 105, 35, { align: 'center' });
-
-    // Bill details
-    let yPos = 50;
-    doc.setFontSize(11);
-    doc.text(`Bill No: #${bill._id.slice(-8)}`, 20, yPos);
-    yPos += 7;
-    doc.text(`Date: ${new Date(bill.date).toLocaleString('en-IN')}`, 20, yPos);
-    yPos += 7;
-    doc.text(`Customer: ${bill.customer}`, 20, yPos);
-    if (bill.vehicleNo) {
-        yPos += 7;
-        doc.text(`Vehicle: ${bill.vehicleNo}`, 20, yPos);
-    }
-
-    // Items table
-    yPos += 10;
-    const tableData = bill.items.map(item => [
-        item.desc,
-        item.qty.toString(),
-        `₹${item.price.toLocaleString('en-IN', { minimumFractionDigits: 2 })}`,
-        `₹${item.total.toLocaleString('en-IN', { minimumFractionDigits: 2 })}`
-    ]);
-
-    doc.autoTable({
-        head: [['Item', 'Qty', 'Rate', 'Total']],
-        body: tableData,
-        startY: yPos,
-        theme: 'grid',
-        headStyles: {
-            fillColor: [52, 152, 219],
-            textColor: 255,
-            fontSize: 11,
-            fontStyle: 'bold'
-        },
-        styles: { fontSize: 10 },
-        columnStyles: { 0: { cellWidth: 80 } }
-    });
-
-    // Totals
-    const finalY = doc.lastAutoTable.finalY + 15;
-    doc.setFontSize(14);
-    doc.setFontStyle('bold');
-    doc.text(`Grand Total: ₹${bill.total.toLocaleString('en-IN', { minimumFractionDigits: 2 })}`, 170, finalY, { align: 'right' });
-
-    // Footer
-    doc.setFontSize(9);
-    doc.setTextColor(100, 100, 100);
-    doc.text('Thank you for your business!', 105, doc.internal.pageSize.height - 20, { align: 'center' });
-
-    // Save & print
-    const fileName = `workshop-bill-${bill._id.slice(-8)}.pdf`;
-    doc.save(fileName);
-
-    // Auto-print option
-    setTimeout(() => {
-        if (confirm('Print bill now?')) {
-            doc.autoPrint();
-        }
-    }, 500);
-}
-
-// ==================== NETWORK & SYNC ====================
+// ==================== NETWORK STATUS ====================
 function updateNetworkStatus() {
     const syncStatus = document.getElementById('sync-status');
-    const syncIcon = document.getElementById('sync-icon');
-    const syncText = document.getElementById('sync-text');
+    const syncText = document.getElementById('sync-status-text');
+    const syncIcon = document.querySelector('#sync-status i');
 
-    appState.isOnline = navigator.onLine;
+    if (navigator.onLine) {
+        if (syncStatus) syncStatus.classList.add('online');
+        if (syncStatus) syncStatus.classList.remove('offline');
+        if (syncIcon) syncIcon.style.color = '#10b981';
+        if (syncText) syncText.textContent = accessToken ? 'Online - Ready to sync' : 'Online';
 
-    if (!navigator.onLine) {
-        syncIcon.textContent = '📴';
-        syncText.textContent = 'Offline Mode';
-        syncStatus.style.background = 'rgba(231, 76, 60, 0.3)';
-        syncStatus.style.borderColor = 'rgba(231, 76, 60, 0.5)';
+        if (accessToken && localStorage.getItem('wasOffline') === 'true') {
+            autoSync();
+            localStorage.removeItem('wasOffline');
+        }
     } else {
-        syncIcon.textContent = '☁️';
-        syncText.textContent = 'Online & Synced';
-        syncStatus.style.background = 'rgba(46, 204, 113, 0.3)';
-        syncStatus.style.borderColor = 'rgba(46, 204, 113, 0.5)';
+        if (syncStatus) syncStatus.classList.add('offline');
+        if (syncStatus) syncStatus.classList.remove('online');
+        if (syncIcon) syncIcon.style.color = '#fbbf24';
+        if (syncText) syncText.textContent = 'Offline Mode';
+        localStorage.setItem('wasOffline', 'true');
     }
 }
 
-async function syncData() {
-    if (!navigator.onLine) {
-        showToast('No internet connection', 'warning');
-        return;
-    }
-
-    const syncStatus = document.getElementById('sync-status');
-    syncStatus.classList.add('syncing');
-    document.getElementById('sync-text').textContent = 'Syncing...';
-
-    try {
-        // Simulate cloud sync (replace with your backend)
-        await new Promise(resolve => setTimeout(resolve, 1500));
-
-        appState.lastSync = new Date().toISOString();
-        showToast('✅ All data synced to cloud!', 'success');
-
-    } catch (error) {
-        console.error('Sync failed:', error);
-        showToast('Sync failed - data safe locally', 'warning');
-    } finally {
-        syncStatus.classList.remove('syncing');
-        updateNetworkStatus();
-    }
-}
-
-function setupPeriodicSync() {
-    if ('serviceWorker' in navigator) {
-        navigator.serviceWorker.ready.then(registration => {
-            if ('sync' in registration) {
-                // Sync every 30 minutes when online
-                setInterval(() => {
-                    if (navigator.onLine && appState.bills.length > 0) {
-                        syncData();
-                    }
-                }, 30 * 60 * 1000);
-            }
-        });
-    }
-}
-
-// Network status listeners
 window.addEventListener('online', updateNetworkStatus);
 window.addEventListener('offline', updateNetworkStatus);
 
+// ==================== AUTO-SYNC ====================
+async function autoSync() {
+    if (navigator.onLine && accessToken) {
+        await uploadToDrive();
+    } else {
+        localStorage.setItem('pendingSync', 'true');
+        showToast('Changes saved offline.', 'info');
+    }
+}
+
+// ==================== FAB VISIBILITY ====================
+function updateFABVisibility(screenId) {
+    const fabButton = document.getElementById('fab-button');
+    if (!fabButton) return;
+    fabButton.style.display = (screenId === 'dashboard-screen') ? 'flex' : 'none';
+}
+
 // ==================== UTILITY FUNCTIONS ====================
-function escapeHtml(text) {
-    const map = {
-        '&': '&amp;',
-        '<': '&lt;',
-        '>': '&gt;',
-        '"': '&quot;',
-        "'": '&#039;'
-    };
-    return text.replace(/[&<>"']/g, m => map[m]);
+function changeQty(id, delta) {
+    const input = document.getElementById(id);
+    if (input) {
+        let val = parseInt(input.value) || 1;
+        val = Math.max(1, val + delta);
+        input.value = val;
+    }
 }
 
-function formatCurrency(amount) {
-    return new Intl.NumberFormat('en-IN', {
-        style: 'currency',
-        currency: 'INR',
-        minimumFractionDigits: 2
-    }).format(amount);
-}
-
-function showToast(message, type = 'info', duration = 3000) {
-    // Remove existing toasts
-    document.querySelectorAll('.toast').forEach(toast => toast.remove());
-
+function showToast(message, type = 'info') {
+    const container = document.getElementById('toast-container');
+    if (!container) return;
     const toast = document.createElement('div');
     toast.className = `toast ${type}`;
-    toast.setAttribute('role', 'status');
-    toast.setAttribute('aria-live', 'polite');
-    toast.textContent = message;
-
-    document.body.appendChild(toast);
-
-    // Animate in
-    requestAnimationFrame(() => toast.classList.add('show'));
-
-    // Auto remove
-    setTimeout(() => {
-        toast.classList.remove('show');
-        setTimeout(() => toast.remove(), 300);
-    }, duration);
+    let icon = type === 'success' ? 'check-circle' : (type === 'error' ? 'exclamation-circle' : 'info-circle');
+    toast.innerHTML = `<i class="fas fa-${icon}"></i> ${message}`;
+    container.appendChild(toast);
+    setTimeout(() => toast.remove(), 3000);
 }
 
-// Double-tap to exit (PWA only)
-let lastTap = 0;
-document.addEventListener('dblclick', (e) => {
-    const now = Date.now();
-    if (now - lastTap < 300) {
-        if (window.matchMedia('(display-mode: standalone)').matches ||
-            localStorage.getItem('pwa-installed') === 'true') {
-            showToast('Exit confirmed 👋', 'info');
-            setTimeout(() => window.close(), 800);
+function playBeepAndVibrate() {
+    if (navigator.vibrate) navigator.vibrate(200);
+    try {
+        const audioContext = new (window.AudioContext || window.webkitAudioContext)();
+        const oscillator = audioContext.createOscillator();
+        const gainNode = audioContext.createGain();
+        oscillator.connect(gainNode);
+        gainNode.connect(audioContext.destination);
+        oscillator.frequency.setValueAtTime(800, audioContext.currentTime);
+        gainNode.gain.setValueAtTime(0.5, audioContext.currentTime);
+        oscillator.start();
+        oscillator.stop(audioContext.currentTime + 0.1);
+    } catch (e) { console.log('Audio error'); }
+}
+
+// ==================== FLASHLIGHT ====================
+async function toggleFlash(type) {
+    if (!html5QrCode) return;
+    torchEnabled = !torchEnabled;
+    const flashIcon = document.getElementById(`flash-${type}`);
+    try {
+        await html5QrCode.setTorch(torchEnabled);
+        if (flashIcon) {
+            flashIcon.classList.toggle('active', torchEnabled);
+            flashIcon.innerHTML = torchEnabled ? '<i class="fas fa-bolt" style="color: black;"></i>' : '<i class="fas fa-bolt"></i>';
+        }
+    } catch (error) {
+        showToast('Flashlight not supported', 'warning');
+    }
+}
+
+// ==================== STOP SCANNER ====================
+async function stopScanner() {
+    if (html5QrCode) {
+        try {
+            await html5QrCode.stop();
+        } catch (e) {
+            console.log('Error stopping scanner:', e);
+        }
+        html5QrCode = null;
+    }
+
+    ['inventory', 'bill'].forEach(t => {
+        const overlay = document.getElementById(`scanner-overlay-${t}`);
+        const flash = document.getElementById(`flash-${t}`);
+        if (overlay) overlay.style.display = 'none';
+        if (flash) flash.style.display = 'none';
+    });
+    torchEnabled = false;
+}
+
+// ==================== NAVIGATION ====================
+function goToDashboard() {
+    showScreen('dashboard-screen');
+}
+
+async function showScreen(screenId) {
+    await stopScanner();
+    hideAllSearchResults();
+
+    document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
+    const target = document.getElementById(screenId);
+    if (target) target.classList.add('active');
+
+    updateFABVisibility(screenId);
+
+    if (screenId === 'stock-list-screen') {
+        await loadInventoryItems();
+        await updateInventoryUI();
+    }
+    if (screenId === 'ledger-screen') {
+        await loadCustomers();
+        await updateLedgerUI();
+    }
+    if (screenId === 'customers-screen') {
+        await loadCustomers();
+        await updateCustomersUI();
+    }
+    if (screenId === 'dashboard-screen') await updateDashboard();
+    if (screenId === 'quick-bill-screen') {
+        document.getElementById('bill-cust-name').value = '';
+        document.getElementById('bill-vehicle-no').value = '';
+        clearBill();
+    }
+}
+
+function toggleQuickMenu() {
+    const menu = document.getElementById('quick-actions-menu');
+    if (menu) menu.classList.toggle('active');
+}
+
+function closeModal() {
+    document.querySelectorAll('.modal').forEach(m => m.classList.remove('active'));
+}
+
+function hideAllSearchResults() {
+    const searchResults = [
+        'customer-search-results',
+        'inventory-item-search-results',
+        'bill-item-search-results',
+        'reports-item-search-results',
+        'ledger-customer-search-results',
+        'customer-list-search-results'
+    ];
+
+    searchResults.forEach(id => {
+        const el = document.getElementById(id);
+        if (el) el.style.display = 'none';
+    });
+}
+
+// ==================== LOAD DATA ====================
+async function loadCustomers() {
+    const result = await db.allDocs({ include_docs: true });
+    customers = result.rows.map(r => r.doc).filter(d => d && d.type === 'customer');
+    return customers;
+}
+
+async function loadInventoryItems() {
+    const result = await db.allDocs({ include_docs: true });
+    inventoryItems = result.rows.map(r => r.doc).filter(d => d && d.type === 'inventory');
+    return inventoryItems;
+}
+
+// ==================== CUSTOMER SEARCH (Quick Bill) ====================
+async function searchCustomers() {
+    const searchInput = document.getElementById('bill-cust-name');
+    const searchTerm = searchInput.value.trim().toLowerCase();
+    const resultsDiv = document.getElementById('customer-search-results');
+
+    if (searchTerm.length < 1) {
+        resultsDiv.style.display = 'none';
+        return;
+    }
+
+    await loadCustomers();
+
+    const filtered = customers.filter(c =>
+        c.name.toLowerCase().includes(searchTerm) ||
+        (c.vehicleNo && c.vehicleNo.toLowerCase().includes(searchTerm))
+    );
+
+    if (filtered.length === 0) {
+        resultsDiv.style.display = 'none';
+        return;
+    }
+
+    resultsDiv.innerHTML = '';
+    filtered.slice(0, 5).forEach(customer => {
+        const item = document.createElement('div');
+        item.className = 'search-result-item';
+        item.innerHTML = `
+            <div class="customer-name">${customer.name}</div>
+            ${customer.vehicleNo ? `<div class="customer-vehicle">${customer.vehicleNo}</div>` : ''}
+        `;
+        item.onclick = () => selectCustomer(customer);
+        resultsDiv.appendChild(item);
+    });
+
+    resultsDiv.style.display = 'block';
+}
+
+function selectCustomer(customer) {
+    document.getElementById('bill-cust-name').value = customer.name;
+    document.getElementById('bill-vehicle-no').value = customer.vehicleNo || '';
+    document.getElementById('customer-search-results').style.display = 'none';
+}
+
+// ==================== INVENTORY ITEM SEARCH (Add Stock) ====================
+async function searchInventoryItems() {
+    const searchInput = document.getElementById('part-id');
+    const searchTerm = searchInput.value.trim().toLowerCase();
+    const resultsDiv = document.getElementById('inventory-item-search-results');
+
+    if (searchTerm.length < 1) {
+        resultsDiv.style.display = 'none';
+        return;
+    }
+
+    await loadInventoryItems();
+
+    const filtered = inventoryItems.filter(item =>
+        item.name.toLowerCase().includes(searchTerm) ||
+        (item._id && item._id.toLowerCase().includes(searchTerm))
+    );
+
+    if (filtered.length === 0) {
+        resultsDiv.style.display = 'none';
+        return;
+    }
+
+    resultsDiv.innerHTML = '';
+    filtered.slice(0, 5).forEach(item => {
+        const available = (item.totalIn || 0) - (item.totalSold || 0);
+        const result = document.createElement('div');
+        result.className = 'search-result-item';
+        result.innerHTML = `
+            <div class="item-name">${item.name}</div>
+            <div class="item-details">
+                <span>ID: ${item._id}</span>
+                <span>Price: ₹${item.price || 0}</span>
+                <span>Stock: ${available}</span>
+            </div>
+        `;
+        result.onclick = () => selectInventoryItem(item);
+        resultsDiv.appendChild(result);
+    });
+
+    resultsDiv.style.display = 'block';
+}
+
+function selectInventoryItem(item) {
+    document.getElementById('part-id').value = item._id;
+    document.getElementById('part-name').value = item.name || '';
+    document.getElementById('part-price').value = item.price || '';
+    document.getElementById('part-category').value = item.category || 'general';
+    document.getElementById('part-location').value = item.location || '';
+    document.getElementById('part-min-stock').value = item.minStock || 5;
+    document.getElementById('inventory-item-search-results').style.display = 'none';
+}
+
+// ==================== BILL ITEM SEARCH ====================
+async function searchBillItems() {
+    const searchInput = document.getElementById('bill-item-id');
+    const searchTerm = searchInput.value.trim().toLowerCase();
+    const resultsDiv = document.getElementById('bill-item-search-results');
+
+    if (searchTerm.length < 1) {
+        resultsDiv.style.display = 'none';
+        return;
+    }
+
+    await loadInventoryItems();
+
+    const filtered = inventoryItems.filter(item =>
+        item.name.toLowerCase().includes(searchTerm) ||
+        (item._id && item._id.toLowerCase().includes(searchTerm))
+    );
+
+    if (filtered.length === 0) {
+        resultsDiv.style.display = 'none';
+        return;
+    }
+
+    resultsDiv.innerHTML = '';
+    filtered.slice(0, 5).forEach(item => {
+        const available = (item.totalIn || 0) - (item.totalSold || 0);
+        const result = document.createElement('div');
+        result.className = 'search-result-item';
+        result.innerHTML = `
+            <div class="item-name">${item.name}</div>
+            <div class="item-details">
+                <span>Price: ₹${item.price || 0}</span>
+                <span>Stock: ${available}</span>
+            </div>
+        `;
+        result.onclick = () => selectBillItem(item);
+        resultsDiv.appendChild(result);
+    });
+
+    resultsDiv.style.display = 'block';
+}
+
+function selectBillItem(item) {
+    document.getElementById('bill-item-id').value = item._id;
+    document.getElementById('bill-desc').value = item.name || '';
+    document.getElementById('bill-price').value = item.price || '';
+    document.getElementById('bill-item-search-results').style.display = 'none';
+}
+
+// ==================== REPORTS ITEM SEARCH ====================
+async function searchReportsItems() {
+    const searchInput = document.getElementById('stock-search');
+    const searchTerm = searchInput.value.trim().toLowerCase();
+    const resultsDiv = document.getElementById('reports-item-search-results');
+
+    if (searchTerm.length < 1) {
+        resultsDiv.style.display = 'none';
+        return;
+    }
+
+    await loadInventoryItems();
+
+    const filtered = inventoryItems.filter(item =>
+        item.name.toLowerCase().includes(searchTerm) ||
+        (item._id && item._id.toLowerCase().includes(searchTerm))
+    );
+
+    if (filtered.length === 0) {
+        resultsDiv.style.display = 'none';
+        return;
+    }
+
+    resultsDiv.innerHTML = '';
+    filtered.slice(0, 5).forEach(item => {
+        const available = (item.totalIn || 0) - (item.totalSold || 0);
+        const result = document.createElement('div');
+        result.className = 'search-result-item';
+        result.innerHTML = `
+            <div class="item-name">${item.name}</div>
+            <div class="item-details">
+                <span>Price: ₹${item.price || 0}</span>
+                <span>Stock: ${available}</span>
+            </div>
+        `;
+        result.onclick = () => selectReportsItem(item);
+        resultsDiv.appendChild(result);
+    });
+
+    resultsDiv.style.display = 'block';
+}
+
+function selectReportsItem(item) {
+    document.getElementById('stock-search').value = item.name;
+    document.getElementById('reports-item-search-results').style.display = 'none';
+    applyInventoryFilters();
+}
+
+// ==================== LEDGER CUSTOMER SEARCH ====================
+async function searchLedgerCustomers() {
+    const searchInput = document.getElementById('ledger-customer-search');
+    const searchTerm = searchInput.value.trim().toLowerCase();
+    const resultsDiv = document.getElementById('ledger-customer-search-results');
+
+    if (searchTerm.length < 1) {
+        resultsDiv.style.display = 'none';
+        return;
+    }
+
+    await loadCustomers();
+
+    const filtered = customers.filter(c =>
+        c.name.toLowerCase().includes(searchTerm)
+    );
+
+    if (filtered.length === 0) {
+        resultsDiv.style.display = 'none';
+        return;
+    }
+
+    resultsDiv.innerHTML = '';
+    filtered.slice(0, 5).forEach(customer => {
+        const item = document.createElement('div');
+        item.className = 'search-result-item';
+        item.innerHTML = `
+            <div class="customer-name">${customer.name}</div>
+            ${customer.vehicleNo ? `<div class="customer-vehicle">${customer.vehicleNo}</div>` : ''}
+        `;
+        item.onclick = () => selectLedgerCustomer(customer);
+        resultsDiv.appendChild(item);
+    });
+
+    resultsDiv.style.display = 'block';
+}
+
+function selectLedgerCustomer(customer) {
+    document.getElementById('ledger-customer-search').value = customer.name;
+    document.getElementById('ledger-customer-search-results').style.display = 'none';
+    applyLedgerFilters();
+}
+
+// ==================== CUSTOMER LIST SEARCH ====================
+async function searchCustomersList() {
+    const searchInput = document.getElementById('customer-search');
+    const searchTerm = searchInput.value.trim().toLowerCase();
+    const resultsDiv = document.getElementById('customer-list-search-results');
+
+    if (searchTerm.length < 1) {
+        resultsDiv.style.display = 'none';
+        updateCustomersUI();
+        return;
+    }
+
+    await loadCustomers();
+
+    const filtered = customers.filter(c =>
+        c.name.toLowerCase().includes(searchTerm) ||
+        (c.vehicleNo && c.vehicleNo.toLowerCase().includes(searchTerm))
+    );
+
+    if (filtered.length === 0) {
+        resultsDiv.style.display = 'none';
+        updateCustomersUI();
+        return;
+    }
+
+    resultsDiv.innerHTML = '';
+    filtered.slice(0, 5).forEach(customer => {
+        const item = document.createElement('div');
+        item.className = 'search-result-item';
+        item.innerHTML = `
+            <div class="customer-name">${customer.name}</div>
+            ${customer.vehicleNo ? `<div class="customer-vehicle">${customer.vehicleNo}</div>` : ''}
+        `;
+        item.onclick = () => selectCustomerList(customer);
+        resultsDiv.appendChild(item);
+    });
+
+    resultsDiv.style.display = 'block';
+}
+
+function selectCustomerList(customer) {
+    document.getElementById('customer-search').value = customer.name;
+    document.getElementById('customer-list-search-results').style.display = 'none';
+    showCustomerDetails(customer);
+}
+
+// ==================== CUSTOMER DETAILS ====================
+async function showCustomerDetails(customer) {
+    const result = await db.allDocs({ include_docs: true });
+    const transactions = result.rows
+        .map(r => r.doc)
+        .filter(d => d && d.type === 'ledger' && d.customer === customer.name)
+        .sort((a, b) => new Date(b.date) - new Date(a.date));
+
+    let totalSpent = 0;
+    let totalPaid = 0;
+    let totalDue = 0;
+
+    transactions.forEach(t => {
+        totalSpent += t.total || 0;
+        totalPaid += t.paid || 0;
+        totalDue += t.balance || 0;
+    });
+
+    let historyHtml = '';
+    if (transactions.length === 0) {
+        historyHtml = '<p>No transactions found</p>';
+    } else {
+        transactions.slice(0, 10).forEach(t => {
+            historyHtml += `
+                <div class="history-item">
+                    <div class="date">${new Date(t.date).toLocaleString()}</div>
+                    <div class="amounts">
+                        <span class="total">Total: ₹${(t.total || 0).toFixed(2)}</span>
+                        <span class="paid">Paid: ₹${(t.paid || 0).toFixed(2)}</span>
+                        <span class="balance">Due: ₹${(t.balance || 0).toFixed(2)}</span>
+                    </div>
+                </div>
+            `;
+        });
+    }
+
+    const content = `
+        <div class="customer-info">
+            <p><strong>Name:</strong> ${customer.name}</p>
+            ${customer.vehicleNo ? `<p><strong>Vehicle:</strong> ${customer.vehicleNo}</p>` : ''}
+            ${customer.phone ? `<p><strong>Phone:</strong> ${customer.phone}</p>` : ''}
+            ${customer.email ? `<p><strong>Email:</strong> ${customer.email}</p>` : ''}
+            ${customer.address ? `<p><strong>Address:</strong> ${customer.address}</p>` : ''}
+            ${customer.gst ? `<p><strong>GST:</strong> ${customer.gst}</p>` : ''}
+        </div>
+        
+        <div class="customer-summary">
+            <div class="summary-box">
+                <div class="label">Total Spent</div>
+                <div class="value">₹${totalSpent.toFixed(2)}</div>
+            </div>
+            <div class="summary-box" style="background: var(--success);">
+                <div class="label">Total Paid</div>
+                <div class="value">₹${totalPaid.toFixed(2)}</div>
+            </div>
+            <div class="summary-box" style="background: var(--danger);">
+                <div class="label">Total Due</div>
+                <div class="value">₹${totalDue.toFixed(2)}</div>
+            </div>
+        </div>
+        
+        <div class="customer-history">
+            <h4>Transaction History (Last 10)</h4>
+            ${historyHtml}
+        </div>
+    `;
+
+    document.getElementById('customer-details-content').innerHTML = content;
+    document.getElementById('customer-details-modal').classList.add('active');
+}
+
+function closeCustomerDetailsModal() {
+    document.getElementById('customer-details-modal').classList.remove('active');
+}
+
+// Click outside to close search results
+document.addEventListener('click', function (e) {
+    const searchInputs = [
+        'bill-cust-name', 'part-id', 'bill-item-id', 'stock-search',
+        'ledger-customer-search', 'customer-search'
+    ];
+
+    const resultsDivs = [
+        'customer-search-results', 'inventory-item-search-results',
+        'bill-item-search-results', 'reports-item-search-results',
+        'ledger-customer-search-results', 'customer-list-search-results'
+    ];
+
+    let shouldHide = true;
+
+    for (let i = 0; i < searchInputs.length; i++) {
+        const input = document.getElementById(searchInputs[i]);
+        if (input && (input.contains(e.target) || input === e.target)) {
+            shouldHide = false;
+            break;
         }
     }
-    lastTap = now;
-});
 
-// Prevent zoom on iOS
-document.addEventListener('gesturestart', e => e.preventDefault());
-document.addEventListener('touchmove', e => e.preventDefault(), { passive: false });
-
-// ==================== EVENT LISTENERS SETUP ====================
-function setupEventListeners() {
-    // Form submissions
-    document.addEventListener('keydown', (e) => {
-        if (e.key === 'Enter' && e.target.tagName === 'INPUT') {
-            const form = e.target.closest('.form-card');
-            if (form?.querySelector('.action-btn.primary, .action-btn.success')) {
-                e.target.blur();
-                form.querySelector('.action-btn.primary, .action-btn.success').click();
+    if (shouldHide) {
+        for (let i = 0; i < resultsDivs.length; i++) {
+            const div = document.getElementById(resultsDivs[i]);
+            if (div && div.contains(e.target)) {
+                shouldHide = false;
+                break;
             }
         }
-    });
+    }
 
-    // Touch enhancements
-    let touchStartY = 0;
-    document.addEventListener('touchstart', e => {
-        touchStartY = e.touches[0].clientY;
-    }, { passive: true });
-
-    document.addEventListener('touchmove', e => {
-        if (Math.abs(e.touches[0].clientY - touchStartY) > 10) {
-            document.body.classList.add('scrolling');
-        }
-    }, { passive: true });
-
-    document.addEventListener('touchend', () => {
-        document.body.classList.remove('scrolling');
-    }, { passive: true });
-}
-
-// ==================== INIT ON LOAD ====================
-if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', initApp);
-} else {
-    initApp();
-}
-
-// Handle page visibility for sync
-document.addEventListener('visibilitychange', () => {
-    if (!document.hidden && navigator.onLine) {
-        loadAllData().then(updateDashboard);
+    if (shouldHide) {
+        hideAllSearchResults();
     }
 });
 
-// Performance monitoring
-if ('PerformanceObserver' in window) {
-    new PerformanceObserver((list) => {
-        for (const entry of list.getEntries()) {
-            console.log('Performance:', entry);
+// ==================== DASHBOARD ====================
+async function updateDashboard() {
+    try {
+        console.log('Updating dashboard...');
+        const result = await db.allDocs({ include_docs: true });
+        let itemsCount = 0, customersCount = 0, lowStock = 0, dueAmount = 0;
+        let recentTransactions = [];
+
+        result.rows.forEach(r => {
+            const d = r.doc;
+            if (d.type === 'inventory') {
+                itemsCount++;
+                const available = (d.totalIn || 0) - (d.totalSold || 0);
+                if (available < (d.minStock || 5)) lowStock++;
+            } else if (d.type === 'ledger') {
+                if (d.balance > 0) dueAmount += d.balance;
+                recentTransactions.push(d);
+            } else if (d.type === 'customer') {
+                customersCount++;
+            }
+        });
+
+        document.getElementById('dash-total-items').textContent = itemsCount;
+        document.getElementById('dash-total-customers').textContent = customersCount;
+        document.getElementById('dash-low-stock').textContent = lowStock;
+        document.getElementById('dash-due-amount').textContent = '₹' + dueAmount.toFixed(2);
+
+        const recentDiv = document.getElementById('dash-recent');
+        if (recentDiv) {
+            recentDiv.innerHTML = '';
+            if (recentTransactions.length === 0) {
+                recentDiv.innerHTML = '<p style="text-align: center; opacity: 0.7;">No recent transactions</p>';
+            } else {
+                recentTransactions.sort((a, b) => new Date(b.date) - new Date(a.date))
+                    .slice(0, 5).forEach(t => {
+                        recentDiv.innerHTML += `
+                            <div class="recent-item">
+                                <div>
+                                    <span class="customer">${t.customer || 'Customer'}</span>
+                                    ${t.vehicleNo ? `<div class="vehicle">${t.vehicleNo}</div>` : ''}
+                                    <div class="date">${new Date(t.date).toLocaleString()}</div>
+                                </div>
+                                <span class="amount">₹${(t.total || 0).toFixed(2)}</span>
+                            </div>`;
+                    });
+            }
         }
-    }).observe({ entryTypes: ['paint', 'largest-contentful-paint'] });
+    } catch (e) {
+        console.error('Dashboard error', e);
+    }
 }
 
-// ==================== EXPORT FUNCTIONS (Shareable) ====================
-window.exportData = async function () {
-    const exportData = {
-        items: appState.items,
-        customers: appState.customers,
-        bills: appState.bills,
-        stats: {
-            totalSales: appState.bills.reduce((sum, b) => sum + b.total, 0),
-            totalItems: appState.items.length,
-            exportedAt: new Date().toISOString()
+// ==================== INVENTORY ====================
+async function savePart() {
+    const id = document.getElementById('part-id')?.value.trim();
+    const name = document.getElementById('part-name')?.value.trim();
+    const price = parseFloat(document.getElementById('part-price')?.value) || 0;
+    const qty = parseInt(document.getElementById('part-qty')?.value) || 1;
+
+    if (!id || !name) return showToast('Enter ID and Name', 'error');
+
+    try {
+        let doc;
+        try {
+            doc = await db.get(id);
+            doc.totalIn = (doc.totalIn || 0) + qty;
+            doc.price = price;
+            doc.name = name;
+        } catch (e) {
+            doc = {
+                _id: id,
+                type: 'inventory',
+                name,
+                price,
+                totalIn: qty,
+                totalSold: 0,
+                category: document.getElementById('part-category')?.value || 'general',
+                location: document.getElementById('part-location')?.value || '',
+                minStock: parseInt(document.getElementById('part-min-stock')?.value) || 5,
+                createdAt: new Date().toISOString()
+            };
         }
-    };
+        doc.updatedAt = new Date().toISOString();
+        await db.put(doc);
+        showToast('Stock saved!', 'success');
 
-    const blob = new Blob([JSON.stringify(exportData, null, 2)], {
-        type: 'application/json'
-    });
-    const url = URL.createObjectURL(blob);
+        document.getElementById('part-id').value = '';
+        document.getElementById('part-name').value = '';
+        document.getElementById('part-price').value = '';
+        document.getElementById('part-qty').value = '1';
+        document.getElementById('part-category').value = 'general';
+        document.getElementById('part-location').value = '';
+        document.getElementById('part-min-stock').value = '5';
 
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `workshop-backup-${new Date().toISOString().slice(0, 10)}.json`;
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    URL.revokeObjectURL(url);
+        await loadInventoryItems();
+        await updateInventoryUI();
+        await updateDashboard();
+        await autoSync();
+    } catch (error) {
+        showToast('Save failed', 'error');
+    }
+}
 
-    showToast('Backup exported successfully!', 'success');
+// ==================== INVENTORY FILTERS ====================
+let currentInventoryFilters = {
+    search: '',
+    filter: 'all',
+    category: 'all',
+    sort: 'name'
 };
 
-// END OF FILE - 100/100 PRODUCTION READY
+function applyInventoryFilters() {
+    currentInventoryFilters.search = document.getElementById('stock-search')?.value || '';
+    currentInventoryFilters.filter = document.getElementById('stock-filter')?.value || 'all';
+    currentInventoryFilters.category = document.getElementById('stock-category')?.value || 'all';
+    currentInventoryFilters.sort = document.getElementById('stock-sort')?.value || 'name';
+    updateInventoryUI();
+}
+
+function resetInventoryFilters() {
+    document.getElementById('stock-search').value = '';
+    document.getElementById('stock-filter').value = 'all';
+    document.getElementById('stock-category').value = 'all';
+    document.getElementById('stock-sort').value = 'name';
+
+    currentInventoryFilters = {
+        search: '',
+        filter: 'all',
+        category: 'all',
+        sort: 'name'
+    };
+    updateInventoryUI();
+}
+
+async function updateInventoryUI() {
+    try {
+        await loadInventoryItems();
+        let items = [...inventoryItems];
+
+        const search = currentInventoryFilters.search.toLowerCase();
+        if (search) {
+            items = items.filter(item =>
+                item.name.toLowerCase().includes(search) ||
+                (item._id && item._id.toLowerCase().includes(search))
+            );
+        }
+
+        const filter = currentInventoryFilters.filter;
+        if (filter === 'low') {
+            items = items.filter(item =>
+                (item.totalIn - item.totalSold) < (item.minStock || 5)
+            );
+        } else if (filter === 'out') {
+            items = items.filter(item =>
+                (item.totalIn - item.totalSold) <= 0
+            );
+        }
+
+        const category = currentInventoryFilters.category;
+        if (category !== 'all') {
+            items = items.filter(item => item.category === category);
+        }
+
+        const sort = currentInventoryFilters.sort;
+        switch (sort) {
+            case 'name':
+                items.sort((a, b) => a.name.localeCompare(b.name));
+                break;
+            case 'name-desc':
+                items.sort((a, b) => b.name.localeCompare(a.name));
+                break;
+            case 'price-low':
+                items.sort((a, b) => (a.price || 0) - (b.price || 0));
+                break;
+            case 'price-high':
+                items.sort((a, b) => (b.price || 0) - (a.price || 0));
+                break;
+            case 'stock-low':
+                items.sort((a, b) => ((a.totalIn - a.totalSold) - (b.totalIn - b.totalSold)));
+                break;
+            case 'stock-high':
+                items.sort((a, b) => ((b.totalIn - b.totalSold) - (a.totalIn - a.totalSold)));
+                break;
+        }
+
+        const tbody = document.getElementById('inventory-list-table');
+        if (!tbody) return;
+
+        tbody.innerHTML = '';
+        if (items.length === 0) {
+            tbody.innerHTML = '<tr><td colspan="6" style="text-align: center;">No items match your filters</td></tr>';
+        } else {
+            items.forEach(item => {
+                const available = (item.totalIn || 0) - (item.totalSold || 0);
+                tbody.innerHTML += `
+                    <tr>
+                        <td>${item.name}</td>
+                        <td>${item.totalIn || 0}</td>
+                        <td>${item.totalSold || 0}</td>
+                        <td style="font-weight:bold; color:${available <= 0 ? '#ef4444' : available < (item.minStock || 5) ? '#f59e0b' : 'inherit'}">${available}</td>
+                        <td>₹${(item.price || 0).toFixed(2)}</td>
+                        <td><button class="del-btn" onclick="deleteItem('${item._id}')"><i class="fas fa-trash"></i></button></td>
+                    </tr>`;
+            });
+        }
+
+        const totalValue = items.reduce((sum, item) => {
+            const available = (item.totalIn || 0) - (item.totalSold || 0);
+            return sum + (available * (item.price || 0));
+        }, 0);
+
+        const totalValueEl = document.getElementById('total-value');
+        const totalItemsEl = document.getElementById('total-items-count');
+        if (totalValueEl) totalValueEl.textContent = '₹' + totalValue.toFixed(2);
+        if (totalItemsEl) totalItemsEl.textContent = items.length;
+
+    } catch (error) {
+        console.error('Inventory update error:', error);
+    }
+}
+
+async function deleteItem(id) {
+    if (!confirm('Delete item?')) return;
+    try {
+        const doc = await db.get(id);
+        await db.remove(doc);
+        await loadInventoryItems();
+        await updateInventoryUI();
+        await updateDashboard();
+        await autoSync();
+        showToast('Item deleted', 'success');
+    } catch (error) {
+        showToast('Delete failed', 'error');
+    }
+}
+
+// ==================== BILLING ====================
+async function addItemToCurrentBill() {
+    const desc = document.getElementById('bill-desc').value.trim();
+    const price = parseFloat(document.getElementById('bill-price').value) || 0;
+    const qtyRequested = parseInt(document.getElementById('bill-qty').value) || 1;
+    const itemId = document.getElementById('bill-item-id').value.trim();
+
+    if (!desc) return showToast('Enter item description', 'warning');
+
+    try {
+        const allDocs = await db.allDocs({ include_docs: true });
+        const stockItem = allDocs.rows.find(r =>
+            (r.doc._id === itemId || r.doc.name === desc) && r.doc.type === 'inventory'
+        );
+
+        if (stockItem) {
+            const available = (stockItem.doc.totalIn || 0) - (stockItem.doc.totalSold || 0);
+
+            if (qtyRequested > available) {
+                showToast(`Insufficient Stock! Only ${available} left.`, 'error');
+                return;
+            }
+        } else {
+            showToast('Item not found in inventory. Proceeding as service/misc.', 'info');
+        }
+
+        currentBillItems.push({
+            id: itemId || null,
+            desc,
+            price,
+            qty: qtyRequested,
+            total: price * qtyRequested
+        });
+
+        renderBillList();
+        showToast('Item added to bill', 'success');
+
+        document.getElementById('bill-desc').value = '';
+        document.getElementById('bill-price').value = '';
+        document.getElementById('bill-qty').value = '1';
+        document.getElementById('bill-item-id').value = '';
+
+    } catch (e) {
+        console.error(e);
+        showToast('Error checking stock', 'error');
+    }
+}
+
+function renderBillList() {
+    const tbody = document.getElementById('current-bill-body');
+    let subtotal = 0;
+    tbody.innerHTML = '';
+    currentBillItems.forEach((item, index) => {
+        subtotal += item.total;
+        tbody.innerHTML += `
+            <tr>
+                <td>${item.desc}</td>
+                <td>${item.qty}</td>
+                <td><input type="number" value="${item.price}" step="0.01" min="0" style="width:70px; padding:3px;" onchange="updateBillItemPrice(${index}, this.value)"></td>
+                <td>₹${item.total.toFixed(2)}</td>
+                <td><button class="del-btn" onclick="removeBillItem(${index})">×</button></td>
+            </tr>`;
+    });
+    document.getElementById('bill-subtotal').textContent = subtotal.toFixed(2);
+    document.getElementById('bill-total').textContent = subtotal.toFixed(2);
+    document.getElementById('current-items-section').style.display = 'block';
+    calculateBalance();
+}
+
+function updateBillItemPrice(index, newPrice) {
+    newPrice = parseFloat(newPrice) || 0;
+    currentBillItems[index].price = newPrice;
+    currentBillItems[index].total = newPrice * currentBillItems[index].qty;
+    renderBillList();
+}
+
+function removeBillItem(index) {
+    currentBillItems.splice(index, 1);
+    renderBillList();
+}
+
+function calculateBalance() {
+    const total = parseFloat(document.getElementById('bill-total').textContent) || 0;
+    const paid = parseFloat(document.getElementById('amount-paid').value) || 0;
+    const balance = total - paid;
+    const el = document.getElementById('balance-due');
+
+    if (el) {
+        if (balance > 0) {
+            el.textContent = `Balance Due: ₹${balance.toFixed(2)}`;
+            el.style.color = '#ef4444';
+        } else if (balance < 0) {
+            el.textContent = `Change: ₹${Math.abs(balance).toFixed(2)}`;
+            el.style.color = '#10b981';
+        } else {
+            el.textContent = 'Balance: ₹0.00';
+            el.style.color = 'white';
+        }
+    }
+}
+
+async function finalizeBill() {
+    const customer = document.getElementById('bill-cust-name').value.trim();
+    const vehicleNo = document.getElementById('bill-vehicle-no').value.trim().toUpperCase();
+
+    if (!customer || currentBillItems.length === 0) return showToast('Add customer and items', 'warning');
+
+    try {
+        const total = parseFloat(document.getElementById('bill-total').textContent);
+        const paid = parseFloat(document.getElementById('amount-paid').value) || 0;
+        const balance = total - paid;
+        const billId = 'ledger_' + Date.now();
+
+        await db.put({
+            _id: billId,
+            type: 'ledger',
+            customer,
+            vehicleNo: vehicleNo || '',
+            total,
+            paid,
+            balance,
+            paymentMethod: document.getElementById('payment-method')?.value || 'cash',
+            date: new Date().toISOString(),
+            items: currentBillItems,
+            updatedAt: new Date().toISOString()
+        });
+
+        const result = await db.allDocs({ include_docs: true });
+        for (const billItem of currentBillItems) {
+            const match = result.rows.find(r =>
+                (r.doc._id === billItem.id || r.doc.name === billItem.desc) && r.doc.type === 'inventory'
+            );
+
+            if (match) {
+                match.doc.totalSold = (match.doc.totalSold || 0) + billItem.qty;
+                match.doc.updatedAt = new Date().toISOString();
+                await db.put(match.doc);
+            }
+        }
+
+        showBillPreview(customer, vehicleNo, total, paid, balance);
+        clearBill();
+        await loadInventoryItems();
+        await updateDashboard();
+        await updateInventoryUI();
+        await autoSync();
+        showToast('Bill Saved & Stock Updated', 'success');
+    } catch (e) {
+        console.error(e);
+        showToast('Error finalizing bill', 'error');
+    }
+}
+
+function showBillPreview(customer, vehicleNo, total, paid, balance) {
+    let itemsHtml = '';
+    currentBillItems.forEach(item => {
+        itemsHtml += `<tr><td>${item.desc}</td><td>${item.qty}</td><td>₹${item.price.toFixed(2)}</td><td>₹${item.total.toFixed(2)}</td></tr>`;
+    });
+
+    const content = `
+        <div style="padding: 20px; background: white; color: black; border-radius: 10px;">
+            <h2 style="text-align: center; color: #6366f1;">WORKSHOP PRO</h2>
+            <h3 style="text-align: center;">INVOICE</h3>
+            <p><strong>Bill No:</strong> ${'BILL' + Date.now().toString().slice(-8)}</p>
+            <p><strong>Date:</strong> ${new Date().toLocaleString()}</p>
+            <p><strong>Customer:</strong> ${customer}</p>
+            ${vehicleNo ? `<p><strong>Vehicle No:</strong> ${vehicleNo}</p>` : ''}
+            <table style="width:100%; margin:20px 0; border-collapse: collapse;">
+                <thead>
+                    <tr style="background: #6366f1; color: white;">
+                        <th style="padding: 8px;">Item</th>
+                        <th>Qty</th>
+                        <th>Price</th>
+                        <th>Total</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    ${itemsHtml}
+                </tbody>
+            </table>
+            <p><strong>Subtotal:</strong> ₹${total.toFixed(2)}</p>
+            <p><strong>Paid:</strong> ₹${paid.toFixed(2)}</p>
+            <p><strong>Balance:</strong> ₹${balance.toFixed(2)}</p>
+            <p style="text-align: center; margin-top: 30px; color: #666;">Thank you for your business!<br>Visit Again</p>
+        </div>
+    `;
+
+    document.getElementById('bill-preview-content').innerHTML = content;
+    document.getElementById('bill-preview-modal').classList.add('active');
+}
+
+function downloadBillPDF() {
+    const { jsPDF } = window.jspdf;
+    const doc = new jsPDF();
+
+    const customer = document.getElementById('bill-cust-name').value || 'Customer';
+    const vehicleNo = document.getElementById('bill-vehicle-no').value || '';
+    const date = new Date().toLocaleString();
+    const billNo = 'BILL' + Date.now().toString().slice(-8);
+    const total = parseFloat(document.getElementById('bill-total').textContent) || 0;
+    const paid = parseFloat(document.getElementById('amount-paid').value) || 0;
+    const balance = total - paid;
+
+    doc.setFontSize(20);
+    doc.setTextColor(99, 102, 241);
+    doc.text('WORKSHOP PRO', 105, 20, { align: 'center' });
+
+    doc.setFontSize(16);
+    doc.setTextColor(0, 0, 0);
+    doc.text('INVOICE', 105, 30, { align: 'center' });
+
+    doc.setFontSize(10);
+    doc.text(`Bill No: ${billNo}`, 20, 40);
+    doc.text(`Date: ${date}`, 20, 45);
+    doc.text(`Customer: ${customer}`, 20, 50);
+    if (vehicleNo) {
+        doc.text(`Vehicle No: ${vehicleNo}`, 20, 55);
+    }
+
+    const startY = vehicleNo ? 65 : 60;
+    const tableColumn = ["Item", "Qty", "Price", "Total"];
+    const tableRows = [];
+
+    currentBillItems.forEach(item => {
+        const itemData = [
+            item.desc,
+            item.qty.toString(),
+            '₹' + item.price.toFixed(2),
+            '₹' + item.total.toFixed(2)
+        ];
+        tableRows.push(itemData);
+    });
+
+    doc.autoTable({
+        head: [tableColumn],
+        body: tableRows,
+        startY: startY,
+        theme: 'striped',
+        headStyles: { fillColor: [99, 102, 241] }
+    });
+
+    const finalY = doc.lastAutoTable.finalY + 10;
+    doc.text(`Subtotal: ₹${total.toFixed(2)}`, 150, finalY);
+    doc.text(`Paid: ₹${paid.toFixed(2)}`, 150, finalY + 5);
+    doc.text(`Balance: ₹${balance.toFixed(2)}`, 150, finalY + 10);
+
+    doc.save(`invoice_${billNo}.pdf`);
+    showToast('PDF downloaded', 'success');
+}
+
+function clearBill() {
+    currentBillItems = [];
+    document.getElementById('current-items-section').style.display = 'none';
+    document.getElementById('bill-cust-name').value = '';
+    document.getElementById('bill-vehicle-no').value = '';
+    document.getElementById('bill-discount').value = '0';
+    document.getElementById('amount-paid').value = '';
+    document.getElementById('balance-due').textContent = '';
+    document.getElementById('bill-total').textContent = '0';
+    document.getElementById('bill-subtotal').textContent = '0';
+}
+
+// ==================== CUSTOMER FUNCTIONS ====================
+function showAddCustomerModal() {
+    document.getElementById('customer-modal').classList.add('active');
+}
+
+function closeCustomerModal() {
+    document.getElementById('customer-modal').classList.remove('active');
+}
+
+async function saveCustomer() {
+    const name = document.getElementById('cust-name')?.value.trim();
+    const vehicle = document.getElementById('cust-vehicle')?.value.trim().toUpperCase();
+    const phone = document.getElementById('cust-phone')?.value.trim();
+
+    if (!name) return showToast('Name required', 'error');
+
+    if (phone && !/^\d{10}$/.test(phone)) {
+        return showToast('Phone number must be 10 digits', 'error');
+    }
+
+    try {
+        await db.put({
+            _id: 'cust_' + Date.now(),
+            type: 'customer',
+            name: name,
+            vehicleNo: vehicle || '',
+            phone: phone || '',
+            email: document.getElementById('cust-email')?.value || '',
+            address: document.getElementById('cust-address')?.value || '',
+            gst: document.getElementById('cust-gst')?.value || '',
+            balance: 0,
+            createdAt: new Date().toISOString()
+        });
+
+        closeCustomerModal();
+        document.getElementById('cust-name').value = '';
+        document.getElementById('cust-vehicle').value = '';
+        document.getElementById('cust-phone').value = '';
+        document.getElementById('cust-email').value = '';
+        document.getElementById('cust-address').value = '';
+        document.getElementById('cust-gst').value = '';
+
+        await loadCustomers();
+        await updateCustomersUI();
+        await updateDashboard();
+        showToast('Customer saved', 'success');
+        await autoSync();
+    } catch (error) {
+        showToast('Error saving customer', 'error');
+    }
+}
+
+async function updateCustomersUI() {
+    await loadCustomers();
+    const search = document.getElementById('customer-search')?.value.toLowerCase() || '';
+
+    const filtered = customers.filter(c =>
+        c.name.toLowerCase().includes(search) ||
+        (c.vehicleNo && c.vehicleNo.toLowerCase().includes(search))
+    );
+
+    const container = document.getElementById('customers-list');
+    if (!container) return;
+
+    container.innerHTML = '';
+    if (filtered.length === 0) {
+        container.innerHTML = '<p style="text-align: center; opacity: 0.7;">No customers</p>';
+    } else {
+        filtered.forEach(c => {
+            container.innerHTML += `
+                <div class="customer-card" onclick='showCustomerDetails(${JSON.stringify(c).replace(/'/g, "\\'")})'>
+                    <strong>${c.name}</strong>
+                    ${c.vehicleNo ? `<div class="vehicle"><i class="fas fa-car"></i> ${c.vehicleNo}</div>` : ''}
+                    <div style="font-size:12px;">${c.phone || 'No phone'}</div>
+                    <div style="color:${c.balance > 0 ? '#ef4444' : '#10b981'};">
+                        Balance: ₹${(c.balance || 0).toFixed(2)}
+                    </div>
+                </div>
+            `;
+        });
+    }
+}
+
+// ==================== LEDGER FUNCTIONS ====================
+let currentLedgerFilters = {
+    customerSearch: '',
+    vehicleSearch: '',
+    filterType: 'all',
+    fromDate: '',
+    toDate: '',
+    sort: 'newest'
+};
+
+function applyLedgerFilters() {
+    currentLedgerFilters.customerSearch = document.getElementById('ledger-customer-search')?.value || '';
+    currentLedgerFilters.vehicleSearch = document.getElementById('ledger-vehicle-search')?.value || '';
+    currentLedgerFilters.filterType = document.getElementById('ledger-filter-type')?.value || 'all';
+    currentLedgerFilters.fromDate = document.getElementById('ledger-date-from')?.value || '';
+    currentLedgerFilters.toDate = document.getElementById('ledger-date-to')?.value || '';
+    currentLedgerFilters.sort = document.getElementById('ledger-sort')?.value || 'newest';
+    updateLedgerUI();
+}
+
+function resetLedgerFilters() {
+    document.getElementById('ledger-customer-search').value = '';
+    document.getElementById('ledger-vehicle-search').value = '';
+    document.getElementById('ledger-date-from').value = '';
+    document.getElementById('ledger-date-to').value = '';
+    document.getElementById('ledger-filter-type').value = 'all';
+    document.getElementById('ledger-sort').value = 'newest';
+
+    currentLedgerFilters = {
+        customerSearch: '',
+        vehicleSearch: '',
+        filterType: 'all',
+        fromDate: '',
+        toDate: '',
+        sort: 'newest'
+    };
+    updateLedgerUI();
+}
+
+function filterTransactionsByDate(transactions, filterType, fromDate, toDate) {
+    const now = new Date();
+    const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+
+    return transactions.filter(t => {
+        const tDate = new Date(t.date);
+
+        switch (filterType) {
+            case 'today': return tDate >= today;
+            case 'week': {
+                const weekAgo = new Date(today);
+                weekAgo.setDate(weekAgo.getDate() - 7);
+                return tDate >= weekAgo;
+            }
+            case 'month': {
+                const monthAgo = new Date(today);
+                monthAgo.setMonth(monthAgo.getMonth() - 1);
+                return tDate >= monthAgo;
+            }
+            case 'custom':
+                if (fromDate && toDate) {
+                    const from = new Date(fromDate);
+                    const to = new Date(toDate);
+                    to.setHours(23, 59, 59, 999);
+                    return tDate >= from && tDate <= to;
+                }
+                return true;
+            default: return true;
+        }
+    });
+}
+
+async function updateLedgerUI() {
+    try {
+        const result = await db.allDocs({ include_docs: true });
+        let transactions = result.rows
+            .map(r => r.doc)
+            .filter(d => d && d.type === 'ledger');
+
+        if (currentLedgerFilters.customerSearch) {
+            transactions = transactions.filter(t =>
+                t.customer.toLowerCase().includes(currentLedgerFilters.customerSearch.toLowerCase())
+            );
+        }
+
+        if (currentLedgerFilters.vehicleSearch) {
+            transactions = transactions.filter(t =>
+                t.vehicleNo && t.vehicleNo.toLowerCase().includes(currentLedgerFilters.vehicleSearch.toLowerCase())
+            );
+        }
+
+        transactions = filterTransactionsByDate(transactions, currentLedgerFilters.filterType, currentLedgerFilters.fromDate, currentLedgerFilters.toDate);
+
+        let totalSales = 0, creditDue = 0;
+        const balances = {};
+
+        transactions.forEach(t => {
+            totalSales += t.total || 0;
+            if (t.balance > 0) {
+                creditDue += t.balance;
+                balances[t.customer] = (balances[t.customer] || 0) + t.balance;
+            }
+        });
+
+        switch (currentLedgerFilters.sort) {
+            case 'newest': transactions.sort((a, b) => new Date(b.date) - new Date(a.date)); break;
+            case 'oldest': transactions.sort((a, b) => new Date(a.date) - new Date(b.date)); break;
+            case 'highest': transactions.sort((a, b) => (b.total || 0) - (a.total || 0)); break;
+            case 'lowest': transactions.sort((a, b) => (a.total || 0) - (b.total || 0)); break;
+        }
+
+        document.getElementById('ledger-filtered-total').textContent = '₹' + totalSales.toFixed(2);
+        document.getElementById('ledger-filtered-count').textContent = transactions.length;
+        document.getElementById('credit-due').textContent = '₹' + creditDue.toFixed(2);
+
+        const balancesDiv = document.getElementById('customer-balances-list');
+        if (balancesDiv) {
+            balancesDiv.innerHTML = '';
+            if (Object.keys(balances).length === 0) {
+                balancesDiv.innerHTML = '<p style="text-align: center;">No pending balances</p>';
+            } else {
+                const sortedBalances = Object.entries(balances).sort((a, b) => b[1] - a[1]);
+                sortedBalances.forEach(([cust, amt]) => {
+                    balancesDiv.innerHTML += `
+                        <div class="balance-item">
+                            <strong>${cust}</strong>
+                            <span style="color:#ef4444;">₹${amt.toFixed(2)}</span>
+                        </div>
+                    `;
+                });
+            }
+        }
+
+        const historyDiv = document.getElementById('bill-history-list');
+        if (historyDiv) {
+            historyDiv.innerHTML = '';
+            if (transactions.length === 0) {
+                historyDiv.innerHTML = '<p style="text-align: center;">No transactions</p>';
+            } else {
+                transactions.slice(0, 50).forEach(t => {
+                    let itemsList = '';
+                    if (t.items && t.items.length > 0) {
+                        itemsList = '<div class="items-list">';
+                        t.items.slice(0, 3).forEach(item => {
+                            itemsList += `<span>${item.qty}x ${item.desc}</span> `;
+                        });
+                        if (t.items.length > 3) itemsList += `...`;
+                        itemsList += '</div>';
+                    }
+
+                    historyDiv.innerHTML += `
+                        <div class="ledger-card" onclick='showCustomerDetailsFromLedger("${t.customer}")'>
+                            <div style="display:flex; justify-content:space-between;">
+                                <strong>${t.customer}</strong> 
+                                <span>₹${(t.total || 0).toFixed(2)}</span>
+                            </div>
+                            ${t.vehicleNo ? `<div class="vehicle"><i class="fas fa-car"></i> ${t.vehicleNo}</div>` : ''}
+                            <div style="font-size:11px;">${new Date(t.date).toLocaleString()} | ${t.paymentMethod || 'Cash'}</div>
+                            ${itemsList}
+                            ${t.balance > 0 ? `<div style="color:#ef4444; font-size:12px; margin-top:5px;">Due: ₹${t.balance.toFixed(2)}</div>` : ''}
+                        </div>
+                    `;
+                });
+            }
+        }
+    } catch (error) {
+        console.error('Ledger error:', error);
+    }
+}
+
+async function showCustomerDetailsFromLedger(customerName) {
+    await loadCustomers();
+    const customer = customers.find(c => c.name === customerName);
+    if (customer) {
+        showCustomerDetails(customer);
+    }
+}
+
+// ==================== SCANNER ====================
+async function toggleScanner(type) {
+    const readerId = type === 'inventory' ? 'reader' : 'bill-reader';
+
+    await stopScanner();
+
+    document.getElementById(`scanner-overlay-${type}`).style.display = 'block';
+    document.getElementById(`flash-${type}`).style.display = 'flex';
+
+    html5QrCode = new Html5Qrcode(readerId);
+    try {
+        await html5QrCode.start({ facingMode: "environment" }, { fps: 10, qrbox: 250 },
+            (text) => {
+                playBeepAndVibrate();
+                handleScanResult(text, type);
+            },
+            (error) => console.log(error)
+        );
+    } catch (error) {
+        showToast('Camera access denied', 'error');
+        document.getElementById(`scanner-overlay-${type}`).style.display = 'none';
+        document.getElementById(`flash-${type}`).style.display = 'none';
+    }
+}
+
+async function scanFile(input, type) {
+    if (!input?.files?.length) return;
+
+    await stopScanner();
+
+    const scanner = new Html5Qrcode('reader');
+    try {
+        showToast('Processing image...', 'info');
+        const result = await scanner.scanFile(input.files[0], true);
+        playBeepAndVibrate();
+        handleScanResult(result, type);
+        input.value = '';
+    } catch {
+        showToast('Could not read barcode', 'error');
+        input.value = '';
+    }
+}
+
+async function handleScanResult(text, type) {
+    const idField = type === 'inventory' ? 'part-id' : 'bill-item-id';
+    document.getElementById(idField).value = text;
+
+    try {
+        const doc = await db.get(text);
+        if (doc?.type === 'inventory') {
+            if (type === 'inventory') {
+                document.getElementById('part-name').value = doc.name || '';
+                document.getElementById('part-price').value = doc.price || '';
+                const cat = document.getElementById('part-category');
+                if (cat) cat.value = doc.category || 'general';
+            } else {
+                document.getElementById('bill-desc').value = doc.name || '';
+                document.getElementById('bill-price').value = doc.price || '';
+            }
+            showToast('Item Found', 'success');
+        }
+    } catch (e) {
+        showToast('New Item', 'info');
+    }
+
+    await stopScanner();
+}
+
+// ==================== GOOGLE DRIVE SYNC (Fixed - Never Clears Data) ====================
+function handleSync() {
+    if (!navigator.onLine) return showToast('No internet', 'error');
+
+    if (!accessToken || accessToken === 'null') {
+        const redirectUri = window.location.origin + window.location.pathname;
+        const cleanUri = redirectUri.split('#')[0];
+        window.location.href = `https://accounts.google.com/o/oauth2/v2/auth?client_id=${CLIENT_ID}&redirect_uri=${encodeURIComponent(cleanUri)}&response_type=token&scope=${encodeURIComponent('https://www.googleapis.com/auth/drive.file')}&prompt=consent`;
+    } else {
+        uploadToDrive();
+    }
+}
+
+async function uploadToDrive() {
+    if (!accessToken) return;
+
+    const syncStatusText = document.getElementById('sync-status-text');
+    const syncIcon = document.querySelector('#sync-status i');
+
+    if (syncIcon) syncIcon.className = 'fas fa-sync fa-spin';
+    if (syncStatusText) syncStatusText.textContent = 'Syncing...';
+
+    try {
+        // 1. GET LOCAL DATA
+        const localResult = await db.allDocs({ include_docs: true });
+        const localData = localResult.rows.map(r => r.doc);
+        console.log('Local data count:', localData.length);
+
+        // 2. DOWNLOAD FROM DRIVE
+        let cloudData = [];
+        let fileId = null;
+
+        const searchRes = await fetch(`https://www.googleapis.com/drive/v3/files?q=name='${BACKUP_FILE_NAME}' and trashed=false`, {
+            headers: { 'Authorization': `Bearer ${accessToken}` }
+        });
+
+        if (searchRes.status === 401) {
+            // Token expired but we keep it - just continue with local
+            console.log('Token expired, continuing with local only');
+        } else {
+            const searchData = await searchRes.json();
+            fileId = searchData.files?.[0]?.id;
+
+            if (fileId) {
+                const downloadRes = await fetch(`https://www.googleapis.com/drive/v3/files/${fileId}?alt=media`, {
+                    headers: { 'Authorization': `Bearer ${accessToken}` }
+                });
+                if (downloadRes.ok) {
+                    const backup = await downloadRes.json();
+                    cloudData = backup.data || [];
+                    console.log('Cloud data count:', cloudData.length);
+                }
+            }
+        }
+
+        // 3. MERGE DATA (KEEP ALL, NEVER DELETE)
+        const mergedMap = new Map();
+
+        // Add all cloud data first
+        cloudData.forEach(doc => mergedMap.set(doc._id, doc));
+
+        // Add/update with local data
+        for (const localDoc of localData) {
+            mergedMap.set(localDoc._id, localDoc);
+        }
+
+        const mergedData = Array.from(mergedMap.values());
+        console.log('Merged data count:', mergedData.length);
+
+        // 4. UPDATE LOCAL DATABASE WITH MERGED DATA
+        for (const doc of mergedData) {
+            try {
+                const existing = await db.get(doc._id).catch(() => null);
+                if (existing) {
+                    doc._rev = existing._rev;
+                }
+                await db.put(doc);
+            } catch (e) {
+                console.log('Error updating doc:', e);
+            }
+        }
+
+        // 5. UPLOAD TO DRIVE (only if we have a valid token)
+        if (searchRes.status !== 401) {
+            const payload = {
+                timestamp: new Date().toISOString(),
+                version: '1.0',
+                data: mergedData
+            };
+
+            const metadata = { name: BACKUP_FILE_NAME, mimeType: 'application/json' };
+            const boundary = 'foo_bar_baz';
+            const body = `--${boundary}\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n${JSON.stringify(metadata)}\r\n--${boundary}\r\nContent-Type: application/json\r\n\r\n${JSON.stringify(payload)}\r\n--${boundary}--`;
+
+            const url = fileId ? `https://www.googleapis.com/upload/drive/v3/files/${fileId}?uploadType=multipart` : `https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart`;
+
+            await fetch(url, {
+                method: fileId ? 'PATCH' : 'POST',
+                headers: { 'Authorization': `Bearer ${accessToken}`, 'Content-Type': `multipart/related; boundary=${boundary}` },
+                body
+            });
+        }
+
+        const time = new Date().toLocaleTimeString();
+        if (syncIcon) {
+            syncIcon.className = 'fas fa-check-circle';
+            syncIcon.style.color = '#10b981';
+        }
+        if (syncStatusText) syncStatusText.textContent = `Synced at ${time}`;
+
+        showToast('Sync complete!', 'success');
+
+        localStorage.removeItem('pendingSync');
+
+        // 6. CRITICAL: Refresh ALL UI after sync
+        await refreshAllUI();
+
+    } catch (e) {
+        console.error('Sync error:', e);
+        showToast('Sync failed: ' + e.message, 'error');
+        if (syncStatusText) syncStatusText.textContent = 'Sync failed';
+    }
+}
+
+// ==================== EXPORT ====================
+function downloadFile(content, fileName, contentType) {
+    const blob = new Blob([content], { type: contentType });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = fileName;
+    a.click();
+    URL.revokeObjectURL(url);
+}
+
+async function exportInventory() {
+    try {
+        const result = await db.allDocs({ include_docs: true });
+        const items = result.rows.map(r => r.doc).filter(d => d?.type === 'inventory');
+        let csv = 'Item Name,Price,Total In,Total Sold,Available,Category,Location\n';
+        items.forEach(item => {
+            const available = (item.totalIn || 0) - (item.totalSold || 0);
+            csv += `"${item.name}",${item.price || 0},${item.totalIn || 0},${item.totalSold || 0},${available},"${item.category || ''}","${item.location || ''}"\n`;
+        });
+        downloadFile(csv, 'inventory_export.csv', 'text/csv');
+        showToast('Inventory exported', 'success');
+    } catch (error) {
+        showToast('Export failed', 'error');
+    }
+}
+
+async function exportLedger() {
+    try {
+        const result = await db.allDocs({ include_docs: true });
+        let transactions = result.rows.map(r => r.doc).filter(d => d?.type === 'ledger');
+
+        let csv = 'Date,Customer,Vehicle No,Total,Paid,Balance,Payment Method\n';
+        transactions.forEach(t => {
+            csv += `"${new Date(t.date).toLocaleString()}","${t.customer}","${t.vehicleNo || ''}",${t.total || 0},${t.paid || 0},${t.balance || 0},"${t.paymentMethod || 'Cash'}"\n`;
+        });
+
+        downloadFile(csv, 'ledger_export.csv', 'text/csv');
+        showToast('Ledger exported', 'success');
+    } catch (error) {
+        showToast('Export failed', 'error');
+    }
+}
+
+// ==================== INITIALIZATION ====================
+window.onload = async () => {
+    console.log('App initializing...');
+
+    // Handle OAuth redirect - store token permanently
+    if (window.location.hash) {
+        const params = new URLSearchParams(window.location.hash.substring(1));
+        const token = params.get('access_token');
+        if (token) {
+            accessToken = token;
+            localStorage.setItem('google_token', token);
+            // Don't set expiry - make it permanent
+            window.history.replaceState(null, null, window.location.pathname);
+            showToast('Connected to Google Drive', 'success');
+
+            // Sync and refresh UI after login
+            setTimeout(async () => {
+                await uploadToDrive();
+                await refreshAllUI();
+            }, 1500);
+        }
+    }
+
+    // Initial data load
+    console.log('Loading initial data...');
+    await refreshAllUI();
+
+    updateNetworkStatus();
+
+    setInterval(() => {
+        if (navigator.onLine && accessToken && localStorage.getItem('pendingSync') === 'true') {
+            autoSync();
+        }
+    }, 1800000);
+
+    if ('serviceWorker' in navigator) {
+        navigator.serviceWorker.register('sw.js').catch(() => { });
+    }
+
+    history.pushState(null, null, location.href);
+};

@@ -1,146 +1,17 @@
 {
   "name": "Workshop Manager Pro",
   "short_name": "Workshop Pro",
-  "description": "Complete workshop management: inventory tracking, billing, customers, barcode scanning & offline sync. Works on any phone!",
-  "lang": "en",
-  "dir": "ltr",
-  "start_url": "/index.html",
-  "scope": "/",
+  "description": "Complete workshop management with inventory, billing, and offline sync",
+  "start_url": "index.html",
   "display": "standalone",
-  "orientation": "portrait-primary",
   "background_color": "#2c3e50",
-  "theme_color": "#3498db",
-  "theme_color_data": "#3498db",
-  "msapplication_TileColor": "#3498db",
-  "apple_mobile_web_app_capable": true,
-  "apple_mobile_web_app_status_bar_style": "default",
-  "categories": ["business", "productivity", "finance", "shopping"],
+  "theme_color": "#2c3e50",
+  "orientation": "portrait",
   "icons": [
-    {
-      "src": "icon-72.png",
-      "sizes": "72x72",
-      "type": "image/png",
-      "purpose": "any"
-    },
-    {
-      "src": "icon-96.png",
-      "sizes": "96x96",
-      "type": "image/png",
-      "purpose": "any"
-    },
-    {
-      "src": "icon-128.png",
-      "sizes": "128x128",
-      "type": "image/png",
-      "purpose": "any"
-    },
-    {
-      "src": "icon-144.png",
-      "sizes": "144x144",
-      "type": "image/png",
-      "purpose": "any"
-    },
-    {
-      "src": "icon-152.png",
-      "sizes": "152x152",
-      "type": "image/png",
-      "purpose": "maskable any"
-    },
     {
       "src": "icon-192.png",
       "sizes": "192x192",
-      "type": "image/png",
-      "purpose": "maskable any"
-    },
-    {
-      "src": "icon-384.png",
-      "sizes": "384x384",
-      "type": "image/png",
-      "purpose": "maskable any"
-    },
-    {
-      "src": "icon-512.png",
-      "sizes": "512x512",
-      "type": "image/png",
-      "purpose": "maskable any"
+      "type": "image/png"
     }
-  ],
-  "screenshots": [
-    {
-      "src": "screenshots/dashboard.png",
-      "sizes": "1170x2532",
-      "type": "image/png",
-      "form_factor": "narrow",
-      "label": "Dashboard Overview"
-    },
-    {
-      "src": "screenshots/billing.png",
-      "sizes": "1170x2532",
-      "type": "image/png",
-      "form_factor": "narrow",
-      "label": "Billing Screen"
-    },
-    {
-      "src": "screenshots/inventory.png",
-      "sizes": "1170x2532",
-      "type": "image/png",
-      "form_factor": "narrow",
-      "label": "Inventory Management"
-    }
-  ],
-  "shortcuts": [
-    {
-      "name": "New Bill",
-      "short_name": "Bill",
-      "description": "Create new bill quickly",
-      "url": "/index.html#billing",
-      "icons": [{ "src": "icon-96.png", "sizes": "96x96" }]
-    },
-    {
-      "name": "Add Stock",
-      "short_name": "Stock",
-      "description": "Add new inventory item",
-      "url": "/index.html#add-stock",
-      "icons": [{ "src": "icon-96.png", "sizes": "96x96" }]
-    },
-    {
-      "name": "Inventory",
-      "short_name": "Items",
-      "description": "View all stock items",
-      "url": "/index.html#inventory",
-      "icons": [{ "src": "icon-96.png", "sizes": "96x96" }]
-    },
-    {
-      "name": "Ledger",
-      "short_name": "Ledger",
-      "description": "View all transactions",
-      "url": "/index.html#ledger",
-      "icons": [{ "src": "icon-96.png", "sizes": "96x96" }]
-    }
-  ],
-  "share_target": {
-    "action": "/index.html#billing",
-    "method": "POST",
-    "enctype": "multipart/form-data",
-    "params": {
-      "title": "name",
-      "text": "description",
-      "url": "url",
-      "files": [
-        {
-          "label": "image",
-          "accept": ["image/*"]
-        }
-      ]
-    }
-  },
-  "protocol_handlers": [
-    {
-      "protocol": "web+workshop",
-      "title": "Workshop Manager Pro",
-      "url": "/index.html?uri=%s"
-    }
-  ],
-  "prefer_related_applications": false,
-  "generated": "2024-01-01T00:00:00.000Z"
+  ]
 }
