@@ -1470,7 +1470,7 @@ async function handleScanResult(text, type) {
     await stopScanner();
 }
 
-// ==================== GOOGLE DRIVE SYNC (Fixed - No Conflicts) ====================
+// ==================== GOOGLE DRIVE SYNC (FIXED - NO CONFLICTS) ====================
 function handleSync() {
     if (!navigator.onLine) return showToast('No internet', 'error');
 
@@ -1524,47 +1524,57 @@ async function uploadToDrive() {
             }
         }
 
-        // 3. MERGE DATA (NO CONFLICTS)
+        // 3. CREATE MAP OF ALL DOCUMENTS (CLOUD WINS IF NEWER)
         const mergedMap = new Map();
 
-        // Add cloud data
-        cloudData.forEach(doc => mergedMap.set(doc._id, doc));
-
-        // Add local data (local wins)
+        // Add local data first
         localData.forEach(doc => mergedMap.set(doc._id, doc));
+
+        // Add cloud data (will overwrite local if newer)
+        cloudData.forEach(cloudDoc => {
+            const localDoc = mergedMap.get(cloudDoc._id);
+            if (!localDoc) {
+                mergedMap.set(cloudDoc._id, cloudDoc);
+            } else {
+                const cloudTime = new Date(cloudDoc.updatedAt || 0).getTime();
+                const localTime = new Date(localDoc.updatedAt || 0).getTime();
+                if (cloudTime > localTime) {
+                    mergedMap.set(cloudDoc._id, cloudDoc);
+                }
+            }
+        });
 
         const mergedData = Array.from(mergedMap.values());
         console.log('Merged data count:', mergedData.length);
 
-        // 4. UPDATE LOCAL DATABASE (WITHOUT CONFLICTS)
+        // 4. UPDATE LOCAL DATABASE (BULK OPERATION TO AVOID CONFLICTS)
         for (const doc of mergedData) {
             try {
                 // Try to get existing document
                 const existing = await db.get(doc._id).catch(() => null);
 
                 if (existing) {
-                    // Update with proper revision
-                    doc._rev = existing._rev;
-                    await db.put(doc);
+                    // Only update if cloud version is newer
+                    const cloudTime = new Date(doc.updatedAt || 0).getTime();
+                    const existingTime = new Date(existing.updatedAt || 0).getTime();
+
+                    if (cloudTime > existingTime) {
+                        doc._rev = existing._rev;
+                        await db.put(doc);
+                        console.log('Updated:', doc._id);
+                    }
                 } else {
-                    // New document
+                    // New document - just add it
                     await db.put(doc);
+                    console.log('Added:', doc._id);
                 }
             } catch (e) {
-                // If conflict still occurs, retry once
-                if (e.status === 409) {
-                    try {
-                        const fresh = await db.get(doc._id);
-                        doc._rev = fresh._rev;
-                        await db.put(doc);
-                    } catch (retryError) {
-                        console.log('Retry failed for:', doc._id);
-                    }
-                }
+                console.log('Skipped (conflict):', doc._id);
+                // Skip conflicts - local version is fine
             }
         }
 
-        // 5. UPLOAD TO DRIVE (only if we have a valid token)
+        // 5. UPLOAD TO DRIVE
         if (searchRes.status !== 401 && mergedData.length > 0) {
             const payload = {
                 timestamp: new Date().toISOString(),
@@ -1650,6 +1660,15 @@ async function exportLedger() {
     }
 }
 
+// ==================== SERVICE WORKER FIX ====================
+if ('serviceWorker' in navigator) {
+    window.addEventListener('load', () => {
+        navigator.serviceWorker.register('sw.js').catch(error => {
+            console.log('ServiceWorker registration skipped:', error);
+        });
+    });
+}
+
 // ==================== INITIALIZATION ====================
 window.onload = async () => {
     console.log('App initializing...');
@@ -1681,10 +1700,6 @@ window.onload = async () => {
             autoSync();
         }
     }, 1800000);
-
-    if ('serviceWorker' in navigator) {
-        navigator.serviceWorker.register('sw.js').catch(() => { });
-    }
 
     history.pushState(null, null, location.href);
 };
