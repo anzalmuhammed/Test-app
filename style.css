@@ -5,3 +5,14 @@
 @media print{body{background:#fff}.sidebar,.topbar,.content-wrap,.main-footer,.toast-stack{display:none!important}.app-dialog[open]{position:static;display:block!important;max-width:none;width:100%;max-height:none;border:0;box-shadow:none;padding:0}.app-dialog::backdrop{display:none}.dialog-head,.dialog-actions{display:none!important}.invoice-preview{padding:0}.invoice-table{white-space:normal}.invoice-table th,.invoice-table td{padding:7px;font-size:10px}}
 .action-pair{display:flex;gap:8px;flex-wrap:wrap}
 .scanner-footer{flex-wrap:wrap}
+
+/* Barcode entry: keep the input visible and the camera action beside it. */
+.barcode-field { min-width: 0; }
+.barcode-input-row { display: flex; align-items: stretch; gap: 8px; }
+.barcode-input-row input { flex: 1 1 auto; min-width: 0; }
+.barcode-camera-button { flex: 0 0 auto; white-space: nowrap; }
+.field-help { display: block; margin-top: 6px; color: var(--muted, #748196); font-size: 11px; line-height: 1.45; }
+@media (max-width: 520px) {
+  .barcode-input-row { flex-direction: column; }
+  .barcode-camera-button { width: 100%; }
+}

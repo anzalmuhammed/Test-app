@@ -4,7 +4,7 @@
   const Core = window.WorkshopCore;
   const CONFIG = window.WORKSHOP_CONFIG || {};
   const DB_NAME = 'WorkshopProDB_v2';
-  const DB_VERSION = 1;
+  const DB_VERSION = 2;
   const STORES = ['customers', 'inventory', 'bills', 'payments', 'stockMovements', 'settings'];
   const money = value => Core.money(value);
   const currency = value => new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR' }).format(money(value));
@@ -37,6 +37,13 @@
   let driveSessionReadyForAutoBackup = false;
   let autoBackupTimer = null;
   let lastSavedAt = null;
+  let stockBarcodeLookupTimer = null;
+  let billBarcodeLookupTimer = null;
+  const tabId = uuid();
+  const updateChannel = ('BroadcastChannel' in window) ? new BroadcastChannel('WorkshopProDB_updates') : null;
+  const barcodeWedge = { buffer: '', lastAt: 0, startedAt: 0, times: [], origin: null, originValue: '', confirmed: false, timer: null };
+  const BARCODE_MIN_LENGTH = 4;
+  const BARCODE_MAX_GAP_MS = 65;
 
   // ---------- IndexedDB data layer ----------
   function openDatabase() {
@@ -50,7 +57,11 @@
           }
         }
       };
-      request.onsuccess = () => resolve(request.result);
+      request.onsuccess = () => {
+        const database = request.result;
+        database.onversionchange = () => { database.close(); toast('Workshop Pro was updated in another tab. Reload this page.', 'warning'); };
+        resolve(database);
+      };
       request.onerror = () => reject(request.error || new Error('Unable to open local database.'));
       request.onblocked = () => reject(new Error('Database is blocked by another open Workshop Pro tab. Close other tabs and retry.'));
     });
@@ -122,11 +133,23 @@
     settings[key] = value;
   }
 
+  function refreshDatabaseHealth() {
+    const target = byId('database-health');
+    if (!target) return;
+    const usage = customers.length + inventory.length + bills.length + payments.length + stockMovements.length;
+    target.textContent = `Active local database · ${customers.length} customers · ${inventory.length} stock items · ${bills.length} invoices · ${payments.length} payments · ${stockMovements.length} stock movements (${usage} records).`;
+  }
+
   async function afterLocalChange(message = 'Changes saved on this device.') {
     lastSavedAt = new Date();
     byId('last-saved-label').textContent = `Saved ${lastSavedAt.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })}`;
     byId('backup-status').textContent = message;
+    refreshDatabaseHealth();
     scheduleAutomaticDriveBackup();
+    if (updateChannel) updateChannel.postMessage({ type: 'database-changed', source: tabId, at: Date.now() });
+    else {
+      try { localStorage.setItem('workshoppro-db-ping', `${tabId}:${Date.now()}`); } catch (_) {}
+    }
   }
 
   // ---------- Shared UI utilities ----------
@@ -219,6 +242,18 @@
     return 'ok';
   }
 
+  function getStockMovementSummary(inventoryId) {
+    let stockIn = 0;
+    let sold = 0;
+    for (const movement of stockMovements) {
+      if (movement.inventoryId !== inventoryId) continue;
+      const delta = Number(movement.delta || 0);
+      if (delta > 0) stockIn += delta;
+      else if (delta < 0) sold += Math.abs(delta);
+    }
+    return { stockIn, sold };
+  }
+
   function renderInventory() {
     const query = byId('inventory-search').value.trim().toLowerCase();
     const stockFilter = byId('inventory-filter').value;
@@ -239,15 +274,16 @@
     byId('inventory-table').innerHTML = rows.length ? rows.map(item => {
       const status = inventoryStatus(item);
       const label = status === 'out' ? 'Out of stock' : status === 'low' ? 'Low stock' : 'In stock';
-      return `<tr><td><div class="table-main">${esc(item.name)}</div><div class="table-sub">${esc(item.code)}</div></td><td>${esc(item.category || 'General')}</td><td><strong>${Number(item.quantity || 0)}</strong></td><td>${Number(item.minStock || 0)}</td><td>${currency(item.price)}</td><td>${esc(item.location || '—')}</td><td><span class="stock-tag ${status}">${label}</span></td><td><div class="row-actions"><button class="tiny-btn" data-action="edit-stock" data-id="${esc(item.id)}">Edit</button><button class="tiny-btn danger" data-action="archive-stock" data-id="${esc(item.id)}">Archive</button></div></td></tr>`;
-    }).join('') : '<tr><td colspan="8" class="empty-cell">No items match these filters.</td></tr>';
+      const movementTotals = getStockMovementSummary(item.id);
+      return `<tr><td><div class="table-main">${esc(item.name)}</div><div class="table-sub">${esc(item.code)}</div></td><td>${esc(item.category || 'General')}</td><td>${movementTotals.stockIn}</td><td>${movementTotals.sold}</td><td><strong>${Number(item.quantity || 0)}</strong></td><td>${Number(item.minStock || 0)}</td><td>${currency(item.price)}</td><td>${esc(item.location || '—')}</td><td><span class="stock-tag ${status}">${label}</span></td><td><div class="row-actions"><button class="tiny-btn" data-action="edit-stock" data-id="${esc(item.id)}">Edit</button><button class="tiny-btn" data-action="stock-history" data-id="${esc(item.id)}">History</button><button class="tiny-btn danger" data-action="archive-stock" data-id="${esc(item.id)}">Archive</button></div></td></tr>`;
+    }).join('') : '<tr><td colspan="10" class="empty-cell">No items match these filters.</td></tr>';
   }
 
-  function openStockDialog(item = null) {
+  function openStockDialog(item = null, scannedCode = '') {
     byId('stock-form').reset();
     byId('stock-id').value = item?.id || '';
-    byId('stock-dialog-title').textContent = item ? 'Update stock item' : 'Add stock';
-    byId('stock-code').value = item?.code || '';
+    byId('stock-dialog-title').textContent = item ? 'Receive stock / edit item' : 'Add stock';
+    byId('stock-code').value = scannedCode || item?.code || '';
     byId('stock-code').disabled = Boolean(item);
     byId('stock-name').value = item?.name || '';
     byId('stock-price').value = item?.price ?? 0;
@@ -257,6 +293,36 @@
     byId('stock-min').value = item?.minStock ?? 5;
     byId('stock-location').value = item?.location || '';
     showDialog('stock-dialog');
+    window.setTimeout(() => {
+      const target = item ? byId('stock-quantity') : byId('stock-code');
+      target?.focus();
+    }, 80);
+  }
+
+  function stockBarcodeLookup() {
+    const code = byId('stock-code').value.trim();
+    if (!code) return;
+    const item = inventory.find(row => row.code.toLowerCase() === code.toLowerCase());
+    if (item) {
+      byId('stock-id').value = item.id;
+      byId('stock-name').value = item.name;
+      byId('stock-price').value = item.price;
+      byId('stock-category').value = item.category || 'General';
+      byId('stock-min').value = item.minStock ?? 5;
+      byId('stock-location').value = item.location || '';
+      byId('stock-code').disabled = true;
+      byId('stock-dialog-title').textContent = 'Receive stock / edit item';
+      byId('stock-quantity').min = '0';
+      byId('stock-quantity').value = '0';
+      byId('stock-quantity').focus();
+      toast(`Found ${item.name}. Enter quantity received, or leave 0 to only update details.`, 'success');
+    } else {
+      byId('stock-id').value = '';
+      byId('stock-code').disabled = false;
+      byId('stock-dialog-title').textContent = 'Add stock';
+      byId('stock-name').focus();
+      toast('New barcode captured. Enter the item details.', 'success');
+    }
   }
 
   async function saveStock(event) {
@@ -268,23 +334,49 @@
     const qty = Number(byId('stock-quantity').value);
     const minStock = Number(byId('stock-min').value);
     if (!code || !name || !Number.isFinite(price) || price < 0 || !Number.isInteger(qty) || qty < (id ? 0 : 1) || !Number.isInteger(minStock) || minStock < 0) {
-      toast('Check the item details and enter valid non-negative values.', 'error'); return;
+      toast('Check the item details. New items need at least 1 unit; existing items may be updated with 0 received.', 'error'); return;
     }
-    const allInventoryRecords = await readAll('inventory');
-    const duplicate = allInventoryRecords.find(item => item.code.toLowerCase() === code.toLowerCase() && item.id !== id);
-    if (duplicate && !duplicate.archived) { toast('That barcode / item code is already in use.', 'error'); return; }
     const now = new Date().toISOString();
-    if (!id && duplicate?.archived) id = duplicate.id;
-    let record = id ? await readOne('inventory', id) : null;
-    if (id && !record) { toast('This stock item no longer exists. Refresh and try again.', 'error'); return; }
-    if (!record) record = { id: uuid(), code, quantity: 0, createdAt: now, archived: false };
-    record.name = name; record.price = money(price); record.quantity = Number(record.quantity || 0) + qty;
-    record.minStock = minStock; record.category = byId('stock-category').value; record.location = byId('stock-location').value.trim();
-    record.updatedAt = now; record.archived = false;
-    await writeOne('inventory', record);
-    if (qty > 0) await writeOne('stockMovements', { id: uuid(), inventoryId: record.id, code: record.code, itemName: record.name, delta: qty, reason: 'Stock received', referenceId: '', date: now });
-    closeAllDialogs(); await refreshData(); await renderInventory(); renderDashboard(); await afterLocalChange('Inventory saved on this device.');
-    toast('Inventory item saved.', 'success');
+    const result = await new Promise((resolve, reject) => {
+      const tx = db.transaction(['inventory', 'stockMovements'], 'readwrite');
+      const inventoryStore = tx.objectStore('inventory');
+      const movementStore = tx.objectStore('stockMovements');
+      const allRequest = inventoryStore.getAll();
+      let savedRecord = null;
+      let failure = null;
+      allRequest.onsuccess = () => {
+        try {
+          const rows = allRequest.result || [];
+          const duplicate = rows.find(row => String(row.code || '').toLowerCase() === code.toLowerCase() && row.id !== id);
+          if (duplicate && !duplicate.archived) throw new Error('That barcode / item code is already assigned to another item.');
+          if (!id && duplicate?.archived) id = duplicate.id;
+          let record = id ? rows.find(row => row.id === id) : null;
+          if (id && !record) throw new Error('This stock item no longer exists. Refresh and try again.');
+          if (!record) record = { id: uuid(), code, quantity: 0, createdAt: now, archived: false };
+          record.name = name;
+          record.price = money(price);
+          record.quantity = Number(record.quantity || 0) + qty;
+          record.minStock = minStock;
+          record.category = byId('stock-category').value;
+          record.location = byId('stock-location').value.trim();
+          record.updatedAt = now;
+          record.archived = false;
+          inventoryStore.put(record);
+          if (qty > 0) movementStore.add({ id: uuid(), inventoryId: record.id, code: record.code, itemName: record.name, delta: qty, reason: 'Stock received', referenceId: '', date: now });
+          savedRecord = record;
+        } catch (error) { failure = error; try { tx.abort(); } catch (_) {} }
+      };
+      allRequest.onerror = () => { failure = allRequest.error || new Error('Could not read inventory.'); try { tx.abort(); } catch (_) {} };
+      tx.oncomplete = () => resolve(savedRecord);
+      tx.onerror = () => reject(failure || tx.error || new Error('Inventory update failed.'));
+      tx.onabort = () => reject(failure || tx.error || new Error('Inventory update was cancelled.'));
+    });
+    if (!result) throw new Error('Inventory record was not saved.');
+    closeAllDialogs();
+    await refreshData();
+    renderInventory(); renderDashboard(); renderReports();
+    await afterLocalChange('Inventory and stock movement saved to this device database.');
+    toast('Inventory saved. Database updated successfully.', 'success');
   }
 
   async function archiveStock(id) {
@@ -294,8 +386,18 @@
     const record = await readOne('inventory', id);
     record.archived = true; record.updatedAt = new Date().toISOString();
     await writeOne('inventory', record);
-    await refreshData(); renderInventory(); renderDashboard(); await afterLocalChange('Inventory updated on this device.');
+    await refreshData(); renderInventory(); renderDashboard(); renderReports(); await afterLocalChange('Inventory updated on this device.');
     toast('Item archived. Historical invoices are unchanged.', 'success');
+  }
+
+  function showStockHistory(inventoryId) {
+    const item = inventory.find(row => row.id === inventoryId);
+    if (!item) return;
+    const history = stockMovements.filter(row => row.inventoryId === inventoryId).sort((a, b) => new Date(b.date) - new Date(a.date));
+    byId('details-title').textContent = `${item.name} · Stock history`;
+    byId('details-print').hidden = true;
+    byId('details-content').innerHTML = `<div class="detail-list"><div class="detail-row"><span>Barcode / code</span><strong>${esc(item.code)}</strong></div><div class="detail-row"><span>Available now</span><strong>${Number(item.quantity || 0)}</strong></div><div class="detail-row"><span>Unit price</span><strong>${currency(item.price)}</strong></div></div><div class="panel-heading"><div><h3>Stock movements</h3><p>${history.length} movements recorded</p></div></div>${history.length ? `<div class="table-scroll"><table><thead><tr><th>Date</th><th>Movement</th><th>Qty</th><th>Reference</th></tr></thead><tbody>${history.map(row => `<tr><td>${dateTime(row.date)}</td><td>${esc(row.reason || 'Adjustment')}</td><td>${Number(row.delta) > 0 ? '+' : ''}${Number(row.delta || 0)}</td><td>${esc(row.referenceId || '—')}</td></tr>`).join('')}</tbody></table></div>` : '<div class="empty-state">No stock movement records yet.</div>'}`;
+    showDialog('details-dialog');
   }
 
   // ---------- Customer management ----------
@@ -655,7 +757,7 @@
   function exportInventory() {
     downloadCSV(inventory, [
       { label: 'Item code', value: 'code' }, { label: 'Item name', value: 'name' }, { label: 'Category', value: 'category' },
-      { label: 'Quantity', value: 'quantity' }, { label: 'Minimum stock', value: 'minStock' }, { label: 'Unit price', value: 'price' }, { label: 'Location', value: 'location' }
+      { label: 'Stock in', value: row => getStockMovementSummary(row.id).stockIn }, { label: 'Sold / issued', value: row => getStockMovementSummary(row.id).sold }, { label: 'Available', value: 'quantity' }, { label: 'Minimum stock', value: 'minStock' }, { label: 'Unit price', value: 'price' }, { label: 'Location', value: 'location' }
     ], 'workshop_inventory.csv');
     toast('Inventory CSV exported.', 'success');
   }
@@ -684,16 +786,18 @@
   async function importBackupFile(file) {
     if (!file) return;
     try {
-      const payload = JSON.parse(await file.text());
-      Core.validateBackup(payload);
-      if (!confirm('Restore this backup? All current local Workshop Pro records will be replaced. A safety backup download will be created first.')) return;
+      const sourcePayload = JSON.parse(await file.text());
+      const normalized = Core.normalizeBackupPayload(sourcePayload);
+      const payload = normalized.payload;
+      const migrationNote = normalized.migratedLegacy ? '\n\nThis is an older Workshop Pro backup. Customers, stock, invoices and recorded payments will be converted to the new database format.' : '';
+      if (!confirm(`Restore this backup? All current local Workshop Pro records will be replaced. A safety backup download will be created first.${migrationNote}`)) return;
       const safetyCopy = await createBackupPayload();
       downloadBlob(new Blob([JSON.stringify(safetyCopy, null, 2)], { type: 'application/json' }), `WorkshopPro_Before_Restore_${new Date().toISOString().slice(0, 10)}.json`);
       await replaceAllData(payload.data);
       currentCart = []; await refreshData();
       renderDashboard(); renderInventory(); renderCustomers(); renderLedger(); renderReports(); renderSettings(); populateBillCustomers(); clearBillDraft();
-      await afterLocalChange('Backup restored to this device.');
-      toast('Backup restored successfully.', 'success');
+      await afterLocalChange(normalized.migratedLegacy ? 'Original Workshop Pro backup converted and restored to this device.' : 'Backup restored to this device.');
+      toast(normalized.migratedLegacy ? 'Old Workshop Pro records imported successfully.' : 'Backup restored successfully.', 'success');
     } catch (error) { toast(error.message || 'Could not restore this backup file.', 'error'); }
     finally { byId('backup-file').value = ''; }
   }
@@ -770,8 +874,10 @@
   }
 
   async function findDriveBackup() {
-    const name = String(CONFIG.driveBackupFileName || 'WorkshopPro_Backup.json').replace(/\\/g, '\\\\').replace(/'/g, "\\'");
-    const query = encodeURIComponent(`name = '${name}' and trashed = false`);
+    const escapeDriveName = value => String(value).replace(/\\/g, '\\\\').replace(/'/g, "\\'");
+    const names = [...new Set([CONFIG.driveBackupFileName || 'WorkshopPro_Backup.json', 'workshop_backup.json'])];
+    const nameQuery = names.map(name => `name = '${escapeDriveName(name)}'`).join(' or ');
+    const query = encodeURIComponent(`(${nameQuery}) and trashed = false`);
     const response = await driveFetch(`https://www.googleapis.com/drive/v3/files?q=${query}&pageSize=20&orderBy=modifiedTime%20desc&fields=files(id,name,mimeType,modifiedTime,size)`);
     const result = await response.json();
     return result.files?.[0] || null;
@@ -834,8 +940,9 @@
       if (!file) { toast('No Workshop Pro backup was found in this Google Drive account.', 'warning'); return; }
       if (!confirm(`Restore “${file.name}”${file.modifiedTime ? ` last modified ${dateTime(file.modifiedTime)}` : ''}? This replaces all current local Workshop Pro records. A safety backup will be downloaded first.`)) return;
       const response = await driveFetch(`https://www.googleapis.com/drive/v3/files/${encodeURIComponent(file.id)}?alt=media`);
-      const payload = await response.json();
-      Core.validateBackup(payload);
+      const sourcePayload = await response.json();
+      const normalized = Core.normalizeBackupPayload(sourcePayload);
+      const payload = normalized.payload;
       const safetyCopy = await createBackupPayload();
       downloadBlob(new Blob([JSON.stringify(safetyCopy, null, 2)], { type: 'application/json' }), `WorkshopPro_Before_Drive_Restore_${new Date().toISOString().slice(0, 10)}.json`);
       await replaceAllData(payload.data);
@@ -843,7 +950,7 @@
       currentCart = []; await refreshData();
       renderDashboard(); renderInventory(); renderCustomers(); renderLedger(); renderReports(); renderSettings(); populateBillCustomers(); clearBillDraft();
       await afterLocalChange('Restored from Google Drive.');
-      toast('Google Drive backup restored.', 'success');
+      toast(normalized.migratedLegacy ? 'Old Workshop Pro Google Drive backup imported successfully.' : 'Google Drive backup restored.', 'success');
     } catch (error) { toast(error.message || 'Google Drive restore failed.', 'error'); }
   }
 
@@ -954,7 +1061,17 @@
     if (typeof window.Html5Qrcode === 'undefined') { toast('Barcode scanner library is unavailable.', 'error'); return; }
     const temporaryId = 'scanner-image-reader-temp';
     let element = byId(temporaryId);
-    if (!element) { element = document.createElement('div'); element.id = temporaryId; element.style.display = 'none'; document.body.appendChild(element); }
+    if (!element) {
+      element = document.createElement('div');
+      element.id = temporaryId;
+      // html5-qrcode may need a measurable element while decoding an image.
+      // Keep it off-screen rather than display:none (zero layout dimensions).
+      Object.assign(element.style, {
+        position: 'fixed', left: '-10000px', top: '0', width: '320px', height: '240px',
+        opacity: '0', pointerEvents: 'none', overflow: 'hidden'
+      });
+      document.body.appendChild(element);
+    }
     const imageScanner = new Html5Qrcode(temporaryId);
     try {
       const code = await imageScanner.scanFile(file, true);
@@ -963,6 +1080,146 @@
     } catch (error) { try { await imageScanner.clear(); } catch (_) {} element.remove(); toast('No readable barcode was found in that image.', 'error'); }
     byId('scanner-image').value = '';
   }
+
+  // ---------- Keyboard-wedge barcode scanners (USB / Bluetooth) ----------
+  // Most handheld scanners behave like a keyboard and send a rapid burst of
+  // characters followed by Enter or Tab. This layer detects that burst even
+  // when the scan was not intentionally focused into a particular barcode box.
+  function resetBarcodeWedge() {
+    if (barcodeWedge.timer) window.clearTimeout(barcodeWedge.timer);
+    Object.assign(barcodeWedge, { buffer: '', lastAt: 0, startedAt: 0, times: [], origin: null, originValue: '', confirmed: false, timer: null });
+  }
+
+  function dispatchInput(element) {
+    if (!element) return;
+    element.dispatchEvent(new Event('input', { bubbles: true }));
+    element.dispatchEvent(new Event('change', { bubbles: true }));
+  }
+
+  function finishHardwareScan() {
+    const code = barcodeWedge.buffer.trim();
+    const origin = barcodeWedge.origin;
+    const originalValue = barcodeWedge.originValue;
+    const confirmed = barcodeWedge.confirmed;
+    resetBarcodeWedge();
+    if (!confirmed || code.length < BARCODE_MIN_LENGTH) return;
+    // Remove the characters already delivered by the browser before the
+    // scanner burst was identified, preserving whatever was in the field.
+    if (origin && origin.isConnected && 'value' in origin) {
+      origin.value = originalValue;
+      dispatchInput(origin);
+    }
+    handleHardwareBarcode(code, origin).catch(error => toast(error.message || 'Could not process scanned barcode.', 'error'));
+  }
+
+  async function handleHardwareBarcode(rawCode, origin) {
+    const code = String(rawCode || '').trim();
+    if (!code) return;
+    signalScan();
+    const stockDialogOpen = byId('stock-dialog').open;
+    const scannerDialogOpen = byId('scanner-dialog').open;
+    const focusedId = origin?.id || document.activeElement?.id || '';
+
+    if (scannerDialogOpen) {
+      await handleScannedCode(code);
+      return;
+    }
+    // Preserve the user's chosen destination: a keyboard-wedge scanner is a
+    // keyboard, so scanning while an ordinary editable field is focused must
+    // visibly populate that exact field instead of unexpectedly opening a modal.
+    const editableOrigin = origin && origin.isConnected && 'value' in origin &&
+      !origin.disabled && !origin.readOnly &&
+      !['BUTTON', 'SELECT'].includes(origin.tagName);
+    if (editableOrigin) {
+      origin.value = code;
+      dispatchInput(origin);
+      return;
+    }
+    if (stockDialogOpen || activeView === 'inventory' || ((!origin || origin === document.body) && activeView !== 'billing')) {
+      const match = inventory.find(item => item.code.toLowerCase() === code.toLowerCase());
+      if (!stockDialogOpen) openStockDialog(match || null, match ? '' : code);
+      else if (match) openStockDialog(match);
+      else {
+        byId('stock-code').disabled = false;
+        byId('stock-code').value = code;
+        byId('stock-id').value = '';
+        byId('stock-dialog-title').textContent = 'Add stock';
+        byId('stock-name').focus();
+      }
+      if (match) toast(`Barcode matched: ${match.name}. Enter received quantity to update stock.`, 'success');
+      else toast(`Barcode ${code} captured. Complete the new item details.`, 'success');
+      return;
+    }
+    if (activeView === 'billing') {
+      const match = inventory.find(item => item.code.toLowerCase() === code.toLowerCase());
+      byId('bill-item-search').value = code;
+      if (match) { chooseBillItem(match.id); addSelectedBillItem(); }
+      else { renderBillSuggestions(); byId('bill-item-search').focus(); toast(`Barcode ${code} is not in inventory. Add the item before billing.`, 'warning'); }
+      return;
+    }
+    toast(`Barcode captured: ${code}. Open Inventory or Billing to use it.`, 'info');
+  }
+
+  document.addEventListener('keydown', event => {
+    if (event.ctrlKey || event.metaKey || event.altKey || event.isComposing) return;
+    // Barcode-designated inputs are intentionally left untouched: keyboard-wedge
+    // scanners type directly into them and their Enter handlers perform the lookup.
+    if (document.activeElement?.id === 'stock-code' || document.activeElement?.id === 'bill-item-search') return;
+    const now = performance.now();
+    if (event.key === 'Enter' || event.key === 'Tab') {
+      if (barcodeWedge.confirmed) {
+        event.preventDefault();
+        finishHardwareScan();
+      } else resetBarcodeWedge();
+      return;
+    }
+    if (event.key.length !== 1) return;
+    const gap = barcodeWedge.lastAt ? now - barcodeWedge.lastAt : 0;
+    if (!barcodeWedge.lastAt || gap > BARCODE_MAX_GAP_MS) {
+      resetBarcodeWedge();
+      barcodeWedge.startedAt = now;
+      barcodeWedge.origin = document.activeElement;
+      barcodeWedge.originValue = barcodeWedge.origin && 'value' in barcodeWedge.origin ? barcodeWedge.origin.value : '';
+      barcodeWedge.buffer = event.key;
+    } else {
+      barcodeWedge.buffer += event.key;
+    }
+    barcodeWedge.lastAt = now;
+    barcodeWedge.times.push(now);
+    if (Core.isFastBarcodeBurst(barcodeWedge.times, BARCODE_MAX_GAP_MS, BARCODE_MIN_LENGTH)) {
+      barcodeWedge.confirmed = true;
+      // The first few key strokes may already have reached the focused input.
+      if (barcodeWedge.origin && 'value' in barcodeWedge.origin) {
+        barcodeWedge.origin.value = barcodeWedge.originValue;
+        dispatchInput(barcodeWedge.origin);
+      }
+      event.preventDefault();
+      if (barcodeWedge.timer) window.clearTimeout(barcodeWedge.timer);
+      barcodeWedge.timer = window.setTimeout(finishHardwareScan, 100);
+    } else if (barcodeWedge.confirmed) {
+      event.preventDefault();
+    }
+  }, true);
+
+  if (updateChannel) {
+    updateChannel.addEventListener('message', async event => {
+      if (event.data?.type !== 'database-changed' || event.data.source === tabId) return;
+      try {
+        const billCustomer = byId('bill-customer').value;
+        await refreshData();
+        renderDashboard(); renderInventory(); renderCustomers(); renderLedger(); renderReports();
+        refreshDatabaseHealth();
+        populateBillCustomers();
+        if (customers.some(row => row.id === billCustomer)) byId('bill-customer').value = billCustomer;
+        byId('backup-status').textContent = 'Database refreshed from another open Workshop Pro tab.';
+        byId('last-saved-label').textContent = 'Updated from another tab';
+      } catch (error) { console.error('Cross-tab database refresh failed:', error); }
+    });
+  }
+  window.addEventListener('storage', event => {
+    if (event.key !== 'workshoppro-db-ping' || updateChannel) return;
+    refreshData().then(() => { renderDashboard(); renderInventory(); renderCustomers(); renderLedger(); renderReports(); populateBillCustomers(); }).catch(console.error);
+  });
 
   // ---------- Event wiring ----------
   document.addEventListener('click', event => {
@@ -979,6 +1236,7 @@
     if (action === 'go-billing') showView('billing');
     if (action === 'edit-stock') openStockDialog(inventory.find(row => row.id === id));
     if (action === 'archive-stock') archiveStock(id);
+    if (action === 'stock-history') showStockHistory(id);
     if (action === 'customer-details') showCustomerDetails(id);
     if (action === 'edit-customer') { closeAllDialogs(); openCustomerDialog(customers.find(row => row.id === id)); }
     if (action === 'choose-bill-item') chooseBillItem(id);
@@ -1045,6 +1303,17 @@
     if (event.target.id === 'drive-auto-backup') updateAutoBackupSetting(event.target.checked);
   });
 
+  byId('stock-code').addEventListener('input', () => {
+    if (stockBarcodeLookupTimer) window.clearTimeout(stockBarcodeLookupTimer);
+    const scannedValue = byId('stock-code').value.trim();
+    if (scannedValue.length < BARCODE_MIN_LENGTH || !byId('stock-dialog').open || byId('stock-code').disabled) return;
+    stockBarcodeLookupTimer = window.setTimeout(() => {
+      if (byId('stock-code').value.trim() === scannedValue) stockBarcodeLookup();
+    }, 300);
+  });
+  byId('stock-code').addEventListener('keydown', event => {
+    if (event.key === 'Enter') { event.preventDefault(); if (stockBarcodeLookupTimer) window.clearTimeout(stockBarcodeLookupTimer); stockBarcodeLookup(); }
+  });
   byId('stock-form').addEventListener('submit', event => saveStock(event).catch(error => toast(error.message, 'error')));
   byId('customer-form').addEventListener('submit', event => saveCustomer(event).catch(error => toast(error.message, 'error')));
   byId('payment-form').addEventListener('submit', event => savePayment(event));
@@ -1061,19 +1330,86 @@
   byId('menu-toggle').addEventListener('click', openSidebar);
   byId('sidebar-close').addEventListener('click', closeSidebar);
   byId('mobile-scrim').addEventListener('click', closeSidebar);
-  byId('bill-item-search').addEventListener('keydown', event => { if (event.key === 'Enter') { event.preventDefault(); const first = findInventory(byId('bill-item-search').value)[0]; if (first) { chooseBillItem(first.id); addSelectedBillItem(); } } });
+  function resolveBillingBarcode(allowNameSearch = false) {
+    const value = byId('bill-item-search').value.trim();
+    if (!value) return;
+    const exact = inventory.find(item => item.code.toLowerCase() === value.toLowerCase());
+    const match = exact || (allowNameSearch ? findInventory(value)[0] : null);
+    if (match) { chooseBillItem(match.id); addSelectedBillItem(); }
+    else if (allowNameSearch) toast(`No matching inventory item for “${value}”. Add it in Inventory first.`, 'warning');
+  }
+  byId('bill-item-search').addEventListener('input', () => {
+    if (billBarcodeLookupTimer) window.clearTimeout(billBarcodeLookupTimer);
+    const value = byId('bill-item-search').value.trim();
+    if (value.length < BARCODE_MIN_LENGTH) return;
+    billBarcodeLookupTimer = window.setTimeout(() => {
+      if (byId('bill-item-search').value.trim() === value) resolveBillingBarcode(false);
+    }, 300);
+  });
+  byId('bill-item-search').addEventListener('keydown', event => {
+    if (event.key !== 'Enter') return;
+    event.preventDefault();
+    if (billBarcodeLookupTimer) window.clearTimeout(billBarcodeLookupTimer);
+    resolveBillingBarcode(true);
+  });
   byId('bill-add-qty').addEventListener('keydown', event => { if (event.key === 'Enter') { event.preventDefault(); addSelectedBillItem(); } });
   window.addEventListener('online', updateNetworkState);
   window.addEventListener('offline', updateNetworkState);
   window.addEventListener('beforeunload', () => { if (scanner?.isScanning) scanner.stop().catch(() => {}); });
+
+  // ---------- One-time migration from the original PouchDB database ----------
+  async function migrateLegacyPouchDB() {
+    const completed = await readOne('settings', 'legacyMigrationDone');
+    if (completed?.value) return false;
+    if (typeof window.PouchDB !== 'function') return false;
+    let legacy;
+    try {
+      legacy = new window.PouchDB('workshop_db');
+      const info = await legacy.info();
+      if (!info.doc_count) return false;
+      const [existingCustomers, existingInventory, existingBills] = await Promise.all([readAll('customers'), readAll('inventory'), readAll('bills')]);
+      if (existingCustomers.length || existingInventory.length || existingBills.length) {
+        console.info('Legacy database found, but the new database already contains records; automatic migration was skipped to avoid mixing data sets.');
+        return false;
+      }
+      const result = await legacy.allDocs({ include_docs: true });
+      const docs = (result.rows || []).map(row => row.doc).filter(Boolean);
+      const migrated = Core.migrateLegacyPouchDocs(docs);
+      const total = STORES.reduce((sum, store) => sum + (migrated[store]?.length || 0), 0);
+      if (!total) return false;
+      await new Promise((resolve, reject) => {
+        const tx = db.transaction(STORES, 'readwrite');
+        for (const storeName of STORES) {
+          const store = tx.objectStore(storeName);
+          for (const record of migrated[storeName] || []) store.put(record);
+        }
+        tx.objectStore('settings').put({ key: 'legacyMigrationDone', value: true });
+        tx.oncomplete = resolve;
+        tx.onerror = () => reject(tx.error || new Error('Legacy records could not be migrated.'));
+        tx.onabort = () => reject(tx.error || new Error('Legacy database migration was cancelled.'));
+      });
+      toast(`Imported ${migrated.customers.length} customers, ${migrated.inventory.length} stock items and ${migrated.bills.length} old invoices.`, 'success');
+      return true;
+    } catch (error) {
+      console.warn('Legacy PouchDB migration was not completed:', error);
+      toast(`Could not import the old workshop_db automatically: ${error.message || 'unknown error'}. Your original database has not been changed.`, 'warning');
+      return false;
+    } finally {
+      try { await legacy?.close(); } catch (_) {}
+    }
+  }
 
   // ---------- Startup ----------
   async function initialize() {
     try {
       if (!('indexedDB' in window)) throw new Error('This browser does not support local database storage. Use a current version of Chrome, Edge, Safari or Firefox.');
       db = await openDatabase();
+      if (navigator.storage?.persist) { try { await navigator.storage.persist(); } catch (_) {} }
+      const didMigrateLegacy = await migrateLegacyPouchDB();
       await refreshData();
+      if (didMigrateLegacy) await afterLocalChange('Original Workshop Pro records imported into the new local database.');
       renderDashboard(); renderInventory(); renderCustomers(); renderLedger(); renderReports(); renderSettings(); populateBillCustomers(); clearBillDraft();
+      refreshDatabaseHealth();
       updateNetworkState();
       byId('page-title').textContent = 'Dashboard';
       if ('serviceWorker' in navigator && location.protocol.startsWith('http')) {
