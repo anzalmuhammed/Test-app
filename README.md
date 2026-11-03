@@ -1,103 +1,63 @@
-# Workshop Manager Pro
+# Workshop Pro — clean rebuild
 
-Complete workshop management system with inventory tracking, billing, customer management, and offline sync.
+A fresh, offline-first browser app inspired by the features in the supplied `index.html` and `app.js` reference files. The reference code was used to understand the workflows; its implementation was not copied.
 
-## Features
+## Included workflows
 
-✅ **Inventory Management**
+- Dashboard totals, recent invoices and low-stock alerts.
+- Inventory item creation, stock receipts, edits, archive, barcode ID, category/location, min-stock levels, search, filtering, sorting and CSV export.
+- Barcode/QR scanning through the camera or an image file (requires a secure origin and the scanner library to load).
+- Quick billing with customer and vehicle details, stock items, manual service/miscellaneous lines, editable quantities/rates, discount, payment method, amount received, due calculation and invoice numbering.
+- Invoice save uses one IndexedDB transaction for stock reductions, stock movement rows, invoice record, invoice sequence and initial payment. If stock is insufficient, the invoice is not committed.
+- Invoice preview and browser print / Save as PDF.
+- Customer list, search, profiles, edit and customer-wise invoice history.
+- Ledger filters, invoice history, due balances and subsequent payment collection.
+- Sales reports and inventory valuation/alerts.
+- Local JSON backup/restore with schema validation and a safety-backup download before restore.
+- Optional Google Drive backup/restore using Google Identity Services and the narrow `drive.file` scope.
+- Responsive layout and PWA shell caching for supported browsers.
 
-- Add/edit items with barcode scanning
-- Track stock in/out
-- Low stock alerts
-- Category and location tracking
+## Run locally
 
-✅ **Billing System**
+Use a local HTTP server instead of opening `index.html` as a `file://` URL:
 
-- Create bills with multiple items
-- Automatic inventory deduction
-- Tax calculation (18% GST)
-- Print bills
-- Customer history
+```bash
+python -m http.server 8000
+```
 
-✅ **Customer Management**
+Open <http://localhost:8000>.
 
-- Store customer details
-- Track balances
-- View transaction history
+Camera access and service-worker installation require `localhost` or HTTPS. IndexedDB records remain on the browser/device where they were created until you transfer them with a backup/restore workflow.
 
-✅ **Ledger Book**
+## Google Drive setup
 
-- All transactions recorded
-- Outstanding balances
-- Filter by paid/due
-- Export to CSV
+1. Open Google Cloud Console and create/select a project.
+2. Enable the Google Drive API.
+3. Configure the Google Auth Platform consent screen as required for your app.
+4. Create an OAuth 2.0 Client ID with application type **Web application**.
+5. Add `http://localhost:8000` under Authorized JavaScript origins for local testing, and add the production website origin when hosted.
+6. Put the Client ID in `config.js` as `googleClientId`. Do not add a client secret to this frontend app.
+7. In Settings & Backup, choose **Connect Google Drive**, then **Back up now**. The app creates or updates `WorkshopPro_Backup.json` in the connected account.
 
-✅ **Offline First**
+The Drive token is held in memory, not persisted in localStorage. Reconnect after a reload. Automatic uploads run after data changes only while an authorized token exists in the current session. After each page reload, reconnect and press Back up now or Restore once before automatic uploads are re-enabled. The app also checks the Drive backup modification time and pauses automatic upload if it detects that the cloud copy changed elsewhere. This is snapshot backup/restore, not live multi-device database synchronization. For long-lived unattended/background sync, use a backend with the OAuth authorization-code flow and secure token storage; a browser-only app cannot safely hold a client secret or refresh token.
 
-- Works completely offline
-- Auto-sync when online
-- Google Drive backup
-- PWA installable on phone
+## Backup format
 
-✅ **Mobile Optimized**
+JSON backup schema version 2 contains `customers`, `inventory`, `bills`, `payments`, `stockMovements`, and `settings`. Import only backup files you trust. Restore replaces all current local records after confirmation and downloads a safety copy first.
 
-- Touch-friendly interface
-- Camera barcode scanning
-- Works on any phone browser
+## Tests and checks
 
-## Installation
+Run the pure business-logic tests:
 
-### Quick Start
+```bash
+node --test tests/core.test.cjs
+```
 
-1. Download all files
-2. Open `index.html` in browser
-3. That's it! Works offline
+The test suite covers invoice totals/discount/payment validation, quantity validation, stock aggregation, CSV escaping, customer balances and backup schema validation. Browser/device-specific camera, print, IndexedDB and OAuth flows still need to be exercised in the target browser and Google Cloud project before production use.
 
-### Install on Phone
+## Important notes
 
-1. Open in Chrome on Android
-2. Click "Add to Home Screen"
-3. Opens like a native app
-
-### Google Drive Sync Setup
-
-1. Go to [Google Cloud Console](https://console.cloud.google.com)
-2. Create a new project
-3. Enable Drive API
-4. Create OAuth 2.0 credentials
-5. Add your domain to authorized origins
-6. Copy Client ID to `app.js`
-
-## Usage Guide
-
-### Adding Stock
-
-1. Go to Stock screen
-2. Click + button
-3. Scan barcode or enter manually
-4. Fill details
-5. Save
-
-### Creating Bill
-
-1. Go to Billing screen
-2. Enter customer details
-3. Scan items or add manually
-4. Complete bill
-5. Print or save
-
-### View Ledger
-
-1. Go to Ledger screen
-2. See all transactions
-3. Filter by status
-4. Export if needed
-
-### Backup Data
-
-1. Click menu button
-2. Choose "Export Data"
-3. Save CSV files
-4. Or use Google Drive sync
-
-## File Structure
+- This is a new implementation based on the visible reference feature set, not a claim that hidden behavior from the old project has been reproduced exactly.
+- The app stores operational records locally in IndexedDB. Use regular backup exports, especially before changing devices or clearing browser data.
+- Printing uses the browser print dialog; select **Save as PDF** in the print destination.
+- Third-party scanner and Google Identity scripts are loaded from their respective CDNs. Local data entry and billing do not require Google Drive.
