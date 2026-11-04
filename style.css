@@ -16,3 +16,52 @@
   .barcode-input-row { flex-direction: column; }
   .barcode-camera-button { width: 100%; }
 }
+
+/* Mobile-first readability: larger tap targets, form text and invoice totals. */
+@media (max-width: 650px) {
+  body { font-size: 15px; }
+  .content-wrap { padding: 20px 14px 24px; }
+  .topbar { min-height: 76px; padding: 0 14px; }
+  .topbar h1 { font-size: 22px; }
+  .eyebrow { font-size: 11px; }
+  .welcome-row h2, .section-intro h2 { font-size: 21px; line-height: 1.25; }
+  .welcome-row p, .section-intro p { font-size: 14px; line-height: 1.45; }
+  .nav-link { min-height: 50px; font-size: 15px; padding: 13px 14px; }
+  .button, .text-button, .tiny-btn, .icon-btn { min-height: 44px; font-size: 14px; }
+  .button { padding: 12px 15px; }
+  .panel-heading h3 { font-size: 16px; }
+  .panel-heading p, .helper-note, .field-help { font-size: 12px; }
+  .field > span, .field label, .field { font-size: 14px; }
+  input:not([type="checkbox"]):not([type="radio"]):not([type="hidden"]), select, textarea, .toolbar select, .toolbar input:not([type="checkbox"]), .filter-date input, .report-range input { font-size: 16px !important; min-height: 48px; padding: 12px 13px; }
+  .form-grid { gap: 15px; }
+  .stat-label { font-size: 13px; }
+  .stat-value { font-size: 25px; }
+  .stat-foot { font-size: 11px; }
+  .recent-person strong, .low-stock-item strong, .quick-action strong { font-size: 13px; }
+  .recent-person small, .recent-amount small, .low-stock-item small, .quick-action small { font-size: 11px; }
+  .table-scroll { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+  table { min-width: 760px; font-size: 13px; }
+  th, td { padding: 12px 11px; }
+  .customer-card h3 { font-size: 16px; }
+  .customer-card-meta, .customer-card-bottom { font-size: 12px; }
+  .app-dialog { width: calc(100vw - 18px); max-height: 94dvh; padding: 17px; }
+  .dialog-head h2 { font-size: 22px; }
+  .dialog-actions { gap: 10px; }
+  .dialog-actions .button { flex: 1; }
+  .cart-table { min-width: 600px; }
+  .cart-qty, .cart-price { min-width: 88px; min-height: 44px; font-size: 16px; }
+  .invoice-preview { padding: 5px; }
+  .invoice-brand { font-size: 24px; }
+  .invoice-meta { font-size: 12px; line-height: 1.55; }
+  .invoice-table th, .invoice-table td { font-size: 12px; padding: 9px 7px; }
+  .invoice-totals { width: min(100%, 320px); font-size: 13px; gap: 9px; }
+  .invoice-totals .total { font-size: 22px; font-weight: 900; color: #101f33; border-top: 2px solid #26384d; padding-top: 11px; letter-spacing: .2px; }
+  .invoice-totals .total strong { font-size: 25px; font-weight: 900; color: #000; }
+  .details-kpi strong { font-size: 17px; }
+}
+@media print {
+  .invoice-totals .total { font-size: 22px !important; font-weight: 900 !important; color: #000 !important; border-top: 2px solid #111 !important; }
+  .invoice-totals .total strong { font-size: 27px !important; font-weight: 900 !important; color: #000 !important; }
+  .invoice-meta { font-size: 12px !important; color: #111 !important; }
+  .invoice-meta strong { color: #000 !important; }
+}

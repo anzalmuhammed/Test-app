@@ -7,14 +7,15 @@ A fresh, offline-first browser app inspired by the features in the supplied `ind
 - Dashboard totals, recent invoices and low-stock alerts.
 - Inventory item creation, stock receipts, edits, archive, barcode ID, category/location, min-stock levels, search, filtering, sorting, stock-in / sold / available totals, per-item movement history and CSV export.
 - Barcode/QR scanning through the camera or an image file (requires a secure origin and the scanner library to load). USB/Bluetooth keyboard-wedge scanners are supported directly: the barcode field receives scanner characters, Enter resolves the code, and supported scanners without a suffix are resolved after the input pause. A fast-burst listener also routes scans when a scanner is used while another field or the page is focused. If another editable field is focused, the scanned value is inserted visibly into that exact field instead of opening an unrelated dialog.
-- Quick billing with customer and vehicle details, stock items, manual service/miscellaneous lines, editable quantities/rates, discount, payment method, amount received, due calculation and invoice numbering.
+- Quick billing with customer search by name / phone / vehicle, stock items, saved services and non-stock items, manual service/miscellaneous lines, editable quantities/rates, discount, payment method, amount received, due calculation and invoice numbering. New bill-only service / non-stock lines can be saved to the reusable catalogue when the invoice commits; catalogue quantity is always 0 and never reduces stock.
 - Invoice save uses one IndexedDB transaction for stock reductions, stock movement rows, invoice record, invoice sequence and initial payment. If stock is insufficient, the invoice is not committed.
 - Invoice preview and browser print / Save as PDF.
-- Customer list, search, profiles, edit and customer-wise invoice history.
+- Customer list, search, profiles, edit and customer-wise invoice history. New and edited customer records require a name and a valid 10-digit phone number.
 - Ledger filters, invoice history, due balances and subsequent payment collection.
 - Sales reports and inventory valuation/alerts.
 - Local JSON backup/restore with schema validation and a safety-backup download before restore. Import also recognises the original PouchDB document-array backup format and converts old customers, stock, invoice history and payments to the current schema.
-- Optional Google Drive backup/restore using Google Identity Services and the narrow `drive.file` scope.
+- Separate `admin.html` database workspace with table views, search, JSON row editing, add/delete and CSV / full JSON export. It edits the same browser-local IndexedDB database, outside the main app interface. Configure `adminPin` in `config.js` before use; this client-side PIN is only a convenience lock, not real server authentication.
+- Optional Google Drive backup/restore using Google Identity Services and the narrow `drive.file` scope. When automatic backup is enabled and Google Drive is connected in the current session, reconnecting to the internet schedules an upload of the latest local backup.
 - Responsive layout and PWA shell caching for supported browsers.
 
 ## Barcode scanner setup
@@ -33,7 +34,11 @@ python -m http.server 8000
 
 Open <http://localhost:8000>.
 
-Camera access and service-worker installation require `localhost` or HTTPS. IndexedDB records remain on the browser/device where they were created until you transfer them with a backup/restore workflow.
+Camera access and service-worker installation require `localhost` or HTTPS. IndexedDB records remain on the browser/device where they were created. Offline edits are saved locally immediately. If Google Drive is connected, automatic backup is enabled, and the current-session access token is still valid, the app uploads a fresh backup after the connection returns. Reconnect Google Drive after a page reload. This is backup/restore, not live record-level multi-device synchronization or conflict-free merging. For shared live data across devices, a hosted backend with authentication and conflict handling is required.
+
+## Separate admin database editor
+
+Open `admin.html` from Settings & Backup. It reads the same IndexedDB database on the same browser origin and provides clean table rows, search, raw JSON editing, add/delete and exports. Set a private `adminPin` value in `config.js` before opening it. Because this is a browser-only static app, the PIN is visible to anyone who can inspect the downloaded JavaScript; it is not suitable as security for a public deployment. For a real remote admin role, use a server-side authenticated backend. Always download a backup before editing or deleting linked invoices, payments or stock movements.
 
 ## Google Drive setup
 
@@ -45,15 +50,15 @@ Camera access and service-worker installation require `localhost` or HTTPS. Inde
 6. Put the Client ID in `config.js` as `googleClientId`. Do not add a client secret to this frontend app.
 7. In Settings & Backup, choose **Connect Google Drive**, then **Back up now**. The app creates or updates `WorkshopPro_Backup.json` in the connected account. Restore searches for both this current filename and the original `workshop_backup.json` filename, then converts the old PouchDB backup format where it is accessible to the app.
 
-The Drive token is held in memory, not persisted in localStorage. Reconnect after a reload. Automatic uploads run after data changes only while an authorized token exists in the current session. After each page reload, reconnect and press Back up now or Restore once before automatic uploads are re-enabled. The app also checks the Drive backup modification time and pauses automatic upload if it detects that the cloud copy changed elsewhere. This is snapshot backup/restore, not live multi-device database synchronization. For long-lived unattended/background sync, use a backend with the OAuth authorization-code flow and secure token storage; a browser-only app cannot safely hold a client secret or refresh token.
+The Drive token is held in memory, not persisted in localStorage. Reconnect after a reload. Automatic uploads run after data changes and after internet reconnection only while an authorized token exists in the current session. After each page reload, reconnect and press Back up now or Restore once before automatic uploads are re-enabled. The app also checks the Drive backup modification time and pauses automatic upload if it detects that the cloud copy changed elsewhere. This is snapshot backup/restore, not live multi-device database synchronization. For long-lived unattended/background sync, use a backend with the OAuth authorization-code flow and secure token storage; a browser-only app cannot safely hold a client secret or refresh token.
 
 ## Backup format
 
-JSON backup schema version 2 contains `customers`, `inventory`, `bills`, `payments`, `stockMovements`, and `settings`. Import only backup files you trust. Restore replaces all current local records after confirmation and downloads a safety copy first.
+JSON backup schema version 3 contains `customers`, `inventory`, `services`, `bills`, `payments`, `stockMovements`, and `settings`. Version-2 backups remain importable; the missing services table is initialized empty. Import only backup files you trust. Restore replaces all current local records after confirmation and downloads a safety copy first.
 
 ## Tests and checks
 
-Run the pure business-logic tests:
+Run the pure business-logic tests (9 test cases):
 
 ```bash
 node --test tests/core.test.cjs
@@ -64,6 +69,6 @@ The test suite covers invoice totals/discount/payment validation, stock aggregat
 ## Important notes
 
 - This is a new implementation based on the visible reference feature set, not a claim that hidden behavior from the old project has been reproduced exactly.
-- The app stores operational records in the browser database named `WorkshopProDB_v2` (IndexedDB). A stock receipt and its movement record commit together; an invoice, invoice counter, payment and all stock deductions commit together. It refreshes other open app tabs on the same origin after changes. If the original PouchDB `workshop_db` exists in the same browser profile and same website origin (same protocol, host and port) and the new database is empty, first startup attempts a one-time migration of customers, inventory, stock in/sold balances, invoice history and recorded initial payments. The migration leaves the original PouchDB database untouched. Use regular backup exports, especially before changing devices or clearing browser data.
+- The app stores operational records in the browser database named `WorkshopProDB_v2` (IndexedDB), schema version 3. Existing version-2 databases are upgraded in place with a new `services` store; existing customers, stock, invoices, payments and movement history are retained. A stock receipt and its movement record commit together; an invoice, invoice counter, payment and all stock deductions commit together. It refreshes other open app tabs on the same origin after changes. If the original PouchDB `workshop_db` exists in the same browser profile and same website origin (same protocol, host and port) and the new database is empty, first startup attempts a one-time migration of customers, inventory, stock in/sold balances, invoice history and recorded initial payments. The migration leaves the original PouchDB database untouched. Use regular backup exports, especially before changing devices or clearing browser data.
 - Printing uses the browser print dialog; select **Save as PDF** in the print destination.
 - Third-party scanner and Google Identity scripts are loaded from their respective CDNs. Local data entry and billing do not require Google Drive.

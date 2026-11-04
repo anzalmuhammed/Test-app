@@ -45,7 +45,9 @@ test('backup validator accepts the current schema and rejects malformed records'
     customers: [], inventory: [], bills: [], payments: [], stockMovements: [], settings: []
   };
   assert.equal(core.validateBackup({ app: 'WorkshopPro', schemaVersion: 2, data }), true);
+  assert.equal(core.validateBackup({ app: 'WorkshopPro', schemaVersion: 3, data: { ...data, services: [{ id: 'svc-1', name: 'General service', kind: 'service', quantity: 0 }] } }), true);
   assert.throws(() => core.validateBackup({ app: 'WorkshopPro', schemaVersion: 1, data }));
+  assert.throws(() => core.validateBackup({ app: 'WorkshopPro', schemaVersion: 3 }));
   assert.throws(() => core.validateBackup({ app: 'WorkshopPro', schemaVersion: 2, data: { ...data, bills: [{ id: 'x' }, { id: 'x' }] } }));
 });
 
@@ -61,6 +63,7 @@ test('legacy PouchDB records migrate into the new linked data model', () => {
     { _id: 'BRK-001', type: 'inventory', name: 'Brake Pad', price: 250, totalIn: 10, totalSold: 3 },
     { _id: 'ledger-1', type: 'ledger', customer: 'Ravi', vehicleNo: 'KL01AB1234', total: 500, paid: 200, balance: 300, paymentMethod: 'UPI', date: '2026-11-01T12:00:00.000Z', items: [{ id: 'BRK-001', desc: 'Brake Pad', qty: 2, price: 250, total: 500 }] }
   ]);
+  assert.deepEqual(migrated.services, []);
   assert.equal(migrated.customers.length, 1);
   assert.equal(migrated.inventory[0].quantity, 7);
   assert.equal(migrated.bills.length, 1);
@@ -80,7 +83,7 @@ test('old PouchDB / Google Drive backup format converts to the current backup sc
   ] };
   const normalized = core.normalizeBackupPayload(oldPayload);
   assert.equal(normalized.migratedLegacy, true);
-  assert.equal(normalized.payload.schemaVersion, 2);
+  assert.equal(normalized.payload.schemaVersion, 3);
   assert.equal(normalized.payload.data.inventory[0].quantity, 4);
   assert.equal(normalized.payload.data.bills[0].due, 80);
   assert.equal(normalized.payload.data.settings.some(row => row.key === 'legacyMigrationDone' && row.value === true), true);

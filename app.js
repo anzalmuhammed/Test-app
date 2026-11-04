@@ -4,12 +4,14 @@
   const Core = window.WorkshopCore;
   const CONFIG = window.WORKSHOP_CONFIG || {};
   const DB_NAME = 'WorkshopProDB_v2';
-  const DB_VERSION = 2;
-  const STORES = ['customers', 'inventory', 'bills', 'payments', 'stockMovements', 'settings'];
+  const DB_VERSION = 3;
+  const STORES = ['customers', 'inventory', 'services', 'bills', 'payments', 'stockMovements', 'settings'];
   const money = value => Core.money(value);
   const currency = value => new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR' }).format(money(value));
-  const dateTime = value => value ? new Date(value).toLocaleString('en-IN', { dateStyle: 'medium', timeStyle: 'short' }) : '—';
-  const dateOnly = value => value ? new Date(value).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }) : '—';
+  const IST = 'Asia/Kolkata';
+  const dateTime = value => value ? new Intl.DateTimeFormat('en-IN', { dateStyle: 'medium', timeStyle: 'short', timeZone: IST }).format(new Date(value)) + ' IST' : '—';
+  const dateOnly = value => value ? new Intl.DateTimeFormat('en-IN', { day: '2-digit', month: 'short', year: 'numeric', timeZone: IST }).format(new Date(value)) : '—';
+  const todayIST = () => { const parts = new Intl.DateTimeFormat('en-GB', { timeZone: IST, year: 'numeric', month: '2-digit', day: '2-digit' }).formatToParts(new Date()); const part = key => parts.find(item => item.type === key)?.value || ''; return `${part('year')}-${part('month')}-${part('day')}`; };
   const byId = id => document.getElementById(id);
   const uuid = () => (crypto?.randomUUID ? crypto.randomUUID() : `wp-${Date.now()}-${Math.random().toString(16).slice(2)}`);
   const esc = value => String(value ?? '').replace(/[&<>"']/g, ch => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[ch]));
@@ -18,6 +20,7 @@
   let activeView = 'dashboard';
   let customers = [];
   let inventory = [];
+  let services = [];
   let bills = [];
   let payments = [];
   let stockMovements = [];
@@ -119,9 +122,10 @@
   }
 
   async function refreshData() {
-    const [customerRows, inventoryRows, billRows, paymentRows, movementRows, settingRows] = await Promise.all(STORES.map(readAll));
+    const [customerRows, inventoryRows, serviceRows, billRows, paymentRows, movementRows, settingRows] = await Promise.all(STORES.map(readAll));
     customers = customerRows;
     inventory = inventoryRows.filter(item => !item.archived);
+    services = serviceRows.filter(item => !item.archived);
     bills = billRows;
     payments = paymentRows;
     stockMovements = movementRows;
@@ -136,13 +140,13 @@
   function refreshDatabaseHealth() {
     const target = byId('database-health');
     if (!target) return;
-    const usage = customers.length + inventory.length + bills.length + payments.length + stockMovements.length;
-    target.textContent = `Active local database · ${customers.length} customers · ${inventory.length} stock items · ${bills.length} invoices · ${payments.length} payments · ${stockMovements.length} stock movements (${usage} records).`;
+    const usage = customers.length + inventory.length + services.length + bills.length + payments.length + stockMovements.length;
+    target.textContent = `Local database · ${customers.length} customers · ${inventory.length} stock items · ${services.length} services / non-stock items · ${bills.length} invoices · ${payments.length} payments · ${stockMovements.length} stock movements (${usage} records).`;
   }
 
   async function afterLocalChange(message = 'Changes saved on this device.') {
     lastSavedAt = new Date();
-    byId('last-saved-label').textContent = `Saved ${lastSavedAt.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })}`;
+    byId('last-saved-label').textContent = `Saved ${new Intl.DateTimeFormat('en-IN', { hour: '2-digit', minute: '2-digit', timeZone: IST }).format(lastSavedAt)} IST`;
     byId('backup-status').textContent = message;
     refreshDatabaseHealth();
     scheduleAutomaticDriveBackup();
@@ -181,7 +185,7 @@
   }
 
   const viewMeta = {
-    dashboard: ['OVERVIEW', 'Dashboard'], billing: ['SALES', 'Quick Billing'], inventory: ['STOCK CONTROL', 'Inventory'],
+    dashboard: ['OVERVIEW', 'Dashboard'], billing: ['SALES', 'Quick Billing'], inventory: ['STOCK CONTROL', 'Inventory'], services: ['SERVICE CATALOGUE', 'Services & items'],
     customers: ['CUSTOMER DIRECTORY', 'Customers'], ledger: ['ACCOUNTS', 'Ledger & Payments'], reports: ['ANALYTICS', 'Reports'], settings: ['PREFERENCES', 'Settings & Backup']
   };
 
@@ -195,6 +199,7 @@
     closeSidebar();
     if (view === 'dashboard') renderDashboard();
     if (view === 'inventory') renderInventory();
+    if (view === 'services') renderServices();
     if (view === 'billing') populateBillCustomers();
     if (view === 'customers') renderCustomers();
     if (view === 'ledger') renderLedger();
@@ -206,7 +211,9 @@
     const online = navigator.onLine;
     byId('network-dot').classList.toggle('online', online);
     byId('network-label').textContent = online ? 'Online' : 'Offline mode';
-    if (!online) byId('backup-status').textContent = 'Your records remain available on this device.';
+    if (!online) byId('backup-status').textContent = 'Offline: your changes still save on this device. Drive backup waits for internet.';
+    else if (settings.autoDriveBackup && driveToken && driveSessionReadyForAutoBackup) byId('backup-status').textContent = 'Online: automatic Google Drive backup is ready.';
+    else byId('backup-status').textContent = 'Online: local database active. Cloud backup is separate and optional.';
   }
 
   function showMoneyStatus(due) {
@@ -224,7 +231,7 @@
     byId('stat-low').textContent = lowItems.length;
     byId('stat-due').textContent = currency(outstanding);
     byId('stat-items-foot').textContent = `${openInventory.reduce((sum, item) => sum + Number(item.quantity || 0), 0)} total units in stock`;
-    byId('today-label').textContent = new Date().toLocaleDateString('en-IN', { weekday: 'short', day: '2-digit', month: 'short', year: 'numeric' });
+    byId('today-label').textContent = new Intl.DateTimeFormat('en-IN', { weekday: 'short', day: '2-digit', month: 'short', year: 'numeric', timeZone: IST }).format(new Date());
 
     const recent = [...bills].sort((a, b) => new Date(b.date) - new Date(a.date)).slice(0, 5);
     byId('recent-bills').innerHTML = recent.length ? recent.map(bill => `
@@ -286,7 +293,7 @@
     byId('stock-code').value = scannedCode || item?.code || '';
     byId('stock-code').disabled = Boolean(item);
     byId('stock-name').value = item?.name || '';
-    byId('stock-price').value = item?.price ?? 0;
+    byId('stock-price').value = item?.price ?? ''; 
     byId('stock-quantity').value = item ? 0 : 1;
     byId('stock-quantity').min = item ? 0 : 1;
     byId('stock-category').value = item?.category || 'General';
@@ -306,7 +313,7 @@
     if (item) {
       byId('stock-id').value = item.id;
       byId('stock-name').value = item.name;
-      byId('stock-price').value = item.price;
+      byId('stock-price').value = item.price ?? ''; 
       byId('stock-category').value = item.category || 'General';
       byId('stock-min').value = item.minStock ?? 5;
       byId('stock-location').value = item.location || '';
@@ -401,6 +408,61 @@
   }
 
   // ---------- Customer management ----------
+  function filterBillCustomers() {
+    const query = (byId('bill-customer-search')?.value || '').trim().toLowerCase();
+    const select = byId('bill-customer');
+    const current = select.value;
+    const matches = [...customers].filter(customer => !query || `${customer.name} ${customer.phone || ''} ${customer.vehicleNo || ''}`.toLowerCase().includes(query)).sort((a,b) => a.name.localeCompare(b.name));
+    select.innerHTML = '<option value="">Select customer</option>' + matches.map(customer => `<option value="${esc(customer.id)}">${esc(customer.name)} · ${esc(customer.phone || 'No phone')}${customer.vehicleNo ? ` · ${esc(customer.vehicleNo)}` : ''}</option>`).join('');
+    if (matches.some(row => row.id === current)) select.value = current;
+  }
+
+  function renderSavedServiceSuggestions() {
+    const query = (byId('bill-service-search')?.value || '').trim().toLowerCase();
+    const box = byId('bill-service-suggestions'); if (!box) return;
+    const matches = query ? services.filter(row => `${row.name} ${row.kind}`.toLowerCase().includes(query)).slice(0, 8) : [];
+    box.innerHTML = matches.map(row => `<div class="suggestion-item" data-action="choose-bill-service" data-id="${esc(row.id)}"><strong>${esc(row.name)}</strong><small>${row.kind === 'service' ? 'Service' : 'Non-stock item'} · Qty 0 · ${currency(row.price)}</small></div>`).join('');
+    box.style.display = matches.length ? 'block' : 'none';
+  }
+
+  function renderServices() {
+    if (!byId('services-table')) return;
+    const query = (byId('service-search')?.value || '').trim().toLowerCase();
+    const kind = byId('service-kind-filter')?.value || 'all';
+    const rows = services.filter(row => (!query || `${row.name} ${row.notes || ''}`.toLowerCase().includes(query)) && (kind === 'all' || row.kind === kind)).sort((a,b) => a.name.localeCompare(b.name));
+    byId('services-table').innerHTML = rows.length ? rows.map(row => `<tr><td><strong>${esc(row.name)}</strong><div class="table-sub">${esc(row.notes || '')}</div></td><td>${row.kind === 'service' ? 'Service' : 'Non-stock item'}</td><td>${currency(row.price)}</td><td>0</td><td>${dateOnly(row.updatedAt || row.createdAt)}</td><td><div class="row-actions"><button class="tiny-btn" data-action="use-service-catalog" data-id="${esc(row.id)}">Add to bill</button><button class="tiny-btn" data-action="edit-service-catalog" data-id="${esc(row.id)}">Edit</button><button class="tiny-btn danger" data-action="archive-service-catalog" data-id="${esc(row.id)}">Archive</button></div></td></tr>`).join('') : '<tr><td colspan="6" class="empty-cell">No services or non-stock items found.</td></tr>';
+  }
+
+  function openServiceCatalogDialog(row = null) {
+    byId('service-catalog-form').reset(); byId('service-catalog-id').value = row?.id || '';
+    byId('service-catalog-title').textContent = row ? 'Edit service / item' : 'Add service / item';
+    byId('service-catalog-name').value = row?.name || ''; byId('service-catalog-kind').value = row?.kind || 'service';
+    byId('service-catalog-price').value = row?.price ?? ''; byId('service-catalog-notes').value = row?.notes || ''; showDialog('service-catalog-dialog');
+  }
+
+  async function saveServiceCatalog(event) {
+    event.preventDefault(); const id = byId('service-catalog-id').value; const name = byId('service-catalog-name').value.trim();
+    const price = Number(byId('service-catalog-price').value); const kind = byId('service-catalog-kind').value;
+    if (!name || byId('service-catalog-price').value === '' || !Number.isFinite(price) || price < 0) { toast('Enter a name and valid price.', 'error'); return; }
+    const duplicate = services.find(row => row.id !== id && row.name.trim().toLowerCase() === name.toLowerCase() && row.kind === kind);
+    if (duplicate && !confirm(`“${name}” already exists. Save another entry anyway?`)) return;
+    const now = new Date().toISOString(); const record = id ? await readOne('services', id) : { id: uuid(), quantity: 0, archived: false, createdAt: now };
+    if (!record) throw new Error('Service record was not found.');
+    Object.assign(record, { name, kind, price: money(price), quantity: 0, notes: byId('service-catalog-notes').value.trim(), archived: false, updatedAt: now });
+    await writeOne('services', record); closeAllDialogs(); await refreshData(); renderServices(); await afterLocalChange('Service catalogue updated on this device.'); toast('Service / item saved.', 'success');
+  }
+
+  async function archiveServiceCatalog(id) {
+    const row = services.find(item => item.id === id); if (!row || !confirm(`Archive “${row.name}”? Existing invoices will be preserved.`)) return;
+    row.archived = true; row.updatedAt = new Date().toISOString(); await writeOne('services', row); await refreshData(); renderServices(); await afterLocalChange('Service archived.');
+  }
+
+  function addCatalogServiceToCart(id) {
+    const row = services.find(item => item.id === id); if (!row) return;
+    currentCart.push({ id: uuid(), inventoryId: null, serviceId: row.id, code: row.kind === 'service' ? 'SERVICE' : 'NON-STOCK', name: row.name, qty: 1, unitPrice: money(row.price), catalogKind: row.kind, saveToCatalog: false });
+    renderCart(); toast(`${row.name} added to invoice.`, 'success');
+  }
+
   function renderCustomers() {
     const query = byId('customer-search').value.trim().toLowerCase();
     const rows = customers.filter(customer => `${customer.name} ${customer.vehicleNo || ''} ${customer.phone || ''}`.toLowerCase().includes(query)).sort((a, b) => a.name.localeCompare(b.name));
@@ -431,8 +493,8 @@
     const vehicleNo = byId('customer-vehicle-input').value.trim().toUpperCase();
     const phone = byId('customer-phone-input').value.trim();
     const email = byId('customer-email-input').value.trim();
-    if (!name) { toast('Customer name is required.', 'error'); return; }
-    if (phone && !/^\d{10}$/.test(phone)) { toast('Enter a 10-digit phone number, or leave it blank.', 'error'); return; }
+    if (!name) { toast('Customer name is required.', 'error'); byId('customer-name-input').focus(); return; }
+    if (!/^\d{10}$/.test(phone)) { toast('A valid 10-digit phone number is required.', 'error'); byId('customer-phone-input').focus(); return; }
     const now = new Date().toISOString();
     const record = id ? await readOne('customers', id) : { id: uuid(), createdAt: now };
     if (!record) { toast('Customer record not found.', 'error'); return; }
@@ -444,10 +506,8 @@
 
   function populateBillCustomers() {
     const select = byId('bill-customer');
-    const current = select.value;
-    select.innerHTML = '<option value="">Select customer</option>' + [...customers].sort((a, b) => a.name.localeCompare(b.name)).map(customer => `<option value="${esc(customer.id)}">${esc(customer.name)}${customer.vehicleNo ? ` · ${esc(customer.vehicleNo)}` : ''}</option>`).join('');
-    if (customers.some(customer => customer.id === current)) select.value = current;
-    byId('bill-date').value ||= new Date().toISOString().slice(0, 10);
+    filterBillCustomers();
+    byId('bill-date').value ||= todayIST();
   }
 
   function showCustomerDetails(customerId) {
@@ -500,7 +560,7 @@
     const existing = currentCart.find(row => row.inventoryId === item.id);
     if (existing) existing.qty += qty;
     else currentCart.push({ id: uuid(), inventoryId: item.id, code: item.code, name: item.name, qty, unitPrice: Number(item.price || 0) });
-    selectedBillSuggestion = null; byId('bill-item-search').value = ''; byId('bill-add-qty').value = '1';
+    selectedBillSuggestion = null; byId('bill-item-search').value = ''; if (byId('bill-service-search')) byId('bill-service-search').value = ''; if (byId('bill-service-suggestions')) byId('bill-service-suggestions').style.display = 'none'; byId('bill-add-qty').value = '1';
     renderCart();
   }
 
@@ -526,10 +586,10 @@
 
   function clearBillDraft() {
     currentCart = []; selectedBillSuggestion = null;
-    byId('bill-customer').value = ''; byId('bill-vehicle').value = '';
-    byId('bill-item-search').value = ''; byId('bill-add-qty').value = '1';
+    byId('bill-customer').value = ''; if (byId('bill-customer-search')) byId('bill-customer-search').value = ''; filterBillCustomers(); byId('bill-vehicle').value = '';
+    byId('bill-item-search').value = ''; if (byId('bill-service-search')) byId('bill-service-search').value = ''; if (byId('bill-service-suggestions')) byId('bill-service-suggestions').style.display = 'none'; byId('bill-add-qty').value = '1';
     byId('bill-discount').value = '0'; byId('bill-paid').value = '0';
-    byId('bill-payment-method').value = 'Cash'; byId('bill-date').value = new Date().toISOString().slice(0, 10);
+    byId('bill-payment-method').value = 'Cash'; byId('bill-date').value = todayIST();
     byId('bill-suggestions').style.display = 'none'; renderCart();
   }
 
@@ -541,17 +601,18 @@
     let totals;
     try { totals = Core.calculateTotals(currentCart, byId('bill-discount').value, byId('bill-paid').value); }
     catch (error) { toast(error.message, 'error'); return; }
-    const chosenDate = byId('bill-date').value || new Date().toISOString().slice(0, 10);
-    const billDate = new Date(`${chosenDate}T12:00:00`).toISOString();
+    const chosenDate = byId('bill-date').value || todayIST();
+    const billDate = `${chosenDate}T00:00:00+05:30`;
     const vehicleNo = (byId('bill-vehicle').value || customer.vehicleNo || '').trim().toUpperCase();
     const now = new Date().toISOString();
     const billId = uuid();
-    const itemSnapshot = currentCart.map(item => ({ inventoryId: item.inventoryId, code: item.code, name: item.name, qty: item.qty, unitPrice: money(item.unitPrice), lineTotal: money(item.qty * item.unitPrice) }));
+    const itemSnapshot = currentCart.map(item => { if (!item.inventoryId && item.saveToCatalog && item.createCatalogRecord) item.serviceId = uuid(); return { inventoryId: item.inventoryId, serviceId: item.serviceId || null, kind: item.catalogKind || (item.inventoryId ? 'stock' : 'service'), code: item.code, name: item.name, qty: item.qty, unitPrice: money(item.unitPrice), lineTotal: money(item.qty * item.unitPrice) }; });
 
     // Stock updates, sequence number, bill and initial payment are committed in one IndexedDB transaction.
     await new Promise((resolve, reject) => {
-      const tx = db.transaction(['inventory', 'settings', 'bills', 'payments', 'stockMovements'], 'readwrite');
+      const tx = db.transaction(['inventory', 'services', 'settings', 'bills', 'payments', 'stockMovements'], 'readwrite');
       const inventoryStore = tx.objectStore('inventory');
+      const serviceStore = tx.objectStore('services');
       const settingsStore = tx.objectStore('settings');
       const billStore = tx.objectStore('bills');
       const paymentStore = tx.objectStore('payments');
@@ -583,6 +644,12 @@
           const bill = { id: billId, invoiceNo, customerId, customerName: customer.name, customerPhone: customer.phone || '', customerAddress: customer.address || '', customerGst: customer.gst || '', vehicleNo, date: billDate, savedAt: now, items: itemSnapshot, ...totals, paidTotal: totals.paid, paymentMethod: byId('bill-payment-method').value, status: totals.due <= 0 ? 'paid' : totals.paid > 0 ? 'partial' : 'due', updatedAt: now };
           settingsStore.put({ key: 'invoiceCounter', value: next });
           billStore.add(bill);
+          for (const line of currentCart) {
+            if (!line.inventoryId && line.saveToCatalog && line.createCatalogRecord && line.serviceId) {
+              const serviceRecord = { id: line.serviceId, name: line.name, kind: line.catalogKind || 'item', price: money(line.unitPrice), quantity: 0, notes: '', archived: false, createdAt: now, updatedAt: now };
+              serviceStore.add(serviceRecord);
+            }
+          }
           if (totals.paid > 0) paymentStore.add({ id: uuid(), billId, customerId, customerName: customer.name, invoiceNo, amount: totals.paid, method: byId('bill-payment-method').value, notes: 'Initial invoice payment', date: now });
           for (const [inventoryId, amount] of aggregated.entries()) {
             const stockItem = records.get(inventoryId);
@@ -665,7 +732,7 @@
     byId('details-print').hidden = !showPrint;
     const lines = bill.items.map(item => `<tr><td>${esc(item.name)}</td><td>${item.qty}</td><td>${currency(item.unitPrice)}</td><td>${currency(item.lineTotal)}</td></tr>`).join('');
     const workshopName = settings.workshopName || 'WORKSHOP PRO';
-    byId('details-content').innerHTML = `<div class="invoice-preview" id="invoice-print-area"><div class="invoice-brand">${esc(workshopName)}</div><div class="invoice-subtitle">TAX INVOICE / RECEIPT</div><div class="invoice-meta"><div><strong>Invoice:</strong> ${esc(bill.invoiceNo)}<br><strong>Date:</strong> ${dateTime(bill.date)}</div><div><strong>Customer:</strong> ${esc(bill.customerName)}<br><strong>Vehicle:</strong> ${esc(bill.vehicleNo || '—')}</div><div><strong>Phone:</strong> ${esc(bill.customerPhone || '—')}<br><strong>GST:</strong> ${esc(bill.customerGst || '—')}</div><div><strong>Workshop:</strong> ${esc(settings.workshopPhone || '')}<br>${esc(settings.workshopAddress || '')}</div></div><div class="table-scroll"><table class="invoice-table"><thead><tr><th>Item</th><th>Qty</th><th>Rate</th><th>Amount</th></tr></thead><tbody>${lines}</tbody></table></div><div class="invoice-totals"><div><span>Subtotal</span><strong>${currency(bill.subtotal)}</strong></div><div><span>Discount</span><strong>${currency(bill.discount)}</strong></div><div class="total"><span>Total</span><strong>${currency(bill.total)}</strong></div><div><span>Paid</span><strong>${currency(bill.paidTotal)}</strong></div><div><span>Balance due</span><strong>${currency(bill.due)}</strong></div></div><div class="invoice-thanks">Thank you for your business.</div></div><div class="details-kpis"><div class="details-kpi"><span>Invoice total</span><strong>${currency(bill.total)}</strong></div><div class="details-kpi"><span>Received</span><strong>${currency(bill.paidTotal)}</strong></div><div class="details-kpi"><span>Balance due</span><strong>${currency(bill.due)}</strong></div></div>`;
+    byId('details-content').innerHTML = `<div class="invoice-preview" id="invoice-print-area"><div class="invoice-brand">${esc(workshopName)}</div><div class="invoice-subtitle">TAX INVOICE / RECEIPT</div><div class="invoice-meta"><div><strong>Invoice:</strong> ${esc(bill.invoiceNo)}<br><strong>Date:</strong> ${dateOnly(bill.date)}<br><strong>Time:</strong> ${dateTime(bill.savedAt || bill.date)}</div><div><strong>Customer:</strong> ${esc(bill.customerName)}<br><strong>Vehicle:</strong> ${esc(bill.vehicleNo || '—')}</div><div><strong>Phone:</strong> ${esc(bill.customerPhone || '—')}<br><strong>GST:</strong> ${esc(bill.customerGst || '—')}</div><div><strong>Workshop:</strong> ${esc(settings.workshopPhone || '')}<br>${esc(settings.workshopAddress || '')}</div></div><div class="table-scroll"><table class="invoice-table"><thead><tr><th>Item</th><th>Qty</th><th>Rate</th><th>Amount</th></tr></thead><tbody>${lines}</tbody></table></div><div class="invoice-totals"><div><span>Subtotal</span><strong>${currency(bill.subtotal)}</strong></div><div><span>Discount</span><strong>${currency(bill.discount)}</strong></div><div class="total"><span>Total</span><strong>${currency(bill.total)}</strong></div><div><span>Paid</span><strong>${currency(bill.paidTotal)}</strong></div><div><span>Balance due</span><strong>${currency(bill.due)}</strong></div></div><div class="invoice-thanks">Thank you for your business.</div></div><div class="details-kpis"><div class="details-kpi"><span>Invoice total</span><strong>${currency(bill.total)}</strong></div><div class="details-kpi"><span>Received</span><strong>${currency(bill.paidTotal)}</strong></div><div class="details-kpi"><span>Balance due</span><strong>${currency(bill.due)}</strong></div></div>`;
     showDialog('details-dialog');
   }
 
@@ -675,7 +742,7 @@
     if (!content) return;
     const printWindow = window.open('', '_blank', 'width=900,height=700');
     if (!printWindow) { toast('Allow pop-ups to print or save the invoice as PDF.', 'warning'); return; }
-    printWindow.document.write(`<!doctype html><html><head><title>${esc(currentInvoice.invoiceNo)}</title><meta charset="utf-8"><style>body{font-family:Arial,sans-serif;color:#172b43;padding:28px}.invoice-preview{max-width:760px;margin:auto}.invoice-brand{text-align:center;font-size:22px;font-weight:bold;color:#5367e8}.invoice-subtitle{text-align:center;font-size:10px;letter-spacing:2px;color:#788;margin:5px 0 20px}.invoice-meta{display:grid;grid-template-columns:1fr 1fr;gap:9px;font-size:11px;margin-bottom:18px;line-height:1.7}table{width:100%;border-collapse:collapse;font-size:11px}th,td{text-align:left;padding:9px;border-bottom:1px solid #e8edf2}th{background:#f2f4ff}.invoice-totals{width:260px;margin:16px 0 0 auto;display:grid;gap:8px;font-size:11px}.invoice-totals div{display:flex;justify-content:space-between}.invoice-totals .total{border-top:1px solid #ddd;padding-top:9px;font-size:14px;font-weight:bold}.invoice-thanks{text-align:center;color:#888;font-size:10px;margin-top:30px}@media print{body{padding:0}}</style></head><body>${content}<script>window.onload=()=>{window.print();};<\/script></body></html>`);
+    printWindow.document.write(`<!doctype html><html><head><title>${esc(currentInvoice.invoiceNo)}</title><meta charset="utf-8"><style>body{font-family:Arial,sans-serif;color:#172b43;padding:28px}.invoice-preview{max-width:760px;margin:auto}.invoice-brand{text-align:center;font-size:22px;font-weight:bold;color:#5367e8}.invoice-subtitle{text-align:center;font-size:10px;letter-spacing:2px;color:#788;margin:5px 0 20px}.invoice-meta{display:grid;grid-template-columns:1fr 1fr;gap:9px;font-size:11px;margin-bottom:18px;line-height:1.7}table{width:100%;border-collapse:collapse;font-size:11px}th,td{text-align:left;padding:9px;border-bottom:1px solid #e8edf2}th{background:#f2f4ff}.invoice-totals{width:260px;margin:16px 0 0 auto;display:grid;gap:8px;font-size:11px}.invoice-totals div{display:flex;justify-content:space-between}.invoice-totals .total{border-top:2px solid #111;padding-top:10px;font-size:22px;font-weight:900;color:#000}.invoice-totals .total strong{font-size:28px;font-weight:900;color:#000}.invoice-thanks{text-align:center;color:#888;font-size:10px;margin-top:30px}@media print{body{padding:0}}</style></head><body>${content}<script>window.onload=()=>{window.print();};<\/script></body></html>`);
     printWindow.document.close();
   }
 
@@ -707,7 +774,7 @@
     byId('ledger-due').textContent = currency(rows.reduce((sum, bill) => sum + Number(bill.due || 0), 0));
     byId('ledger-count').textContent = rows.length;
     byId('ledger-list').innerHTML = rows.length ? rows.map(bill => `
-      <div class="ledger-entry"><div class="ledger-entry-main"><strong>${esc(bill.customerName)} <span class="muted">· ${esc(bill.invoiceNo)}</span></strong><small>${dateTime(bill.date)} · ${esc(bill.vehicleNo || 'No vehicle')}</small></div><div class="ledger-entry-amount"><strong>${currency(bill.total)}</strong><small>${bill.due > 0 ? `${currency(bill.due)} due` : 'Paid'}</small></div><div class="ledger-entry-actions"><button class="tiny-btn" data-action="view-invoice" data-id="${esc(bill.id)}">View invoice</button>${bill.due > 0 ? `<button class="tiny-btn" data-action="collect-payment" data-id="${esc(bill.id)}">Collect payment</button>` : ''}</div></div>`).join('') : '<div class="empty-state">No invoices found for these filters.</div>';
+      <div class="ledger-entry"><div class="ledger-entry-main"><strong>${esc(bill.customerName)} <span class="muted">· ${esc(bill.invoiceNo)}</span></strong><small>${dateTime(bill.savedAt || bill.date)} · ${esc(bill.vehicleNo || 'No vehicle')}</small></div><div class="ledger-entry-amount"><strong>${currency(bill.total)}</strong><small>${bill.due > 0 ? `${currency(bill.due)} due` : 'Paid'}</small></div><div class="ledger-entry-actions"><button class="tiny-btn" data-action="view-invoice" data-id="${esc(bill.id)}">View invoice</button>${bill.due > 0 ? `<button class="tiny-btn" data-action="collect-payment" data-id="${esc(bill.id)}">Collect payment</button>` : ''}</div></div>`).join('') : '<div class="empty-state">No invoices found for these filters.</div>';
     const balances = Core.deriveCustomerBalances(bills);
     byId('customer-balances').innerHTML = balances.length ? balances.map(row => `<div class="balance-row"><div><strong>${esc(row.name)}</strong><small>${row.invoices} invoice(s) outstanding</small></div><b>${currency(row.due)}</b></div>`).join('') : '<div class="empty-state">No pending dues.</div>';
   }
@@ -734,7 +801,7 @@
     byId('report-out-items').textContent = inventory.filter(item => inventoryStatus(item) === 'out').length;
     const dayGroups = new Map();
     for (const bill of rows) {
-      const day = new Date(bill.date).toLocaleDateString('en-IN', { day: '2-digit', month: 'short' });
+      const day = new Intl.DateTimeFormat('en-IN', { day: '2-digit', month: 'short', timeZone: IST }).format(new Date(bill.date));
       dayGroups.set(day, (dayGroups.get(day) || 0) + Number(bill.total || 0));
     }
     const chartRows = [...dayGroups.entries()].slice(-10);
@@ -774,7 +841,7 @@
   async function createBackupPayload() {
     const data = {};
     for (const store of STORES) data[store] = await readAll(store);
-    return { app: 'WorkshopPro', schemaVersion: 2, exportedAt: new Date().toISOString(), data };
+    return { app: 'WorkshopPro', schemaVersion: 3, exportedAt: new Date().toISOString(), data };
   }
 
   async function downloadLocalBackup() {
@@ -795,7 +862,7 @@
       downloadBlob(new Blob([JSON.stringify(safetyCopy, null, 2)], { type: 'application/json' }), `WorkshopPro_Before_Restore_${new Date().toISOString().slice(0, 10)}.json`);
       await replaceAllData(payload.data);
       currentCart = []; await refreshData();
-      renderDashboard(); renderInventory(); renderCustomers(); renderLedger(); renderReports(); renderSettings(); populateBillCustomers(); clearBillDraft();
+      renderDashboard(); renderInventory(); renderServices(); renderCustomers(); renderLedger(); renderReports(); renderSettings(); populateBillCustomers(); clearBillDraft();
       await afterLocalChange(normalized.migratedLegacy ? 'Original Workshop Pro backup converted and restored to this device.' : 'Backup restored to this device.');
       toast(normalized.migratedLegacy ? 'Old Workshop Pro records imported successfully.' : 'Backup restored successfully.', 'success');
     } catch (error) { toast(error.message || 'Could not restore this backup file.', 'error'); }
@@ -895,6 +962,7 @@
     const automatic = Boolean(options.automatic);
     try {
       if (!driveToken) { if (!automatic) toast('Connect Google Drive first.', 'warning'); return; }
+      if (automatic && !navigator.onLine) { byId('backup-status').textContent = 'Offline: local changes are safe on this device. Drive upload will retry after reconnection.'; return; }
       if (automatic && !driveSessionReadyForAutoBackup) return;
       byId('backup-status').textContent = 'Uploading backup to Google Drive…';
       const existing = await findDriveBackup();
@@ -928,7 +996,7 @@
       driveKnownModifiedTime = result.modifiedTime || (await findDriveBackup())?.modifiedTime || null;
       driveBaselineLoaded = true;
       driveSessionReadyForAutoBackup = true;
-      byId('backup-status').textContent = `Last Drive backup ${new Date().toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })}`;
+      byId('backup-status').textContent = `Last Drive backup ${dateTime(new Date())}`;
       toast('Backup uploaded to Google Drive.', 'success');
     } catch (error) { byId('backup-status').textContent = 'Local records are safe; Drive backup did not complete.'; toast(error.message || 'Google Drive backup failed.', 'error'); }
   }
@@ -948,14 +1016,14 @@
       await replaceAllData(payload.data);
       driveFileId = file.id; driveKnownModifiedTime = file.modifiedTime || null; driveBaselineLoaded = true; driveSessionReadyForAutoBackup = true;
       currentCart = []; await refreshData();
-      renderDashboard(); renderInventory(); renderCustomers(); renderLedger(); renderReports(); renderSettings(); populateBillCustomers(); clearBillDraft();
+      renderDashboard(); renderInventory(); renderServices(); renderCustomers(); renderLedger(); renderReports(); renderSettings(); populateBillCustomers(); clearBillDraft();
       await afterLocalChange('Restored from Google Drive.');
       toast(normalized.migratedLegacy ? 'Old Workshop Pro Google Drive backup imported successfully.' : 'Google Drive backup restored.', 'success');
     } catch (error) { toast(error.message || 'Google Drive restore failed.', 'error'); }
   }
 
   function scheduleAutomaticDriveBackup() {
-    if (!settings.autoDriveBackup || !driveToken || !driveSessionReadyForAutoBackup) return;
+    if (!settings.autoDriveBackup || !driveToken || !driveSessionReadyForAutoBackup || !navigator.onLine) return;
     clearTimeout(autoBackupTimer);
     autoBackupTimer = setTimeout(() => backupToDrive({ automatic: true }), 1800);
   }
@@ -1207,7 +1275,7 @@
       try {
         const billCustomer = byId('bill-customer').value;
         await refreshData();
-        renderDashboard(); renderInventory(); renderCustomers(); renderLedger(); renderReports();
+        renderDashboard(); renderInventory(); renderServices(); renderCustomers(); renderLedger(); renderReports();
         refreshDatabaseHealth();
         populateBillCustomers();
         if (customers.some(row => row.id === billCustomer)) byId('bill-customer').value = billCustomer;
@@ -1218,7 +1286,7 @@
   }
   window.addEventListener('storage', event => {
     if (event.key !== 'workshoppro-db-ping' || updateChannel) return;
-    refreshData().then(() => { renderDashboard(); renderInventory(); renderCustomers(); renderLedger(); renderReports(); populateBillCustomers(); }).catch(console.error);
+    refreshData().then(() => { renderDashboard(); renderInventory(); renderServices(); renderCustomers(); renderLedger(); renderReports(); populateBillCustomers(); }).catch(console.error);
   });
 
   // ---------- Event wiring ----------
@@ -1241,7 +1309,11 @@
     if (action === 'edit-customer') { closeAllDialogs(); openCustomerDialog(customers.find(row => row.id === id)); }
     if (action === 'choose-bill-item') chooseBillItem(id);
     if (action === 'add-bill-item') addSelectedBillItem();
-    if (action === 'open-service-line') { byId('service-form').reset(); byId('service-qty').value = '1'; byId('service-price').value = '0'; showDialog('service-dialog'); }
+    if (action === 'open-service-line') { byId('service-form').reset(); byId('service-qty').value = '1'; byId('service-price').value = ''; byId('service-kind').value = 'service'; byId('service-save-catalog').checked = true; showDialog('service-dialog'); }
+    if (action === 'open-service-catalog') openServiceCatalogDialog();
+    if (action === 'edit-service-catalog') openServiceCatalogDialog(services.find(row => row.id === id));
+    if (action === 'archive-service-catalog') archiveServiceCatalog(id);
+    if (action === 'use-service-catalog' || action === 'choose-bill-service') { addCatalogServiceToCart(id); if (byId('bill-service-search')) byId('bill-service-search').value = ''; if (byId('bill-service-suggestions')) byId('bill-service-suggestions').style.display = 'none'; }
     if (action === 'remove-cart-item') { currentCart = currentCart.filter(row => row.id !== id); renderCart(); }
     if (action === 'save-bill') finalizeBill();
     if (action === 'clear-bill') { if (!currentCart.length || confirm('Clear this unsaved invoice draft?')) clearBillDraft(); }
@@ -1267,7 +1339,10 @@
   document.addEventListener('input', event => {
     if (event.target.matches('#inventory-search,#inventory-filter,#inventory-category-filter,#inventory-sort')) renderInventory();
     if (event.target.matches('#customer-search')) renderCustomers();
+    if (event.target.matches('#bill-customer-search')) filterBillCustomers();
+    if (event.target.matches('#service-search')) renderServices();
     if (event.target.matches('#bill-item-search')) { selectedBillSuggestion = null; renderBillSuggestions(); }
+    if (event.target.matches('#bill-service-search')) renderSavedServiceSuggestions();
     if (event.target.matches('#bill-discount,#bill-paid')) updateBillTotals();
     if (event.target.matches('[data-cart-qty]')) {
       const item = currentCart.find(row => row.id === event.target.dataset.cartQty);
@@ -1299,6 +1374,7 @@
       if (customer) byId('bill-vehicle').value = customer.vehicleNo || '';
     }
     if (event.target.id === 'backup-file') importBackupFile(event.target.files?.[0]);
+    if (event.target.id === 'service-kind-filter') renderServices();
     if (event.target.id === 'scanner-image') scanImageFile(event.target.files?.[0]);
     if (event.target.id === 'drive-auto-backup') updateAutoBackupSetting(event.target.checked);
   });
@@ -1323,9 +1399,13 @@
     const qty = Number(byId('service-qty').value);
     const unitPrice = Number(byId('service-price').value);
     if (!name || !Number.isInteger(qty) || qty < 1 || !Number.isFinite(unitPrice) || unitPrice < 0) { toast('Enter a description, valid quantity and non-negative price.', 'error'); return; }
-    currentCart.push({ id: uuid(), inventoryId: null, code: 'SERVICE', name, qty, unitPrice: money(unitPrice) });
-    closeAllDialogs(); renderCart(); toast('Service / miscellaneous line added.', 'success');
+    const saveToCatalog = byId('service-save-catalog').checked;
+    const catalogKind = byId('service-kind').value;
+    const existing = services.find(row => row.name.trim().toLowerCase() === name.toLowerCase() && row.kind === catalogKind);
+    currentCart.push({ id: uuid(), inventoryId: null, serviceId: existing?.id || null, createCatalogRecord: saveToCatalog && !existing, code: catalogKind === 'service' ? 'SERVICE' : 'NON-STOCK', name, qty, unitPrice: money(unitPrice), catalogKind, saveToCatalog });
+    closeAllDialogs(); renderCart(); toast(saveToCatalog ? 'Service added. It will be saved for future bills when this invoice is saved.' : 'Service added to this invoice.', 'success');
   });
+  byId('service-catalog-form').addEventListener('submit', event => saveServiceCatalog(event).catch(error => toast(error.message, 'error')));
   byId('settings-form').addEventListener('submit', event => saveSettings(event).catch(error => toast(error.message, 'error')));
   byId('menu-toggle').addEventListener('click', openSidebar);
   byId('sidebar-close').addEventListener('click', closeSidebar);
@@ -1353,7 +1433,7 @@
     resolveBillingBarcode(true);
   });
   byId('bill-add-qty').addEventListener('keydown', event => { if (event.key === 'Enter') { event.preventDefault(); addSelectedBillItem(); } });
-  window.addEventListener('online', updateNetworkState);
+  window.addEventListener('online', () => { updateNetworkState(); if (settings.autoDriveBackup && driveToken && driveSessionReadyForAutoBackup) { byId('backup-status').textContent = 'Internet restored. Syncing the latest local backup to Google Drive…'; scheduleAutomaticDriveBackup(); } });
   window.addEventListener('offline', updateNetworkState);
   window.addEventListener('beforeunload', () => { if (scanner?.isScanning) scanner.stop().catch(() => {}); });
 
@@ -1408,7 +1488,7 @@
       const didMigrateLegacy = await migrateLegacyPouchDB();
       await refreshData();
       if (didMigrateLegacy) await afterLocalChange('Original Workshop Pro records imported into the new local database.');
-      renderDashboard(); renderInventory(); renderCustomers(); renderLedger(); renderReports(); renderSettings(); populateBillCustomers(); clearBillDraft();
+      renderDashboard(); renderInventory(); renderServices(); renderCustomers(); renderLedger(); renderReports(); renderSettings(); populateBillCustomers(); clearBillDraft();
       refreshDatabaseHealth();
       updateNetworkState();
       byId('page-title').textContent = 'Dashboard';

@@ -1,0 +1,22 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+  <meta name="theme-color" content="#10243a"><title>Workshop Pro — Admin Database</title>
+  <link rel="stylesheet" href="admin.css"><script src="config.js" defer></script><script src="admin.js" defer></script>
+</head>
+<body>
+  <header class="top"><div><div class="brand">Workshop<span>Pro</span></div><p>Separate admin database workspace</p></div><a href="index.html">← Return to app</a></header>
+  <main>
+    <section class="login panel" id="login-panel"><h1>Admin access</h1><p>Enter the admin PIN configured in <code>config.js</code>.</p><form id="login-form"><label>Admin PIN<input id="admin-pin" type="password" autocomplete="current-password" required></label><button>Unlock database</button></form><p class="hint" id="login-hint">The PIN is a local convenience lock only. It is not server-side authentication.</p></section>
+    <section id="workspace" hidden>
+      <div class="intro"><div><h1>Database tables</h1><p>Search, inspect, edit and export the records stored in this browser's Workshop Pro database.</p></div><button id="refresh">Refresh tables</button></div>
+      <div class="notice"><strong>Important:</strong> This edits the local IndexedDB database on this device and browser origin. It does not create a hosted multi-device database. Back up before editing. Keep invoice, payment and stock-movement references consistent.</div>
+      <div class="toolbar panel"><label>Table<select id="table-select"><option value="customers">Customers</option><option value="inventory">Inventory</option><option value="services">Services & non-stock items</option><option value="bills">Invoices</option><option value="payments">Payments</option><option value="stockMovements">Stock movements</option><option value="settings">Settings</option></select></label><label class="search">Search<input id="search" type="search" placeholder="Search any visible field"></label><div class="actions"><button id="add-row">＋ Add record</button><button id="export-csv" class="secondary">Export table CSV</button><button id="export-json" class="secondary">Export full backup</button></div></div>
+      <div class="stats" id="stats"></div>
+      <div class="panel table-panel"><div class="table-scroll"><table><thead id="thead"></thead><tbody id="tbody"></tbody></table></div></div>
+      <p class="footnote" id="status" aria-live="polite"></p>
+    </section>
+  </main>
+  <dialog id="editor"><form id="editor-form"><div class="dialog-head"><div><h2 id="editor-title">Edit record</h2><p>Review the JSON carefully before saving.</p></div><button type="button" id="close-editor" class="x">×</button></div><textarea id="record-json" spellcheck="false"></textarea><div class="dialog-actions"><button type="button" id="cancel-editor" class="secondary">Cancel</button><button type="submit">Save record</button></div></form></dialog>
+</body></html>

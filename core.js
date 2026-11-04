@@ -48,12 +48,14 @@
 
   function validateBackup(payload) {
     if (!payload || typeof payload !== 'object' || payload.app !== 'WorkshopPro') throw new Error('This is not a Workshop Pro backup file.');
-    if (!Number.isInteger(payload.schemaVersion) || payload.schemaVersion !== 2) throw new Error('Unsupported backup version.');
-    const required = ['customers', 'inventory', 'bills', 'payments', 'stockMovements', 'settings'];
+    if (!Number.isInteger(payload.schemaVersion) || ![2, 3].includes(payload.schemaVersion)) throw new Error('Unsupported backup version.');
+    if (!payload.data || typeof payload.data !== 'object' || Array.isArray(payload.data)) throw new Error('Backup data section is missing or invalid.');
+    if (!Array.isArray(payload.data.services)) payload.data.services = [];
+    const required = ['customers', 'inventory', 'services', 'bills', 'payments', 'stockMovements', 'settings'];
     for (const name of required) {
       if (!Array.isArray(payload.data?.[name])) throw new Error(`Backup is missing ${name} records.`);
     }
-    const keyFields = { customers: 'id', inventory: 'id', bills: 'id', payments: 'id', stockMovements: 'id', settings: 'key' };
+    const keyFields = { customers: 'id', inventory: 'id', services: 'id', bills: 'id', payments: 'id', stockMovements: 'id', settings: 'key' };
     for (const name of required) {
       const key = keyFields[name];
       const seen = new Set();
@@ -163,7 +165,7 @@
       { key: 'legacyMigrationAt', value: new Date().toISOString() },
       { key: 'legacyMigrationSource', value: 'workshop_db' }
     ];
-    return { customers, inventory, bills, payments, stockMovements, settings };
+    return { customers, inventory, services: [], bills, payments, stockMovements, settings };
   }
 
   function normalizeBackupPayload(payload) {
@@ -184,7 +186,7 @@
       migrated.settings.push({ key: 'legacyMigrationDone', value: true });
       const normalized = {
         app: 'WorkshopPro',
-        schemaVersion: 2,
+        schemaVersion: 3,
         exportedAt: payload?.timestamp || payload?.exportedAt || new Date().toISOString(),
         data: migrated
       };

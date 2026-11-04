@@ -1,8 +1,8 @@
-// Optional Google Drive configuration.
-// Create an OAuth 2.0 Client ID for a Web application in Google Cloud Console,
-// enable the Google Drive API, and add your hosted origin to Authorized JavaScript origins.
-// Do not add a client secret to this browser-only application.
+// Optional browser-only configuration. Never put OAuth client secrets here.
 window.WORKSHOP_CONFIG = Object.freeze({
   googleClientId: '265618310384-mvgcqs0j7tk1fvi6k1b902s8batrehmj.apps.googleusercontent.com',
-  driveBackupFileName: 'workshop_backup.json'
+  driveBackupFileName: 'workshop_backup.json',
+  // Optional convenience PIN for the separate admin.html page.
+  // This is NOT server-side security. Use a private device / trusted browser only.
+  adminPin: '3578'
 });
