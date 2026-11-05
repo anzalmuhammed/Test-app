@@ -4,8 +4,9 @@
   const Core = window.WorkshopCore;
   const CONFIG = window.WORKSHOP_CONFIG || {};
   const DB_NAME = 'WorkshopProDB_v2';
-  const DB_VERSION = 3;
+  const DB_VERSION = 4;
   const STORES = ['customers', 'inventory', 'services', 'bills', 'payments', 'stockMovements', 'settings'];
+  const SYNC_STORES = ['syncMeta', 'syncOutbox', 'syncApplied', 'syncConflicts'];
   const money = value => Core.money(value);
   const currency = value => new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR' }).format(money(value));
   const IST = 'Asia/Kolkata';
@@ -14,6 +15,7 @@
   const todayIST = () => { const parts = new Intl.DateTimeFormat('en-GB', { timeZone: IST, year: 'numeric', month: '2-digit', day: '2-digit' }).formatToParts(new Date()); const part = key => parts.find(item => item.type === key)?.value || ''; return `${part('year')}-${part('month')}-${part('day')}`; };
   const byId = id => document.getElementById(id);
   const uuid = () => (crypto?.randomUUID ? crypto.randomUUID() : `wp-${Date.now()}-${Math.random().toString(16).slice(2)}`);
+  const titleCase = value => String(value ?? '').trim().toLocaleLowerCase('en-IN').replace(/(^|[\s\-])([\p{L}])/gu, (_, lead, letter) => lead + letter.toLocaleUpperCase('en-IN'));
   const esc = value => String(value ?? '').replace(/[&<>"']/g, ch => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[ch]));
 
   let db = null;
@@ -33,6 +35,8 @@
   let scannerResultHandled = false;
   let torchEnabled = false;
   let driveToken = null;
+  let syncEngine = null;
+  let syncDebounceTimer = null;
   let driveTokenClient = null;
   let driveFileId = null;
   let driveKnownModifiedTime = null;
@@ -55,9 +59,10 @@
       request.onupgradeneeded = () => {
         const database = request.result;
         for (const store of STORES) {
-          if (!database.objectStoreNames.contains(store)) {
-            database.createObjectStore(store, { keyPath: store === 'settings' ? 'key' : 'id' });
-          }
+          if (!database.objectStoreNames.contains(store)) database.createObjectStore(store, { keyPath: store === 'settings' || store === 'syncMeta' ? 'key' : 'id' });
+        }
+        for (const store of SYNC_STORES) {
+          if (!database.objectStoreNames.contains(store)) database.createObjectStore(store, { keyPath: store === 'syncMeta' ? 'key' : 'id' });
         }
       };
       request.onsuccess = () => {
@@ -150,10 +155,42 @@
     byId('backup-status').textContent = message;
     refreshDatabaseHealth();
     scheduleAutomaticDriveBackup();
+    scheduleRecordSync();
     if (updateChannel) updateChannel.postMessage({ type: 'database-changed', source: tabId, at: Date.now() });
     else {
       try { localStorage.setItem('workshoppro-db-ping', `${tabId}:${Date.now()}`); } catch (_) {}
     }
+  }
+
+  function isShopWriter() { return !syncEngine || syncEngine.role !== 'read-only'; }
+  function requireShopWriter(actionLabel) {
+    if (isShopWriter()) return true;
+    toast(`This device is read-only. ${actionLabel} is allowed only on the WorkshopPro shop tablet.`, 'warning');
+    return false;
+  }
+  function applyDeviceRole(role) {
+    document.documentElement.dataset.deviceRole = role || 'unassigned';
+    if (role === 'read-only') {
+      toast('This device is connected as read-only. Only the shop tablet can create bills, payments or stock movements.', 'warning');
+    }
+  }
+
+  function scheduleRecordSync() {
+    if (!syncEngine) return;
+    clearTimeout(syncDebounceTimer);
+    syncDebounceTimer = setTimeout(async () => {
+      try { await syncEngine.captureLocalChanges(); await syncEngine.status(); if (navigator.onLine) await syncEngine.sync(); }
+      catch (error) { console.warn('Local sync queue capture failed; it will be retried:', error); }
+    }, 250);
+  }
+
+  async function refreshAfterRemoteSync() {
+    const billCustomer = byId('bill-customer')?.value || '';
+    await refreshData();
+    renderDashboard(); renderInventory(); renderServices(); renderCustomers(); renderLedger(); renderReports();
+    populateBillCustomers();
+    if (customers.some(row => row.id === billCustomer)) byId('bill-customer').value = billCustomer;
+    refreshDatabaseHealth();
   }
 
   // ---------- Shared UI utilities ----------
@@ -334,9 +371,10 @@
 
   async function saveStock(event) {
     event.preventDefault();
+    if (!requireShopWriter('Stock changes')) return;
     let id = byId('stock-id').value;
     const code = byId('stock-code').value.trim();
-    const name = byId('stock-name').value.trim();
+    const name = titleCase(byId('stock-name').value);
     const price = Number(byId('stock-price').value);
     const qty = Number(byId('stock-quantity').value);
     const minStock = Number(byId('stock-min').value);
@@ -387,6 +425,7 @@
   }
 
   async function archiveStock(id) {
+    if (!requireShopWriter('Stock changes')) return;
     const item = inventory.find(row => row.id === id);
     if (!item) return;
     if (!confirm(`Archive “${item.name}”? It will be hidden from stock lists and billing, but old invoices will be kept.`)) return;
@@ -415,6 +454,12 @@
     const matches = [...customers].filter(customer => !query || `${customer.name} ${customer.phone || ''} ${customer.vehicleNo || ''}`.toLowerCase().includes(query)).sort((a,b) => a.name.localeCompare(b.name));
     select.innerHTML = '<option value="">Select customer</option>' + matches.map(customer => `<option value="${esc(customer.id)}">${esc(customer.name)} · ${esc(customer.phone || 'No phone')}${customer.vehicleNo ? ` · ${esc(customer.vehicleNo)}` : ''}</option>`).join('');
     if (matches.some(row => row.id === current)) select.value = current;
+    const suggestionBox = byId('bill-customer-suggestions');
+    if (suggestionBox) {
+      const suggestions = query ? matches.slice(0, 7) : [];
+      suggestionBox.innerHTML = suggestions.map(customer => `<div class="suggestion-item" data-action="choose-bill-customer" data-id="${esc(customer.id)}"><strong>${esc(customer.name)}</strong><small>${esc(customer.phone || 'No phone')}${customer.vehicleNo ? ` · ${esc(customer.vehicleNo)}` : ''}</small></div>`).join('');
+      suggestionBox.style.display = suggestions.length ? 'block' : 'none';
+    }
   }
 
   function renderSavedServiceSuggestions() {
@@ -441,7 +486,8 @@
   }
 
   async function saveServiceCatalog(event) {
-    event.preventDefault(); const id = byId('service-catalog-id').value; const name = byId('service-catalog-name').value.trim();
+    event.preventDefault();
+    if (!requireShopWriter('Catalogue changes')) return; const id = byId('service-catalog-id').value; const name = titleCase(byId('service-catalog-name').value);
     const price = Number(byId('service-catalog-price').value); const kind = byId('service-catalog-kind').value;
     if (!name || byId('service-catalog-price').value === '' || !Number.isFinite(price) || price < 0) { toast('Enter a name and valid price.', 'error'); return; }
     const duplicate = services.find(row => row.id !== id && row.name.trim().toLowerCase() === name.toLowerCase() && row.kind === kind);
@@ -453,6 +499,7 @@
   }
 
   async function archiveServiceCatalog(id) {
+    if (!requireShopWriter('Catalogue changes')) return;
     const row = services.find(item => item.id === id); if (!row || !confirm(`Archive “${row.name}”? Existing invoices will be preserved.`)) return;
     row.archived = true; row.updatedAt = new Date().toISOString(); await writeOne('services', row); await refreshData(); renderServices(); await afterLocalChange('Service archived.');
   }
@@ -488,8 +535,9 @@
 
   async function saveCustomer(event) {
     event.preventDefault();
+    if (!requireShopWriter('Customer changes')) return;
     const id = byId('customer-id').value;
-    const name = byId('customer-name-input').value.trim();
+    const name = titleCase(byId('customer-name-input').value);
     const vehicleNo = byId('customer-vehicle-input').value.trim().toUpperCase();
     const phone = byId('customer-phone-input').value.trim();
     const email = byId('customer-email-input').value.trim();
@@ -566,7 +614,7 @@
 
   function renderCart() {
     byId('bill-cart').innerHTML = currentCart.length ? currentCart.map(item => `
-      <tr><td><div class="table-main">${esc(item.name)}</div><div class="table-sub">${esc(item.code)}</div></td><td><input class="cart-qty" type="number" min="1" step="1" value="${item.qty}" data-cart-qty="${esc(item.id)}" aria-label="Quantity"></td><td><input class="cart-price" type="number" min="0" step="0.01" value="${item.unitPrice}" data-cart-price="${esc(item.id)}" aria-label="Unit price"></td><td><strong>${currency(item.qty * item.unitPrice)}</strong></td><td><button class="remove-line" data-action="remove-cart-item" data-id="${esc(item.id)}" aria-label="Remove item">×</button></td></tr>`).join('') : '<tr><td colspan="5" class="empty-cell">Your bill is empty. Add an item above.</td></tr>';
+      <tr><td><div class="table-main">${esc(item.name)}</div><div class="table-sub">${esc(item.code)}</div></td><td><div class="qty-stepper"><button type="button" data-action="cart-qty-step" data-id="${esc(item.id)}" data-step="-1" aria-label="Decrease quantity">−</button><input class="cart-qty" type="number" min="1" step="1" value="${item.qty}" data-cart-qty="${esc(item.id)}" aria-label="Quantity"><button type="button" data-action="cart-qty-step" data-id="${esc(item.id)}" data-step="1" aria-label="Increase quantity">＋</button></div></td><td><input class="cart-price" type="number" min="0" step="0.01" value="${item.unitPrice}" data-cart-price="${esc(item.id)}" aria-label="Unit price"></td><td><strong>${currency(item.qty * item.unitPrice)}</strong></td><td><button class="remove-line" data-action="remove-cart-item" data-id="${esc(item.id)}" aria-label="Remove item">×</button></td></tr>`).join('') : '<tr><td colspan="5" class="empty-cell">Your bill is empty. Add an item above.</td></tr>';
     updateBillTotals();
   }
 
@@ -586,7 +634,7 @@
 
   function clearBillDraft() {
     currentCart = []; selectedBillSuggestion = null;
-    byId('bill-customer').value = ''; if (byId('bill-customer-search')) byId('bill-customer-search').value = ''; filterBillCustomers(); byId('bill-vehicle').value = '';
+    byId('bill-customer').value = ''; if (byId('bill-customer-search')) byId('bill-customer-search').value = ''; if(byId('bill-customer-suggestions'))byId('bill-customer-suggestions').style.display='none'; filterBillCustomers(); byId('bill-vehicle').value = '';
     byId('bill-item-search').value = ''; if (byId('bill-service-search')) byId('bill-service-search').value = ''; if (byId('bill-service-suggestions')) byId('bill-service-suggestions').style.display = 'none'; byId('bill-add-qty').value = '1';
     byId('bill-discount').value = '0'; byId('bill-paid').value = '0';
     byId('bill-payment-method').value = 'Cash'; byId('bill-date').value = todayIST();
@@ -594,6 +642,7 @@
   }
 
   async function finalizeBill() {
+    if (!requireShopWriter('Billing')) return;
     const customerId = byId('bill-customer').value;
     const customer = customers.find(row => row.id === customerId);
     if (!customer) { toast('Choose a customer before saving the invoice.', 'error'); return; }
@@ -687,6 +736,7 @@
 
   async function savePayment(event) {
     event.preventDefault();
+    if (!requireShopWriter('Payment collection')) return;
     const billId = byId('payment-bill-id').value;
     const amount = money(byId('payment-amount').value);
     const method = byId('payment-method').value;
@@ -852,6 +902,8 @@
 
   async function importBackupFile(file) {
     if (!file) return;
+    if (!requireShopWriter('Backup restore')) { byId('backup-file').value=''; return; }
+    if (settings.driveSyncInitialized) { toast('Snapshot restore is disabled after multi-device sync setup. Use the synchronized records or ask before recovery to avoid conflicting with the shared operation history.', 'warning'); byId('backup-file').value=''; return; }
     try {
       const sourcePayload = JSON.parse(await file.text());
       const normalized = Core.normalizeBackupPayload(sourcePayload);
@@ -877,7 +929,6 @@
     byId('drive-state').textContent = connected ? 'Connected for this session' : 'Not connected';
     byId('drive-state').classList.toggle('connected', connected);
     byId('drive-config-note').textContent = driveConfigured() ? (connected ? 'Google Drive is connected for this browser session.' : 'Google Drive is ready. Connect to authorize this browser session.') : 'Add your Google OAuth Client ID in config.js, enable the Google Drive API, and allow your website origin in Google Cloud Console.';
-    byId('drive-auto-backup').checked = Boolean(settings.autoDriveBackup);
     byId('drive-upload').disabled = !connected;
     byId('drive-restore').disabled = !connected;
   }
@@ -897,16 +948,17 @@
           driveSessionReadyForAutoBackup = false;
           updateDriveUI();
           try {
-            const existing = await findDriveBackup();
-            driveFileId = existing?.id || null;
-            driveKnownModifiedTime = existing?.modifiedTime || null;
-            driveBaselineLoaded = true;
-            toast(existing ? 'Google Drive connected. A backup exists; choose Restore or Back up now before automatic uploads resume.' : 'Google Drive connected. Create the first backup with Back up now.', 'success');
-          } catch (error) { toast(`Connected, but could not inspect the existing Drive backup: ${error.message}`, 'warning'); }
+            await putSetting('driveSyncInitialized', true);
+            if (syncEngine) syncEngine.start();
+            toast('Google Drive connected. Automatic record-level synchronization is starting.', 'success');
+          } catch (error) { toast(`Connected, but sync could not start: ${error.message}`, 'warning'); }
           updateDriveUI();
         },
-        error_callback: error => toast(error?.message || 'Google sign-in window was closed or blocked.', 'error')
+        error_callback: error => { if (settings.driveSyncInitialized) console.info('Silent Drive authorization needs a user gesture.', error); else toast(error?.message || 'Google sign-in window was closed or blocked.', 'error'); }
       });
+      if (settings.driveSyncInitialized && navigator.onLine) {
+        try { driveTokenClient.requestAccessToken({ prompt: '' }); } catch (error) { console.info('Silent Drive authorization unavailable; reconnect from Settings.', error); }
+      }
     };
     if (window.google?.accounts?.oauth2) start();
     else {
@@ -1002,6 +1054,8 @@
   }
 
   async function restoreFromDrive() {
+    if (!requireShopWriter('Backup restore')) { byId('backup-file').value=''; return; }
+    if (settings.driveSyncInitialized) { toast('Snapshot restore is disabled after multi-device sync setup to protect the shared operation history.', 'warning'); return; }
     try {
       if (!driveToken) { toast('Connect Google Drive first.', 'warning'); return; }
       const file = await findDriveBackup();
@@ -1049,6 +1103,7 @@
 
   async function saveSettings(event) {
     event.preventDefault();
+    if (!requireShopWriter('Settings changes')) return;
     const values = {
       workshopName: byId('setting-name').value.trim(), workshopPhone: byId('setting-phone').value.trim(),
       workshopGst: byId('setting-gst').value.trim(), workshopAddress: byId('setting-address').value.trim(),
@@ -1289,6 +1344,20 @@
     refreshData().then(() => { renderDashboard(); renderInventory(); renderServices(); renderCustomers(); renderLedger(); renderReports(); populateBillCustomers(); }).catch(console.error);
   });
 
+
+  function applyTheme(theme) {
+    const chosen = theme === 'dark' ? 'dark' : 'light';
+    document.documentElement.dataset.theme = chosen;
+    try { localStorage.setItem('workshoppro-theme', chosen); } catch (_) {}
+    const button = byId('theme-toggle');
+    if (button) { button.textContent = chosen === 'dark' ? '☀' : '◐'; button.setAttribute('aria-label', chosen === 'dark' ? 'Switch to light theme' : 'Switch to dark theme'); }
+  }
+  let initialTheme = 'light'; try { initialTheme = localStorage.getItem('workshoppro-theme') || 'light'; } catch (_) {} applyTheme(initialTheme);
+  byId('theme-toggle')?.addEventListener('click', () => applyTheme(document.documentElement.dataset.theme === 'dark' ? 'light' : 'dark'));
+  document.addEventListener('keydown', event => {
+    if ((event.key === 'Enter' || event.key === ' ') && event.target instanceof Element && event.target.matches('.dashboard-link')) { event.preventDefault(); showView(event.target.dataset.view); }
+  });
+
   // ---------- Event wiring ----------
   document.addEventListener('click', event => {
     const actionElement = event.target.closest('[data-action]');
@@ -1308,6 +1377,7 @@
     if (action === 'customer-details') showCustomerDetails(id);
     if (action === 'edit-customer') { closeAllDialogs(); openCustomerDialog(customers.find(row => row.id === id)); }
     if (action === 'choose-bill-item') chooseBillItem(id);
+    if (action === 'choose-bill-customer') { const customer=customers.find(row=>row.id===id); if(customer){byId('bill-customer').value=id;byId('bill-customer-search').value=customer.name;byId('bill-customer-suggestions').style.display='none';byId('bill-vehicle').value=customer.vehicleNo||'';} }
     if (action === 'add-bill-item') addSelectedBillItem();
     if (action === 'open-service-line') { byId('service-form').reset(); byId('service-qty').value = '1'; byId('service-price').value = ''; byId('service-kind').value = 'service'; byId('service-save-catalog').checked = true; showDialog('service-dialog'); }
     if (action === 'open-service-catalog') openServiceCatalogDialog();
@@ -1315,6 +1385,7 @@
     if (action === 'archive-service-catalog') archiveServiceCatalog(id);
     if (action === 'use-service-catalog' || action === 'choose-bill-service') { addCatalogServiceToCart(id); if (byId('bill-service-search')) byId('bill-service-search').value = ''; if (byId('bill-service-suggestions')) byId('bill-service-suggestions').style.display = 'none'; }
     if (action === 'remove-cart-item') { currentCart = currentCart.filter(row => row.id !== id); renderCart(); }
+    if (action === 'cart-qty-step') { const line=currentCart.find(row=>row.id===id); if(line){const next=line.qty+Number(actionElement.dataset.step||0);const stock=line.inventoryId?inventory.find(row=>row.id===line.inventoryId):null;if(next>=1&&(!stock||next<=Number(stock.quantity||0))){line.qty=next;renderCart();}else if(stock)toast(`Only ${Number(stock.quantity||0)} unit(s) are available.`, 'warning');} }
     if (action === 'save-bill') finalizeBill();
     if (action === 'clear-bill') { if (!currentCart.length || confirm('Clear this unsaved invoice draft?')) clearBillDraft(); }
     if (action === 'collect-payment') openPaymentDialog(id);
@@ -1347,7 +1418,9 @@
     if (event.target.matches('[data-cart-qty]')) {
       const item = currentCart.find(row => row.id === event.target.dataset.cartQty);
       const value = Number(event.target.value);
-      if (item && Number.isInteger(value) && value > 0) item.qty = value;
+      const stock = item?.inventoryId ? inventory.find(row => row.id === item.inventoryId) : null;
+      if (item && Number.isInteger(value) && value > 0 && (!stock || value <= Number(stock.quantity || 0))) item.qty = value;
+      else if (item) { event.target.value = item.qty; if (stock && value > Number(stock.quantity || 0)) toast(`Only ${Number(stock.quantity || 0)} unit(s) are available.`, 'warning'); }
       updateCartLine(event.target);
     }
     if (event.target.matches('[data-cart-price]')) {
@@ -1395,7 +1468,7 @@
   byId('payment-form').addEventListener('submit', event => savePayment(event));
   byId('service-form').addEventListener('submit', event => {
     event.preventDefault();
-    const name = byId('service-name').value.trim();
+    const name = titleCase(byId('service-name').value);
     const qty = Number(byId('service-qty').value);
     const unitPrice = Number(byId('service-price').value);
     if (!name || !Number.isInteger(qty) || qty < 1 || !Number.isFinite(unitPrice) || unitPrice < 0) { toast('Enter a description, valid quantity and non-negative price.', 'error'); return; }
@@ -1433,7 +1506,7 @@
     resolveBillingBarcode(true);
   });
   byId('bill-add-qty').addEventListener('keydown', event => { if (event.key === 'Enter') { event.preventDefault(); addSelectedBillItem(); } });
-  window.addEventListener('online', () => { updateNetworkState(); if (settings.autoDriveBackup && driveToken && driveSessionReadyForAutoBackup) { byId('backup-status').textContent = 'Internet restored. Syncing the latest local backup to Google Drive…'; scheduleAutomaticDriveBackup(); } });
+  window.addEventListener('online', () => { updateNetworkState(); if (syncEngine) syncEngine.sync(); if (settings.autoDriveBackup && driveToken && driveSessionReadyForAutoBackup) scheduleAutomaticDriveBackup(); });
   window.addEventListener('offline', updateNetworkState);
   window.addEventListener('beforeunload', () => { if (scanner?.isScanning) scanner.stop().catch(() => {}); });
 
@@ -1491,6 +1564,18 @@
       renderDashboard(); renderInventory(); renderServices(); renderCustomers(); renderLedger(); renderReports(); renderSettings(); populateBillCustomers(); clearBillDraft();
       refreshDatabaseHealth();
       updateNetworkState();
+      const savedDeviceId = localStorage.getItem('workshoppro-v5-device-id') || crypto.randomUUID();
+      localStorage.setItem('workshoppro-v5-device-id', savedDeviceId);
+      syncEngine = new window.WorkshopDriveSync.DriveRecordSync({
+        db, getToken: () => driveToken,
+        deviceId: savedDeviceId,
+        setStatus: state => { const node = byId('backup-status'); if (node) node.textContent = `Drive sync: ${state.text}`; },
+        onApplied: refreshAfterRemoteSync,
+        onRole: applyDeviceRole
+      });
+      applyDeviceRole(await syncEngine.loadRole());
+      if (await syncEngine.meta('initialSeedComplete')) await syncEngine.captureLocalChanges();
+      else await syncEngine.primeBaseline();
       byId('page-title').textContent = 'Dashboard';
       if ('serviceWorker' in navigator && location.protocol.startsWith('http')) {
         navigator.serviceWorker.register('./sw.js').catch(error => console.warn('Offline app shell could not be installed:', error));

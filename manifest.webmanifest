@@ -1,6 +1,6 @@
 {
-  "name": "Workshop Pro",
-  "short_name": "Workshop Pro",
+  "name": "WorkshopPro v5",
+  "short_name": "WorkshopPro v5",
   "description": "Offline-first workshop inventory, billing and customer management.",
   "start_url": "./",
   "scope": "./",
