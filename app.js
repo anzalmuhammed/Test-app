@@ -4,9 +4,10 @@
   const Core = window.WorkshopCore;
   const CONFIG = window.WORKSHOP_CONFIG || {};
   const DB_NAME = 'WorkshopProDB_v2';
-  const DB_VERSION = 4;
-  const STORES = ['customers', 'inventory', 'services', 'bills', 'payments', 'stockMovements', 'settings'];
-  const SYNC_STORES = ['syncMeta', 'syncOutbox', 'syncApplied', 'syncConflicts'];
+  const DB_VERSION = 6;
+  const STORES = ['customers', 'inventory', 'services', 'bills', 'payments', 'stockMovements', 'settings', 'auditLog'];
+  const APP_MODE = window.WORKSHOP_MODE === 'shop' ? 'shop' : 'admin';
+  const IS_SHOP = APP_MODE === 'shop';
   const money = value => Core.money(value);
   const currency = value => new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR' }).format(money(value));
   const IST = 'Asia/Kolkata';
@@ -15,8 +16,82 @@
   const todayIST = () => { const parts = new Intl.DateTimeFormat('en-GB', { timeZone: IST, year: 'numeric', month: '2-digit', day: '2-digit' }).formatToParts(new Date()); const part = key => parts.find(item => item.type === key)?.value || ''; return `${part('year')}-${part('month')}-${part('day')}`; };
   const byId = id => document.getElementById(id);
   const uuid = () => (crypto?.randomUUID ? crypto.randomUUID() : `wp-${Date.now()}-${Math.random().toString(16).slice(2)}`);
-  const titleCase = value => String(value ?? '').trim().toLocaleLowerCase('en-IN').replace(/(^|[\s\-])([\p{L}])/gu, (_, lead, letter) => lead + letter.toLocaleUpperCase('en-IN'));
   const esc = value => String(value ?? '').replace(/[&<>"']/g, ch => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[ch]));
+
+  const titleCase = value => Core.titleCase(value);
+  const titleCaseWhileTyping = value => Core.titleCaseWhileTyping(value);
+
+  function normalizeInputValue(input) {
+    if (!input || typeof input.matches !== 'function') return;
+    if (input.matches('[data-format="title"]')) {
+      const start = input.selectionStart, end = input.selectionEnd;
+      input.value = titleCaseWhileTyping(input.value);
+      try { input.setSelectionRange(start, end); } catch (_) {}
+    } else if (input.matches('[data-format="vehicle"]')) {
+      const start = input.selectionStart, end = input.selectionEnd;
+      input.value = input.value.toLocaleUpperCase('en-IN');
+      try { input.setSelectionRange(start, end); } catch (_) {}
+    }
+  }
+
+  function applyAppMode() {
+    document.body.classList.toggle('mode-shop', IS_SHOP);
+    document.body.classList.toggle('mode-admin', !IS_SHOP);
+    document.querySelectorAll('[data-admin-only]').forEach(el => { el.hidden = IS_SHOP; });
+    if (IS_SHOP) { const inventoryActionHeader = document.querySelector('#view-inventory thead th:last-child'); if (inventoryActionHeader) inventoryActionHeader.hidden = true; }
+    document.querySelectorAll('[data-shop-hide]').forEach(el => { el.hidden = IS_SHOP; });
+    document.querySelectorAll('[data-shop-only]').forEach(el => { el.hidden = !IS_SHOP; });
+    if (IS_SHOP) {
+      document.querySelectorAll('[data-view="dashboard"],[data-view="services"],[data-view="reports"],[data-view="settings"]').forEach(el => { el.hidden = true; });
+      byId('page-title').textContent = 'Quick Billing';
+      byId('page-eyebrow').textContent = 'SALES';
+      document.querySelectorAll('.second-label').forEach(el => { el.hidden = true; });
+      document.querySelectorAll('[data-action="open-stock"],[data-action="open-scanner-stock"]').forEach(el => { el.hidden = true; });
+      document.querySelectorAll('[data-view="billing"]').forEach(el => el.classList.add('active'));
+    }
+  }
+
+  async function addAudit(table, recordId, field, beforeValue, afterValue, action = 'update') {
+    const entry = {
+      id: uuid(), table, recordId: String(recordId ?? ''), field: String(field || '*'), action,
+      before: structuredClone(beforeValue ?? null), after: structuredClone(afterValue ?? null),
+      mode: APP_MODE, at: new Date().toISOString()
+    };
+    try {
+      await writeOne('auditLog', entry);
+      auditLog.push(entry);
+    } catch (error) {
+      console.error('Audit log entry could not be saved:', error);
+      toast('The business record was saved, but its audit entry could not be written. Download a local backup.', 'warning');
+    }
+  }
+
+  async function ensureAdminWriteReady() {
+    if (remotePullInProgress) throw new Error('Shared data is being downloaded. Wait a moment before saving another change.');
+    if (IS_SHOP) return true;
+    if (!navigator.onLine) throw new Error('Admin changes are online-only. Reconnect to the internet before editing.');
+    if (!driveToken) throw new Error('Connect Google Drive and load the latest shared backup before making Admin changes.');
+    if (!driveBaselineLoaded || !driveSessionReadyForAutoBackup) throw new Error('Load the latest shared Google Drive data first. Use Restore backup before editing.');
+    if (!adminWriteArmed) {
+      const accepted = confirm('ADMIN EDIT MODE\n\nConfirm that the Shop app/device is paused, has completed its latest backup, and no staff member is creating bills or changing stock. Continue with Admin changes?');
+      if (!accepted) throw new Error('Admin edit cancelled. The Shop device must be paused first.');
+      adminWriteArmed = true;
+    }
+    const remote = await findDriveBackup();
+    const remoteModified = remote?.modifiedTime || null;
+    if (remoteModified !== driveKnownModifiedTime || (!remote && driveKnownModifiedTime)) {
+      driveSessionReadyForAutoBackup = false;
+      adminWriteArmed = false;
+      byId('backup-status').textContent = 'Shared data changed on another device. Admin edits are paused until you restore/check the latest data.';
+      throw new Error('The shared Drive file changed since the last check. No Admin edit was made. Restore the newest shared file, then retry.');
+    }
+    return true;
+  }
+
+  function shopReadOnlyAction(action) {
+    return IS_SHOP && new Set(['edit-stock','archive-stock','open-stock','open-scanner-stock','open-service-catalog','edit-service-catalog','archive-service-catalog','collect-payment','edit-customer','backup-import']).has(action);
+  }
+
 
   let db = null;
   let activeView = 'dashboard';
@@ -27,6 +102,10 @@
   let payments = [];
   let stockMovements = [];
   let settings = {};
+  let auditLog = [];
+  let adminWriteArmed = false;
+  let databaseRows = [];
+  let databaseEditState = null;
   let currentCart = [];
   let selectedBillSuggestion = null;
   let currentInvoice = null;
@@ -35,14 +114,18 @@
   let scannerResultHandled = false;
   let torchEnabled = false;
   let driveToken = null;
-  let syncEngine = null;
-  let syncDebounceTimer = null;
   let driveTokenClient = null;
+  let driveSilentAttempt = false;
   let driveFileId = null;
   let driveKnownModifiedTime = null;
   let driveBaselineLoaded = false;
   let driveSessionReadyForAutoBackup = false;
+  let driveUploadInProgress = false;
+  let localChangeGeneration = 0;
   let autoBackupTimer = null;
+  let syncPollTimer = null;
+  let driveSyncInProgress = false;
+  let remotePullInProgress = false;
   let lastSavedAt = null;
   let stockBarcodeLookupTimer = null;
   let billBarcodeLookupTimer = null;
@@ -59,11 +142,13 @@
       request.onupgradeneeded = () => {
         const database = request.result;
         for (const store of STORES) {
-          if (!database.objectStoreNames.contains(store)) database.createObjectStore(store, { keyPath: store === 'settings' || store === 'syncMeta' ? 'key' : 'id' });
+          if (!database.objectStoreNames.contains(store)) {
+            database.createObjectStore(store, { keyPath: store === 'settings' ? 'key' : 'id' });
+          }
         }
-        for (const store of SYNC_STORES) {
-          if (!database.objectStoreNames.contains(store)) database.createObjectStore(store, { keyPath: store === 'syncMeta' ? 'key' : 'id' });
-        }
+        // Kept outside the business stores so a remote snapshot can never erase the
+        // last local safety copy when it replaces the working records.
+        if (!database.objectStoreNames.contains('syncSafety')) database.createObjectStore('syncSafety', { keyPath: 'id' });
       };
       request.onsuccess = () => {
         const database = request.result;
@@ -96,6 +181,7 @@
   }
 
   function writeOne(storeName, value) {
+    if (!remotePullInProgress) recordLocalChange();
     return new Promise((resolve, reject) => {
       const tx = db.transaction(storeName, 'readwrite');
       const request = tx.objectStore(storeName).put(value);
@@ -107,13 +193,14 @@
   }
 
   function replaceAllData(data) {
+    if (!remotePullInProgress) recordLocalChange();
     return new Promise((resolve, reject) => {
       const tx = db.transaction(STORES, 'readwrite');
       try {
         for (const name of STORES) {
           const store = tx.objectStore(name);
           store.clear();
-          for (const record of data[name]) store.put(record);
+          for (const record of (data[name] || [])) store.put(record);
         }
       } catch (error) {
         tx.abort();
@@ -127,7 +214,7 @@
   }
 
   async function refreshData() {
-    const [customerRows, inventoryRows, serviceRows, billRows, paymentRows, movementRows, settingRows] = await Promise.all(STORES.map(readAll));
+    const [customerRows, inventoryRows, serviceRows, billRows, paymentRows, movementRows, settingRows, auditRows] = await Promise.all(STORES.map(readAll));
     customers = customerRows;
     inventory = inventoryRows.filter(item => !item.archived);
     services = serviceRows.filter(item => !item.archived);
@@ -135,6 +222,7 @@
     payments = paymentRows;
     stockMovements = movementRows;
     settings = Object.fromEntries(settingRows.map(row => [row.key, row.value]));
+    auditLog = auditRows;
   }
 
   async function putSetting(key, value) {
@@ -145,52 +233,42 @@
   function refreshDatabaseHealth() {
     const target = byId('database-health');
     if (!target) return;
-    const usage = customers.length + inventory.length + services.length + bills.length + payments.length + stockMovements.length;
-    target.textContent = `Local database · ${customers.length} customers · ${inventory.length} stock items · ${services.length} services / non-stock items · ${bills.length} invoices · ${payments.length} payments · ${stockMovements.length} stock movements (${usage} records).`;
+    const usage = customers.length + inventory.length + services.length + bills.length + payments.length + stockMovements.length + auditLog.length;
+    target.textContent = `Local database · ${customers.length} customers · ${inventory.length} stock items · ${services.length} services · ${bills.length} invoices · ${payments.length} payments · ${stockMovements.length} stock movements · ${auditLog.length} audit entries (${usage} records).`;
   }
 
-  async function afterLocalChange(message = 'Changes saved on this device.') {
+  function readLocalChangeGeneration() {
+    try {
+      const saved = Number(localStorage.getItem('workshoppro-v6-local-generation') || 0);
+      if (Number.isFinite(saved)) localChangeGeneration = Math.max(localChangeGeneration, saved);
+    } catch (_) {}
+    return localChangeGeneration;
+  }
+
+  function recordLocalChange(clean = false) {
+    const next = readLocalChangeGeneration() + 1;
+    localChangeGeneration = next;
+    try {
+      localStorage.setItem('workshoppro-v6-local-generation', String(next));
+      localStorage.setItem('workshoppro-v6-local-dirty', clean ? '0' : '1');
+    } catch (_) {}
+  }
+
+  async function afterLocalChange(message = 'Changes saved on this device.', options = {}) {
     lastSavedAt = new Date();
+    recordLocalChange(Boolean(options.clean));
     byId('last-saved-label').textContent = `Saved ${new Intl.DateTimeFormat('en-IN', { hour: '2-digit', minute: '2-digit', timeZone: IST }).format(lastSavedAt)} IST`;
-    byId('backup-status').textContent = message;
+    const isDirty = (() => { try { return localStorage.getItem('workshoppro-v6-local-dirty') === '1'; } catch (_) { return true; } })();
+    byId('backup-status').textContent = isDirty && !driveSessionReadyForAutoBackup ? `${message} Pending shared backup.` : message;
     refreshDatabaseHealth();
-    scheduleAutomaticDriveBackup();
-    scheduleRecordSync();
+    if (!options.clean) {
+      scheduleAutomaticDriveBackup();
+      if (driveToken && navigator.onLine) window.setTimeout(() => automaticDriveSync('local-change'), 2200);
+    }
     if (updateChannel) updateChannel.postMessage({ type: 'database-changed', source: tabId, at: Date.now() });
     else {
       try { localStorage.setItem('workshoppro-db-ping', `${tabId}:${Date.now()}`); } catch (_) {}
     }
-  }
-
-  function isShopWriter() { return !syncEngine || syncEngine.role !== 'read-only'; }
-  function requireShopWriter(actionLabel) {
-    if (isShopWriter()) return true;
-    toast(`This device is read-only. ${actionLabel} is allowed only on the WorkshopPro shop tablet.`, 'warning');
-    return false;
-  }
-  function applyDeviceRole(role) {
-    document.documentElement.dataset.deviceRole = role || 'unassigned';
-    if (role === 'read-only') {
-      toast('This device is connected as read-only. Only the shop tablet can create bills, payments or stock movements.', 'warning');
-    }
-  }
-
-  function scheduleRecordSync() {
-    if (!syncEngine) return;
-    clearTimeout(syncDebounceTimer);
-    syncDebounceTimer = setTimeout(async () => {
-      try { await syncEngine.captureLocalChanges(); await syncEngine.status(); if (navigator.onLine) await syncEngine.sync(); }
-      catch (error) { console.warn('Local sync queue capture failed; it will be retried:', error); }
-    }, 250);
-  }
-
-  async function refreshAfterRemoteSync() {
-    const billCustomer = byId('bill-customer')?.value || '';
-    await refreshData();
-    renderDashboard(); renderInventory(); renderServices(); renderCustomers(); renderLedger(); renderReports();
-    populateBillCustomers();
-    if (customers.some(row => row.id === billCustomer)) byId('bill-customer').value = billCustomer;
-    refreshDatabaseHealth();
   }
 
   // ---------- Shared UI utilities ----------
@@ -223,11 +301,12 @@
 
   const viewMeta = {
     dashboard: ['OVERVIEW', 'Dashboard'], billing: ['SALES', 'Quick Billing'], inventory: ['STOCK CONTROL', 'Inventory'], services: ['SERVICE CATALOGUE', 'Services & items'],
-    customers: ['CUSTOMER DIRECTORY', 'Customers'], ledger: ['ACCOUNTS', 'Ledger & Payments'], reports: ['ANALYTICS', 'Reports'], settings: ['PREFERENCES', 'Settings & Backup']
+    customers: ['CUSTOMER DIRECTORY', 'Customers'], ledger: ['ACCOUNTS', 'Ledger & Payments'], reports: ['ANALYTICS', 'Reports'], settings: ['PREFERENCES', 'Settings & Backup'], database: ['ADMINISTRATION', 'Database editor']
   };
 
   async function showView(view) {
     if (!viewMeta[view]) return;
+    if (IS_SHOP && !['billing','customers','inventory','ledger'].includes(view)) return;
     activeView = view;
     document.querySelectorAll('.view').forEach(el => el.classList.toggle('active', el.id === `view-${view}`));
     document.querySelectorAll('[data-view]').forEach(el => el.classList.toggle('active', el.dataset.view === view && el.classList.contains('nav-link')));
@@ -242,14 +321,15 @@
     if (view === 'ledger') renderLedger();
     if (view === 'reports') renderReports();
     if (view === 'settings') renderSettings();
+    if (view === 'database') renderDatabaseEditor();
   }
 
   function updateNetworkState() {
     const online = navigator.onLine;
     byId('network-dot').classList.toggle('online', online);
     byId('network-label').textContent = online ? 'Online' : 'Offline mode';
-    if (!online) byId('backup-status').textContent = 'Offline: your changes still save on this device. Drive backup waits for internet.';
-    else if (settings.autoDriveBackup && driveToken && driveSessionReadyForAutoBackup) byId('backup-status').textContent = 'Online: automatic Google Drive backup is ready.';
+    if (!online) byId('backup-status').textContent = 'Offline: changes are saved locally. They are pending until the shared Drive file is updated.';
+    else if (driveToken && driveSessionReadyForAutoBackup) byId('backup-status').textContent = 'Online: automatic two-way Google Drive sync is ready.';
     else byId('backup-status').textContent = 'Online: local database active. Cloud backup is separate and optional.';
   }
 
@@ -319,8 +399,8 @@
       const status = inventoryStatus(item);
       const label = status === 'out' ? 'Out of stock' : status === 'low' ? 'Low stock' : 'In stock';
       const movementTotals = getStockMovementSummary(item.id);
-      return `<tr><td><div class="table-main">${esc(item.name)}</div><div class="table-sub">${esc(item.code)}</div></td><td>${esc(item.category || 'General')}</td><td>${movementTotals.stockIn}</td><td>${movementTotals.sold}</td><td><strong>${Number(item.quantity || 0)}</strong></td><td>${Number(item.minStock || 0)}</td><td>${currency(item.price)}</td><td>${esc(item.location || '—')}</td><td><span class="stock-tag ${status}">${label}</span></td><td><div class="row-actions"><button class="tiny-btn" data-action="edit-stock" data-id="${esc(item.id)}">Edit</button><button class="tiny-btn" data-action="stock-history" data-id="${esc(item.id)}">History</button><button class="tiny-btn danger" data-action="archive-stock" data-id="${esc(item.id)}">Archive</button></div></td></tr>`;
-    }).join('') : '<tr><td colspan="10" class="empty-cell">No items match these filters.</td></tr>';
+      return `<tr><td><div class="table-main">${esc(item.name)}</div><div class="table-sub">${esc(item.code)}</div></td><td>${esc(item.category || 'General')}</td><td>${movementTotals.stockIn}</td><td>${movementTotals.sold}</td><td><strong>${Number(item.quantity || 0)}</strong></td><td>${Number(item.minStock || 0)}</td><td>${currency(item.price)}</td><td>${esc(item.location || '—')}</td><td><span class="stock-tag ${status}">${label}</span></td>${IS_SHOP ? '' : `<td><div class="row-actions"><button class="tiny-btn" data-action="edit-stock" data-id="${esc(item.id)}">Edit</button><button class="tiny-btn" data-action="stock-history" data-id="${esc(item.id)}">History</button><button class="tiny-btn danger" data-action="archive-stock" data-id="${esc(item.id)}">Archive</button></div></td>`}</tr>`;
+    }).join('') : `<tr><td colspan="${IS_SHOP ? 9 : 10}" class="empty-cell">No items match these filters.</td></tr>`;
   }
 
   function openStockDialog(item = null, scannedCode = '') {
@@ -371,7 +451,7 @@
 
   async function saveStock(event) {
     event.preventDefault();
-    if (!requireShopWriter('Stock changes')) return;
+    await ensureAdminWriteReady();
     let id = byId('stock-id').value;
     const code = byId('stock-code').value.trim();
     const name = titleCase(byId('stock-name').value);
@@ -382,6 +462,7 @@
       toast('Check the item details. New items need at least 1 unit; existing items may be updated with 0 received.', 'error'); return;
     }
     const now = new Date().toISOString();
+    recordLocalChange();
     const result = await new Promise((resolve, reject) => {
       const tx = db.transaction(['inventory', 'stockMovements'], 'readwrite');
       const inventoryStore = tx.objectStore('inventory');
@@ -417,6 +498,7 @@
       tx.onabort = () => reject(failure || tx.error || new Error('Inventory update was cancelled.'));
     });
     if (!result) throw new Error('Inventory record was not saved.');
+    await addAudit('inventory', result.id, '*', null, { code: result.code, name: result.name, price: result.price, quantity: result.quantity, minStock: result.minStock }, id ? 'update' : 'create');
     closeAllDialogs();
     await refreshData();
     renderInventory(); renderDashboard(); renderReports();
@@ -425,13 +507,14 @@
   }
 
   async function archiveStock(id) {
-    if (!requireShopWriter('Stock changes')) return;
+    await ensureAdminWriteReady();
     const item = inventory.find(row => row.id === id);
     if (!item) return;
     if (!confirm(`Archive “${item.name}”? It will be hidden from stock lists and billing, but old invoices will be kept.`)) return;
     const record = await readOne('inventory', id);
     record.archived = true; record.updatedAt = new Date().toISOString();
     await writeOne('inventory', record);
+    await addAudit('inventory', id, 'archived', false, true, 'archive');
     await refreshData(); renderInventory(); renderDashboard(); renderReports(); await afterLocalChange('Inventory updated on this device.');
     toast('Item archived. Historical invoices are unchanged.', 'success');
   }
@@ -454,12 +537,6 @@
     const matches = [...customers].filter(customer => !query || `${customer.name} ${customer.phone || ''} ${customer.vehicleNo || ''}`.toLowerCase().includes(query)).sort((a,b) => a.name.localeCompare(b.name));
     select.innerHTML = '<option value="">Select customer</option>' + matches.map(customer => `<option value="${esc(customer.id)}">${esc(customer.name)} · ${esc(customer.phone || 'No phone')}${customer.vehicleNo ? ` · ${esc(customer.vehicleNo)}` : ''}</option>`).join('');
     if (matches.some(row => row.id === current)) select.value = current;
-    const suggestionBox = byId('bill-customer-suggestions');
-    if (suggestionBox) {
-      const suggestions = query ? matches.slice(0, 7) : [];
-      suggestionBox.innerHTML = suggestions.map(customer => `<div class="suggestion-item" data-action="choose-bill-customer" data-id="${esc(customer.id)}"><strong>${esc(customer.name)}</strong><small>${esc(customer.phone || 'No phone')}${customer.vehicleNo ? ` · ${esc(customer.vehicleNo)}` : ''}</small></div>`).join('');
-      suggestionBox.style.display = suggestions.length ? 'block' : 'none';
-    }
   }
 
   function renderSavedServiceSuggestions() {
@@ -475,7 +552,7 @@
     const query = (byId('service-search')?.value || '').trim().toLowerCase();
     const kind = byId('service-kind-filter')?.value || 'all';
     const rows = services.filter(row => (!query || `${row.name} ${row.notes || ''}`.toLowerCase().includes(query)) && (kind === 'all' || row.kind === kind)).sort((a,b) => a.name.localeCompare(b.name));
-    byId('services-table').innerHTML = rows.length ? rows.map(row => `<tr><td><strong>${esc(row.name)}</strong><div class="table-sub">${esc(row.notes || '')}</div></td><td>${row.kind === 'service' ? 'Service' : 'Non-stock item'}</td><td>${currency(row.price)}</td><td>0</td><td>${dateOnly(row.updatedAt || row.createdAt)}</td><td><div class="row-actions"><button class="tiny-btn" data-action="use-service-catalog" data-id="${esc(row.id)}">Add to bill</button><button class="tiny-btn" data-action="edit-service-catalog" data-id="${esc(row.id)}">Edit</button><button class="tiny-btn danger" data-action="archive-service-catalog" data-id="${esc(row.id)}">Archive</button></div></td></tr>`).join('') : '<tr><td colspan="6" class="empty-cell">No services or non-stock items found.</td></tr>';
+    byId('services-table').innerHTML = rows.length ? rows.map(row => `<tr><td><strong>${esc(row.name)}</strong><div class="table-sub">${esc(row.notes || '')}</div></td><td>${row.kind === 'service' ? 'Service' : 'Non-stock item'}</td><td>${currency(row.price)}</td><td>0</td><td>${dateOnly(row.updatedAt || row.createdAt)}</td><td><div class="row-actions"><button class="tiny-btn" data-action="use-service-catalog" data-id="${esc(row.id)}">Add to bill</button>${IS_SHOP ? '' : `<button class="tiny-btn" data-action="edit-service-catalog" data-id="${esc(row.id)}">Edit</button><button class="tiny-btn danger" data-action="archive-service-catalog" data-id="${esc(row.id)}">Archive</button>`}</div></td></tr>`).join('') : '<tr><td colspan="6" class="empty-cell">No services or non-stock items found.</td></tr>';
   }
 
   function openServiceCatalogDialog(row = null) {
@@ -487,7 +564,7 @@
 
   async function saveServiceCatalog(event) {
     event.preventDefault();
-    if (!requireShopWriter('Catalogue changes')) return; const id = byId('service-catalog-id').value; const name = titleCase(byId('service-catalog-name').value);
+    await ensureAdminWriteReady(); const id = byId('service-catalog-id').value; const name = titleCase(byId('service-catalog-name').value);
     const price = Number(byId('service-catalog-price').value); const kind = byId('service-catalog-kind').value;
     if (!name || byId('service-catalog-price').value === '' || !Number.isFinite(price) || price < 0) { toast('Enter a name and valid price.', 'error'); return; }
     const duplicate = services.find(row => row.id !== id && row.name.trim().toLowerCase() === name.toLowerCase() && row.kind === kind);
@@ -495,13 +572,13 @@
     const now = new Date().toISOString(); const record = id ? await readOne('services', id) : { id: uuid(), quantity: 0, archived: false, createdAt: now };
     if (!record) throw new Error('Service record was not found.');
     Object.assign(record, { name, kind, price: money(price), quantity: 0, notes: byId('service-catalog-notes').value.trim(), archived: false, updatedAt: now });
-    await writeOne('services', record); closeAllDialogs(); await refreshData(); renderServices(); await afterLocalChange('Service catalogue updated on this device.'); toast('Service / item saved.', 'success');
+    await writeOne('services', record); await addAudit('services', record.id, '*', id ? 'existing record' : null, { name: record.name, kind: record.kind, price: record.price }, id ? 'update' : 'create'); closeAllDialogs(); await refreshData(); renderServices(); await afterLocalChange('Service catalogue updated on this device.'); toast('Service / item saved.', 'success');
   }
 
   async function archiveServiceCatalog(id) {
-    if (!requireShopWriter('Catalogue changes')) return;
+    await ensureAdminWriteReady();
     const row = services.find(item => item.id === id); if (!row || !confirm(`Archive “${row.name}”? Existing invoices will be preserved.`)) return;
-    row.archived = true; row.updatedAt = new Date().toISOString(); await writeOne('services', row); await refreshData(); renderServices(); await afterLocalChange('Service archived.');
+    row.archived = true; row.updatedAt = new Date().toISOString(); await writeOne('services', row); await addAudit('services', id, 'archived', false, true, 'archive'); await refreshData(); renderServices(); await afterLocalChange('Service archived.');
   }
 
   function addCatalogServiceToCart(id) {
@@ -521,11 +598,12 @@
   }
 
   function openCustomerDialog(customer = null) {
+    if (IS_SHOP && customer) { toast('Shop mode can add new customers but cannot edit existing records.', 'warning'); return; }
     byId('customer-form').reset();
     byId('customer-id').value = customer?.id || '';
     byId('customer-dialog-title').textContent = customer ? 'Edit customer' : 'Add customer';
     byId('customer-name-input').value = customer?.name || '';
-    byId('customer-vehicle-input').value = customer?.vehicleNo || '';
+    byId('customer-vehicle-input').value = String(customer?.vehicleNo || '').toLocaleUpperCase('en-IN');
     byId('customer-phone-input').value = customer?.phone || '';
     byId('customer-email-input').value = customer?.email || '';
     byId('customer-gst-input').value = customer?.gst || '';
@@ -535,10 +613,10 @@
 
   async function saveCustomer(event) {
     event.preventDefault();
-    if (!requireShopWriter('Customer changes')) return;
+    await ensureAdminWriteReady();
     const id = byId('customer-id').value;
     const name = titleCase(byId('customer-name-input').value);
-    const vehicleNo = byId('customer-vehicle-input').value.trim().toUpperCase();
+    const vehicleNo = byId('customer-vehicle-input').value.trim().toLocaleUpperCase('en-IN');
     const phone = byId('customer-phone-input').value.trim();
     const email = byId('customer-email-input').value.trim();
     if (!name) { toast('Customer name is required.', 'error'); byId('customer-name-input').focus(); return; }
@@ -548,6 +626,7 @@
     if (!record) { toast('Customer record not found.', 'error'); return; }
     Object.assign(record, { name, vehicleNo, phone, email, gst: byId('customer-gst-input').value.trim(), address: byId('customer-address-input').value.trim(), updatedAt: now });
     await writeOne('customers', record);
+    await addAudit('customers', record.id, '*', id ? 'existing record' : null, { name: record.name, vehicleNo: record.vehicleNo, phone: record.phone }, id ? 'update' : 'create');
     closeAllDialogs(); await refreshData(); renderCustomers(); populateBillCustomers(); renderLedger(); renderDashboard(); await afterLocalChange('Customer details saved on this device.');
     toast('Customer saved.', 'success');
   }
@@ -570,7 +649,7 @@
     byId('details-content').innerHTML = `
       <div class="detail-list"><div class="detail-row"><span>Vehicle</span><strong>${esc(customer.vehicleNo || '—')}</strong></div><div class="detail-row"><span>Phone</span><strong>${esc(customer.phone || '—')}</strong></div><div class="detail-row"><span>Email</span><strong>${esc(customer.email || '—')}</strong></div><div class="detail-row"><span>GST</span><strong>${esc(customer.gst || '—')}</strong></div><div class="detail-row"><span>Address</span><strong>${esc(customer.address || '—')}</strong></div></div>
       <div class="details-kpis"><div class="details-kpi"><span>Total billed</span><strong>${currency(totalSpent)}</strong></div><div class="details-kpi"><span>Paid</span><strong>${currency(totalPaid)}</strong></div><div class="details-kpi"><span>Due</span><strong>${currency(totalDue)}</strong></div></div>
-      <div class="panel-heading"><div><h3>Invoice history</h3><p>${customerBills.length} invoices</p></div><button class="text-button" data-action="edit-customer" data-id="${esc(customer.id)}">Edit customer</button></div>
+      <div class="panel-heading"><div><h3>Invoice history</h3><p>${customerBills.length} invoices</p></div>${IS_SHOP ? '' : `<button class="text-button" data-action="edit-customer" data-id="${esc(customer.id)}">Edit customer</button>`}</div>
       ${customerBills.length ? customerBills.slice(0, 20).map(bill => `<div class="detail-row"><span>${esc(bill.invoiceNo)} · ${dateOnly(bill.date)}</span><strong>${currency(bill.total)} ${bill.due > 0 ? `· ${currency(bill.due)} due` : '· Paid'}</strong></div>`).join('') : '<div class="empty-state">No invoices for this customer yet.</div>'}`;
     showDialog('details-dialog');
   }
@@ -614,7 +693,7 @@
 
   function renderCart() {
     byId('bill-cart').innerHTML = currentCart.length ? currentCart.map(item => `
-      <tr><td><div class="table-main">${esc(item.name)}</div><div class="table-sub">${esc(item.code)}</div></td><td><div class="qty-stepper"><button type="button" data-action="cart-qty-step" data-id="${esc(item.id)}" data-step="-1" aria-label="Decrease quantity">−</button><input class="cart-qty" type="number" min="1" step="1" value="${item.qty}" data-cart-qty="${esc(item.id)}" aria-label="Quantity"><button type="button" data-action="cart-qty-step" data-id="${esc(item.id)}" data-step="1" aria-label="Increase quantity">＋</button></div></td><td><input class="cart-price" type="number" min="0" step="0.01" value="${item.unitPrice}" data-cart-price="${esc(item.id)}" aria-label="Unit price"></td><td><strong>${currency(item.qty * item.unitPrice)}</strong></td><td><button class="remove-line" data-action="remove-cart-item" data-id="${esc(item.id)}" aria-label="Remove item">×</button></td></tr>`).join('') : '<tr><td colspan="5" class="empty-cell">Your bill is empty. Add an item above.</td></tr>';
+      <tr><td><div class="table-main">${esc(item.name)}</div><div class="table-sub">${esc(item.code)}</div></td><td><div class="cart-quantity-control"><button type="button" data-action="cart-minus" data-id="${esc(item.id)}" aria-label="Decrease quantity">−</button><input class="cart-qty" type="number" min="1" step="1" value="${item.qty}" data-cart-qty="${esc(item.id)}" aria-label="Quantity"><button type="button" data-action="cart-plus" data-id="${esc(item.id)}" aria-label="Increase quantity">＋</button></div></td><td><input class="cart-price" type="number" min="0" step="0.01" value="${item.unitPrice}" data-cart-price="${esc(item.id)}" aria-label="Unit price"></td><td><strong>${currency(item.qty * item.unitPrice)}</strong></td><td><button class="remove-line" data-action="remove-cart-item" data-id="${esc(item.id)}" aria-label="Remove item">×</button></td></tr>`).join('') : '<tr><td colspan="5" class="empty-cell">Your bill is empty. Add an item above.</td></tr>';
     updateBillTotals();
   }
 
@@ -634,7 +713,7 @@
 
   function clearBillDraft() {
     currentCart = []; selectedBillSuggestion = null;
-    byId('bill-customer').value = ''; if (byId('bill-customer-search')) byId('bill-customer-search').value = ''; if(byId('bill-customer-suggestions'))byId('bill-customer-suggestions').style.display='none'; filterBillCustomers(); byId('bill-vehicle').value = '';
+    byId('bill-customer').value = ''; if (byId('bill-customer-search')) byId('bill-customer-search').value = ''; filterBillCustomers(); byId('bill-vehicle').value = '';
     byId('bill-item-search').value = ''; if (byId('bill-service-search')) byId('bill-service-search').value = ''; if (byId('bill-service-suggestions')) byId('bill-service-suggestions').style.display = 'none'; byId('bill-add-qty').value = '1';
     byId('bill-discount').value = '0'; byId('bill-paid').value = '0';
     byId('bill-payment-method').value = 'Cash'; byId('bill-date').value = todayIST();
@@ -642,7 +721,7 @@
   }
 
   async function finalizeBill() {
-    if (!requireShopWriter('Billing')) return;
+    await ensureAdminWriteReady();
     const customerId = byId('bill-customer').value;
     const customer = customers.find(row => row.id === customerId);
     if (!customer) { toast('Choose a customer before saving the invoice.', 'error'); return; }
@@ -652,12 +731,13 @@
     catch (error) { toast(error.message, 'error'); return; }
     const chosenDate = byId('bill-date').value || todayIST();
     const billDate = `${chosenDate}T00:00:00+05:30`;
-    const vehicleNo = (byId('bill-vehicle').value || customer.vehicleNo || '').trim().toUpperCase();
+    const vehicleNo = String(byId('bill-vehicle').value || customer.vehicleNo || '').trim().toLocaleUpperCase('en-IN');
     const now = new Date().toISOString();
     const billId = uuid();
     const itemSnapshot = currentCart.map(item => { if (!item.inventoryId && item.saveToCatalog && item.createCatalogRecord) item.serviceId = uuid(); return { inventoryId: item.inventoryId, serviceId: item.serviceId || null, kind: item.catalogKind || (item.inventoryId ? 'stock' : 'service'), code: item.code, name: item.name, qty: item.qty, unitPrice: money(item.unitPrice), lineTotal: money(item.qty * item.unitPrice) }; });
 
     // Stock updates, sequence number, bill and initial payment are committed in one IndexedDB transaction.
+    recordLocalChange();
     await new Promise((resolve, reject) => {
       const tx = db.transaction(['inventory', 'services', 'settings', 'bills', 'payments', 'stockMovements'], 'readwrite');
       const inventoryStore = tx.objectStore('inventory');
@@ -729,6 +809,7 @@
       populateBillCustomers();
       clearBillDraft();
       showInvoiceDetails(bill, true);
+      await addAudit('bills', bill.id, '*', null, { invoiceNo: bill.invoiceNo, total: bill.total, paid: bill.paidTotal, due: bill.due }, 'create');
       await afterLocalChange('Invoice and stock changes saved locally.');
       toast(`Invoice ${bill.invoiceNo} saved. Stock has been updated.`, 'success');
     }).catch(error => toast(error.message || 'Could not save this invoice.', 'error'));
@@ -736,7 +817,7 @@
 
   async function savePayment(event) {
     event.preventDefault();
-    if (!requireShopWriter('Payment collection')) return;
+    await ensureAdminWriteReady();
     const billId = byId('payment-bill-id').value;
     const amount = money(byId('payment-amount').value);
     const method = byId('payment-method').value;
@@ -744,6 +825,7 @@
     if (!bill) { toast('Invoice not found.', 'error'); return; }
     if (!(amount > 0) || amount > Number(bill.due || 0)) { toast(`Enter an amount greater than ₹0 and no more than ${currency(bill.due)}.`, 'error'); return; }
     const now = new Date().toISOString();
+    recordLocalChange();
     const tx = db.transaction(['bills', 'payments'], 'readwrite');
     const billStore = tx.objectStore('bills');
     const request = billStore.get(billId);
@@ -759,6 +841,7 @@
     };
     tx.oncomplete = async () => {
       closeAllDialogs(); await refreshData(); renderLedger(); renderDashboard(); renderCustomers();
+      await addAudit('payments', billId, 'payment', null, { amount, method }, 'create');
       await afterLocalChange('Payment saved locally.'); toast('Payment recorded successfully.', 'success');
     };
     tx.onerror = () => toast(tx.error?.message || 'Payment could not be saved.', 'error');
@@ -824,7 +907,7 @@
     byId('ledger-due').textContent = currency(rows.reduce((sum, bill) => sum + Number(bill.due || 0), 0));
     byId('ledger-count').textContent = rows.length;
     byId('ledger-list').innerHTML = rows.length ? rows.map(bill => `
-      <div class="ledger-entry"><div class="ledger-entry-main"><strong>${esc(bill.customerName)} <span class="muted">· ${esc(bill.invoiceNo)}</span></strong><small>${dateTime(bill.savedAt || bill.date)} · ${esc(bill.vehicleNo || 'No vehicle')}</small></div><div class="ledger-entry-amount"><strong>${currency(bill.total)}</strong><small>${bill.due > 0 ? `${currency(bill.due)} due` : 'Paid'}</small></div><div class="ledger-entry-actions"><button class="tiny-btn" data-action="view-invoice" data-id="${esc(bill.id)}">View invoice</button>${bill.due > 0 ? `<button class="tiny-btn" data-action="collect-payment" data-id="${esc(bill.id)}">Collect payment</button>` : ''}</div></div>`).join('') : '<div class="empty-state">No invoices found for these filters.</div>';
+      <div class="ledger-entry"><div class="ledger-entry-main"><strong>${esc(bill.customerName)} <span class="muted">· ${esc(bill.invoiceNo)}</span></strong><small>${dateTime(bill.savedAt || bill.date)} · ${esc(bill.vehicleNo || 'No vehicle')}</small></div><div class="ledger-entry-amount"><strong>${currency(bill.total)}</strong><small>${bill.due > 0 ? `${currency(bill.due)} due` : 'Paid'}</small></div><div class="ledger-entry-actions"><button class="tiny-btn" data-action="view-invoice" data-id="${esc(bill.id)}">View invoice</button>${!IS_SHOP && bill.due > 0 ? `<button class="tiny-btn" data-action="collect-payment" data-id="${esc(bill.id)}">Collect payment</button>` : ''}</div></div>`).join('') : '<div class="empty-state">No invoices found for these filters.</div>';
     const balances = Core.deriveCustomerBalances(bills);
     byId('customer-balances').innerHTML = balances.length ? balances.map(row => `<div class="balance-row"><div><strong>${esc(row.name)}</strong><small>${row.invoices} invoice(s) outstanding</small></div><b>${currency(row.due)}</b></div>`).join('') : '<div class="empty-state">No pending dues.</div>';
   }
@@ -891,7 +974,16 @@
   async function createBackupPayload() {
     const data = {};
     for (const store of STORES) data[store] = await readAll(store);
-    return { app: 'WorkshopPro', schemaVersion: 3, exportedAt: new Date().toISOString(), data };
+    return { app: 'WorkshopPro', schemaVersion: 4, exportedAt: new Date().toISOString(), data };
+  }
+
+  async function downloadLatestSyncSafetyCopy() {
+    const copies = await readAll('syncSafety');
+    if (!copies.length) { toast('No automatic-sync safety copy has been created on this device yet.', 'info'); return; }
+    copies.sort((a, b) => String(b.savedAt).localeCompare(String(a.savedAt)));
+    const latest = copies[0];
+    downloadBlob(new Blob([JSON.stringify(latest.payload, null, 2)], { type: 'application/json' }), `WorkshopPro_PreSync_Safety_${String(latest.savedAt || new Date().toISOString()).slice(0, 10)}.json`);
+    toast('Latest pre-sync safety copy downloaded.', 'success');
   }
 
   async function downloadLocalBackup() {
@@ -902,9 +994,9 @@
 
   async function importBackupFile(file) {
     if (!file) return;
-    if (!requireShopWriter('Backup restore')) { byId('backup-file').value=''; return; }
-    if (settings.driveSyncInitialized) { toast('Snapshot restore is disabled after multi-device sync setup. Use the synchronized records or ask before recovery to avoid conflicting with the shared operation history.', 'warning'); byId('backup-file').value=''; return; }
     try {
+      if (IS_SHOP) throw new Error('Backup import is available only in the Admin app.');
+      await ensureAdminWriteReady();
       const sourcePayload = JSON.parse(await file.text());
       const normalized = Core.normalizeBackupPayload(sourcePayload);
       const payload = normalized.payload;
@@ -914,6 +1006,8 @@
       downloadBlob(new Blob([JSON.stringify(safetyCopy, null, 2)], { type: 'application/json' }), `WorkshopPro_Before_Restore_${new Date().toISOString().slice(0, 10)}.json`);
       await replaceAllData(payload.data);
       currentCart = []; await refreshData();
+      applyAppMode();
+      applyTheme();
       renderDashboard(); renderInventory(); renderServices(); renderCustomers(); renderLedger(); renderReports(); renderSettings(); populateBillCustomers(); clearBillDraft();
       await afterLocalChange(normalized.migratedLegacy ? 'Original Workshop Pro backup converted and restored to this device.' : 'Backup restored to this device.');
       toast(normalized.migratedLegacy ? 'Old Workshop Pro records imported successfully.' : 'Backup restored successfully.', 'success');
@@ -929,11 +1023,13 @@
     byId('drive-state').textContent = connected ? 'Connected for this session' : 'Not connected';
     byId('drive-state').classList.toggle('connected', connected);
     byId('drive-config-note').textContent = driveConfigured() ? (connected ? 'Google Drive is connected for this browser session.' : 'Google Drive is ready. Connect to authorize this browser session.') : 'Add your Google OAuth Client ID in config.js, enable the Google Drive API, and allow your website origin in Google Cloud Console.';
+    byId('drive-auto-backup').checked = true;
+    byId('drive-auto-backup').disabled = true;
     byId('drive-upload').disabled = !connected;
     byId('drive-restore').disabled = !connected;
   }
 
-  function initGoogleDrive() {
+  function initGoogleDrive(options = {}) {
     updateDriveUI();
     const start = () => {
       if (driveTokenClient || !driveConfigured()) return;
@@ -942,22 +1038,57 @@
         client_id: CONFIG.googleClientId,
         scope: 'https://www.googleapis.com/auth/drive.file',
         callback: async response => {
-          if (response.error || !response.access_token) { toast(`Google authorization failed: ${response.error || 'No access token received.'}`, 'error'); return; }
+          if (response.error || !response.access_token) {
+            const message = `Google authorization ${response.error || 'failed'}; select Connect Google Drive if you want to retry.`;
+            if (driveSilentAttempt) byId('backup-status').textContent = message;
+            else toast(message, 'error');
+            driveSilentAttempt = false;
+            return;
+          }
+          driveSilentAttempt = false;
           driveToken = response.access_token;
+          try { localStorage.setItem('workshoppro-drive-authorized', '1'); } catch (_) {}
           driveBaselineLoaded = false;
           driveSessionReadyForAutoBackup = false;
           updateDriveUI();
           try {
-            await putSetting('driveSyncInitialized', true);
-            if (syncEngine) syncEngine.start();
-            toast('Google Drive connected. Automatic record-level synchronization is starting.', 'success');
-          } catch (error) { toast(`Connected, but sync could not start: ${error.message}`, 'warning'); }
+            const existing = await findDriveBackup();
+            driveFileId = existing?.id || null;
+            const previousBaseline = (() => { try { return localStorage.getItem('workshoppro-v6-drive-modified') || null; } catch (_) { return null; } })();
+            driveKnownModifiedTime = previousBaseline || null;
+            driveBaselineLoaded = true;
+            const sameBaseline = Boolean(existing && previousBaseline && existing.modifiedTime === previousBaseline);
+            driveSessionReadyForAutoBackup = sameBaseline || !existing;
+            if (existing) {
+              // If this device is clean, the sync cycle safely pulls a newer
+              // remote snapshot. If local work is pending, it raises a conflict
+              // and leaves both versions untouched.
+              driveKnownModifiedTime = previousBaseline;
+              toast('Google Drive connected. Automatic two-way sync is checking the shared version.', 'success');
+              automaticDriveSync('connect');
+              startAutomaticDriveSync();
+            } else {
+              driveKnownModifiedTime = null;
+              toast('Google Drive connected. No shared file exists yet; pending local data can create the first snapshot.', 'success');
+              startAutomaticDriveSync();
+            }
+          } catch (error) { toast(`Connected, but could not inspect the existing Drive backup: ${error.message}`, 'warning'); }
           updateDriveUI();
         },
-        error_callback: error => { if (settings.driveSyncInitialized) console.info('Silent Drive authorization needs a user gesture.', error); else toast(error?.message || 'Google sign-in window was closed or blocked.', 'error'); }
+        error_callback: error => {
+          if (driveSilentAttempt) byId('backup-status').textContent = 'Google Drive session needs reconnecting. Select Connect Google Drive.';
+          else toast(error?.message || 'Google sign-in window was closed or blocked.', 'error');
+          driveSilentAttempt = false;
+        }
       });
-      if (settings.driveSyncInitialized && navigator.onLine) {
-        try { driveTokenClient.requestAccessToken({ prompt: '' }); } catch (error) { console.info('Silent Drive authorization unavailable; reconnect from Settings.', error); }
+      if (options.silent) {
+        let previouslyAuthorized = false;
+        try { previouslyAuthorized = localStorage.getItem('workshoppro-drive-authorized') === '1'; } catch (_) {}
+        if (previouslyAuthorized) {
+          driveSilentAttempt = true;
+          try { driveTokenClient.requestAccessToken({ prompt: 'none' }); }
+          catch (_) { driveSilentAttempt = false; byId('backup-status').textContent = 'Google Drive session needs reconnecting. Select Connect Google Drive.'; }
+        }
       }
     };
     if (window.google?.accounts?.oauth2) start();
@@ -977,7 +1108,7 @@
     if (!window.google?.accounts?.oauth2) { toast('Google Identity Services did not load. Check your internet connection.', 'error'); return; }
     if (!driveTokenClient) initGoogleDrive();
     if (!driveTokenClient) { toast('Google Drive authorization is not ready.', 'error'); return; }
-    driveTokenClient.requestAccessToken({ prompt: driveToken ? '' : 'consent' });
+    driveTokenClient.requestAccessToken({ prompt: '' });
   }
 
   async function driveFetch(url, options = {}) {
@@ -1012,12 +1143,23 @@
 
   async function backupToDrive(options = {}) {
     const automatic = Boolean(options.automatic);
+    if (remotePullInProgress) return;
+    if (driveUploadInProgress) {
+      if (!automatic) toast('A Google Drive upload is already running. Please wait for its result before starting another.', 'warning');
+      return;
+    }
+    driveUploadInProgress = true;
     try {
       if (!driveToken) { if (!automatic) toast('Connect Google Drive first.', 'warning'); return; }
       if (automatic && !navigator.onLine) { byId('backup-status').textContent = 'Offline: local changes are safe on this device. Drive upload will retry after reconnection.'; return; }
-      if (automatic && !driveSessionReadyForAutoBackup) return;
+      if (automatic && (!driveSessionReadyForAutoBackup || !hasPendingLocalChanges())) return;
       byId('backup-status').textContent = 'Uploading backup to Google Drive…';
       const existing = await findDriveBackup();
+      if (existing && !driveSessionReadyForAutoBackup) {
+        byId('backup-status').textContent = 'Shared Drive data has not been verified in this session. Restore/check it before uploading.';
+        if (!automatic) toast('Upload is blocked because this device has not confirmed that the shared file is still the same version. Download your local backup, then restore or reconcile the shared file.', 'warning');
+        return;
+      }
       if (!driveBaselineLoaded) {
         if (automatic) return;
         driveKnownModifiedTime = existing?.modifiedTime || null;
@@ -1027,16 +1169,25 @@
         ? existing.modifiedTime !== driveKnownModifiedTime
         : driveKnownModifiedTime !== null;
       if (remoteChanged) {
-        if (automatic) {
-          driveSessionReadyForAutoBackup = false;
-          byId('backup-status').textContent = 'Drive backup changed elsewhere. Automatic upload paused to protect the newer backup.';
-          toast('A different device changed the Drive backup. Automatic upload paused; restore or manually confirm an overwrite.', 'warning');
-          return;
-        }
-        const accepted = confirm("The Google Drive backup has changed since this browser last checked it. Overwrite that newer backup with this device's data? Choose Cancel, then Restore, to keep the newer Drive data.");
-        if (!accepted) return;
+        driveSessionReadyForAutoBackup = false;
+        adminWriteArmed = false;
+        byId('backup-status').textContent = 'Drive file changed elsewhere. Upload paused; this device copy is preserved locally.';
+        toast('A different device changed the shared Drive file. Upload is paused. Download this device backup before restoring the newer shared file.', 'warning');
+        return;
       }
+      const snapshotGeneration = readLocalChangeGeneration();
       const payload = await createBackupPayload();
+      // Recheck immediately before PATCH/POST to narrow the race window. Drive
+      // still has no atomic compare-and-swap, so this is detection, not a lock.
+      const latestBeforeUpload = await findDriveBackup();
+      if ((latestBeforeUpload?.id || null) !== (existing?.id || null) ||
+          (latestBeforeUpload?.modifiedTime || null) !== (existing?.modifiedTime || null)) {
+        driveSessionReadyForAutoBackup = false;
+        adminWriteArmed = false;
+        byId('backup-status').textContent = 'Conflict needs review: the shared file changed just before upload. Local data remains on this device.';
+        if (!automatic) toast('The shared Drive file changed just before upload. Nothing was uploaded; download both copies and reconcile.', 'warning');
+        return;
+      }
       const metadata = { name: CONFIG.driveBackupFileName || 'WorkshopPro_Backup.json', mimeType: 'application/json' };
       const multipart = makeMultipart(metadata, payload);
       const url = existing
@@ -1048,14 +1199,25 @@
       driveKnownModifiedTime = result.modifiedTime || (await findDriveBackup())?.modifiedTime || null;
       driveBaselineLoaded = true;
       driveSessionReadyForAutoBackup = true;
-      byId('backup-status').textContent = `Last Drive backup ${dateTime(new Date())}`;
-      toast('Backup uploaded to Google Drive.', 'success');
-    } catch (error) { byId('backup-status').textContent = 'Local records are safe; Drive backup did not complete.'; toast(error.message || 'Google Drive backup failed.', 'error'); }
+      const snapshotStillCurrent = readLocalChangeGeneration() === snapshotGeneration;
+      try {
+        localStorage.setItem('workshoppro-v6-drive-modified', driveKnownModifiedTime || '');
+        localStorage.setItem('workshoppro-v6-local-dirty', snapshotStillCurrent ? '0' : '1');
+      } catch (_) {}
+      byId('backup-status').textContent = snapshotStillCurrent
+        ? `Shared file updated ${dateTime(new Date())}`
+        : 'A snapshot was uploaded, but newer local changes are still pending another upload.';
+      toast(snapshotStillCurrent ? 'Backup uploaded to Google Drive.' : 'Backup uploaded. Newer local changes are still pending sync.', snapshotStillCurrent ? 'success' : 'warning');
+    } catch (error) {
+      byId('backup-status').textContent = 'Local records are safe; Drive backup did not complete.';
+      toast(error.message || 'Google Drive backup failed.', 'error');
+    } finally {
+      driveUploadInProgress = false;
+      if (hasPendingLocalChanges() && driveToken && driveSessionReadyForAutoBackup && navigator.onLine) scheduleAutomaticDriveBackup();
+    }
   }
 
   async function restoreFromDrive() {
-    if (!requireShopWriter('Backup restore')) { byId('backup-file').value=''; return; }
-    if (settings.driveSyncInitialized) { toast('Snapshot restore is disabled after multi-device sync setup to protect the shared operation history.', 'warning'); return; }
     try {
       if (!driveToken) { toast('Connect Google Drive first.', 'warning'); return; }
       const file = await findDriveBackup();
@@ -1068,26 +1230,397 @@
       const safetyCopy = await createBackupPayload();
       downloadBlob(new Blob([JSON.stringify(safetyCopy, null, 2)], { type: 'application/json' }), `WorkshopPro_Before_Drive_Restore_${new Date().toISOString().slice(0, 10)}.json`);
       await replaceAllData(payload.data);
-      driveFileId = file.id; driveKnownModifiedTime = file.modifiedTime || null; driveBaselineLoaded = true; driveSessionReadyForAutoBackup = true;
+      driveFileId = file.id; driveKnownModifiedTime = file.modifiedTime || null; driveBaselineLoaded = true; driveSessionReadyForAutoBackup = true; adminWriteArmed = false;
+      try { localStorage.setItem('workshoppro-v6-drive-modified', driveKnownModifiedTime || ''); localStorage.setItem('workshoppro-v6-state-initialized', '1'); } catch (_) {}
       currentCart = []; await refreshData();
       renderDashboard(); renderInventory(); renderServices(); renderCustomers(); renderLedger(); renderReports(); renderSettings(); populateBillCustomers(); clearBillDraft();
-      await afterLocalChange('Restored from Google Drive.');
+      await afterLocalChange('Restored from Google Drive.', { clean: true });
       toast(normalized.migratedLegacy ? 'Old Workshop Pro Google Drive backup imported successfully.' : 'Google Drive backup restored.', 'success');
     } catch (error) { toast(error.message || 'Google Drive restore failed.', 'error'); }
   }
 
+  function saveSyncSafetyCopy(payload) {
+    return new Promise((resolve, reject) => {
+      const tx = db.transaction('syncSafety', 'readwrite');
+      const store = tx.objectStore('syncSafety');
+      const request = store.getAll();
+      request.onsuccess = () => {
+        const previous = (request.result || []).sort((a, b) => String(b.savedAt).localeCompare(String(a.savedAt)));
+        previous.slice(4).forEach(row => store.delete(row.id));
+        store.put({ id: `before-pull-${Date.now()}`, savedAt: new Date().toISOString(), payload });
+      };
+      request.onerror = () => { try { tx.abort(); } catch (_) {} };
+      tx.oncomplete = resolve;
+      tx.onerror = () => reject(tx.error || new Error('Could not preserve the local safety copy before sync.'));
+      tx.onabort = () => reject(tx.error || new Error('Local safety-copy transaction was cancelled.'));
+    });
+  }
+
+  async function renderAllAfterSync() {
+    const billCustomer = byId('bill-customer')?.value || '';
+    await refreshData();
+    renderDashboard(); renderInventory(); renderServices(); renderCustomers(); renderLedger(); renderReports();
+    if (!IS_SHOP) renderSettings();
+    populateBillCustomers();
+    if (customers.some(row => row.id === billCustomer)) byId('bill-customer').value = billCustomer;
+    refreshDatabaseHealth();
+  }
+
+  async function pullRemoteSnapshot(file) {
+    if (remotePullInProgress) return false;
+    if (hasPendingLocalChanges()) {
+      driveSessionReadyForAutoBackup = false;
+      byId('backup-status').textContent = 'Conflict needs review: cloud data changed while this device has pending local changes. Both copies are preserved.';
+      return false;
+    }
+    const generationAtStart = readLocalChangeGeneration();
+    remotePullInProgress = true;
+    try {
+      const response = await driveFetch(`https://www.googleapis.com/drive/v3/files/${encodeURIComponent(file.id)}?alt=media`);
+      const sourcePayload = await response.json();
+      const normalized = Core.normalizeBackupPayload(sourcePayload);
+      const payload = normalized.payload;
+      // Preserve the complete current local state in a separate IndexedDB store
+      // before replacing business records. The safety record is not part of the
+      // remote snapshot and is not cleared by replaceAllData().
+      const safetyCopy = await createBackupPayload();
+      await saveSyncSafetyCopy(safetyCopy);
+      // Recheck after network I/O and before opening the replacement transaction.
+      // All app write handlers are gated while remotePullInProgress is true.
+      if (hasPendingLocalChanges() || readLocalChangeGeneration() !== generationAtStart) {
+        driveSessionReadyForAutoBackup = false;
+        byId('backup-status').textContent = 'Conflict needs review: a local edit appeared during sync. The remote copy was not applied.';
+        return false;
+      }
+      await replaceAllData(payload.data);
+      driveFileId = file.id;
+      driveKnownModifiedTime = file.modifiedTime || null;
+      driveBaselineLoaded = true;
+      driveSessionReadyForAutoBackup = true;
+      adminWriteArmed = false;
+      try {
+        localStorage.setItem('workshoppro-v6-drive-modified', driveKnownModifiedTime || '');
+        localStorage.setItem('workshoppro-v6-local-dirty', '0');
+        localStorage.setItem('workshoppro-v6-state-initialized', '1');
+      } catch (_) {}
+      await renderAllAfterSync();
+      byId('backup-status').textContent = `Synced: downloaded shared changes ${dateTime(file.modifiedTime || new Date())}. Local safety copy retained on this device.`;
+      return true;
+    } finally {
+      remotePullInProgress = false;
+    }
+  }
+
+  async function automaticDriveSync(reason = 'poll') {
+    if (driveSyncInProgress || !driveToken || !navigator.onLine) return;
+    driveSyncInProgress = true;
+    try {
+      byId('backup-status').textContent = 'Syncing: checking shared Google Drive changes…';
+      const remote = await findDriveBackup();
+      if (!remote) {
+        driveKnownModifiedTime = null;
+        driveBaselineLoaded = true;
+        driveSessionReadyForAutoBackup = true;
+        if (hasPendingLocalChanges()) await backupToDrive({ automatic: true });
+        else byId('backup-status').textContent = 'Connected: waiting for the first shared backup.';
+        return;
+      }
+      driveFileId = remote.id;
+      const remoteChanged = !driveBaselineLoaded || remote.modifiedTime !== driveKnownModifiedTime;
+      if (remoteChanged) {
+        if (hasPendingLocalChanges()) {
+          driveSessionReadyForAutoBackup = false;
+          adminWriteArmed = false;
+          byId('backup-status').textContent = 'Conflict needs review: the shared file changed while local changes are pending. Local data has not been overwritten.';
+          return;
+        }
+        await pullRemoteSnapshot(remote);
+        return;
+      }
+      driveBaselineLoaded = true;
+      driveSessionReadyForAutoBackup = true;
+      if (hasPendingLocalChanges()) {
+        await backupToDrive({ automatic: true });
+      } else {
+        byId('backup-status').textContent = `Synced: shared data checked ${dateTime(new Date())}.`;
+      }
+    } catch (error) {
+      byId('backup-status').textContent = `Sync paused: ${error.message || 'Google Drive could not be reached.'}`;
+    } finally {
+      driveSyncInProgress = false;
+    }
+  }
+
+  function startAutomaticDriveSync() {
+    if (syncPollTimer) window.clearInterval(syncPollTimer);
+    if (!driveToken) return;
+    automaticDriveSync('start');
+    // Poll while the page is open. Closed/suspended browsers cannot guarantee
+    // background execution; visibility/focus/online events trigger catch-up.
+    syncPollTimer = window.setInterval(() => automaticDriveSync('poll'), 25000);
+  }
+
+  function hasPendingLocalChanges() {
+    try { return localStorage.getItem('workshoppro-v6-local-dirty') === '1'; } catch (_) { return true; }
+  }
+
   function scheduleAutomaticDriveBackup() {
-    if (!settings.autoDriveBackup || !driveToken || !driveSessionReadyForAutoBackup || !navigator.onLine) return;
+    if (!settings.autoDriveBackup || !driveToken || !driveSessionReadyForAutoBackup || !navigator.onLine || !hasPendingLocalChanges()) return;
     clearTimeout(autoBackupTimer);
     autoBackupTimer = setTimeout(() => backupToDrive({ automatic: true }), 1800);
   }
 
   async function updateAutoBackupSetting(checked) {
+    await ensureAdminWriteReady();
     await putSetting('autoDriveBackup', Boolean(checked));
-    if (checked && !driveToken) toast('Automatic Drive backup is enabled, but connect Google Drive in this session to upload changes.', 'warning');
-    if (checked && driveToken && !driveSessionReadyForAutoBackup) toast('Use Back up now or Restore backup once after connecting; automatic upload stays paused until then.', 'warning');
-    if (checked && driveToken) scheduleAutomaticDriveBackup();
-    if (!checked) clearTimeout(autoBackupTimer);
+    await afterLocalChange('Automatic Google Drive backup preference saved.');
+    if (!driveToken) toast('Connect Google Drive in this browser session to enable automatic two-way sync.', 'warning');
+    if (driveToken) { startAutomaticDriveSync(); scheduleAutomaticDriveBackup(); }
+  }
+
+
+  // ---------- Admin database table editor ----------
+  const databaseKeyField = table => table === 'settings' ? 'key' : 'id';
+  const databaseReadOnly = table => table === 'auditLog' || table === 'stockMovements';
+  const databaseFieldReadOnly = (table, field) => databaseReadOnly(table) ||
+    (table === 'bills' && ['customerId','invoiceNo','items','subtotal','total','paidTotal','due','status'].includes(field)) ||
+    (table === 'payments' && ['billId','customerId','invoiceNo'].includes(field));
+  const displayDatabaseValue = value => {
+    if (value === null || value === undefined || value === '') return '—';
+    if (typeof value === 'object') return JSON.stringify(value);
+    return String(value);
+  };
+
+  function renderDatabaseAudit() {
+    const target = byId('database-audit-results');
+    if (!target || IS_SHOP) return;
+    const missingPhones = customers.filter(c => !/^\d{10}$/.test(String(c.phone || '').trim())).length;
+    const spacedPhones = customers.filter(c => String(c.phone || '') !== String(c.phone || '').trim()).length;
+    const nameCounts = new Map();
+    for (const customer of customers) {
+      const key = String(customer.name || '').trim().toLocaleLowerCase('en-IN');
+      if (key) nameCounts.set(key, (nameCounts.get(key) || 0) + 1);
+    }
+    const duplicateNames = [...nameCounts.values()].filter(count => count > 1).length;
+    const uniqueNames = [...nameCounts.keys()].filter(name => name.length >= 4).sort();
+    const editDistanceAtMostOne = (a, b) => {
+      if (Math.abs(a.length - b.length) > 1) return false;
+      let i = 0, j = 0, edits = 0;
+      while (i < a.length && j < b.length) {
+        if (a[i] === b[j]) { i++; j++; continue; }
+        if (++edits > 1) return false;
+        if (a.length > b.length) i++;
+        else if (b.length > a.length) j++;
+        else { i++; j++; }
+      }
+      if (i < a.length || j < b.length) edits++;
+      return edits <= 1;
+    };
+    let nearMatches = 0;
+    // Names are sorted; compare a bounded neighbourhood to avoid quadratic work on huge imports.
+    for (let i = 0; i < uniqueNames.length; i++) {
+      for (let j = i + 1; j < Math.min(uniqueNames.length, i + 80); j++) {
+        if (editDistanceAtMostOne(uniqueNames[i], uniqueNames[j])) nearMatches++;
+      }
+    }
+    const legacyStock = inventory.filter(item => Number(item.legacyTotalSold || 0) > Number(item.legacyTotalIn || 0)).length;
+    const duplicateLineBills = bills.filter(bill => {
+      const seen = new Set();
+      return (bill.items || []).some(item => {
+        const key = String(item.inventoryId || item.serviceId || `${item.code || ''}|${item.name || ''}`).toLowerCase();
+        if (seen.has(key)) return true;
+        seen.add(key); return false;
+      });
+    }).length;
+    const customerIds = new Set(customers.map(customer => customer.id));
+    const orphanBills = bills.filter(bill => bill.customerId && !customerIds.has(bill.customerId)).length;
+    const billIds = new Set(bills.map(bill => bill.id));
+    const orphanPayments = payments.filter(payment => payment.billId && !billIds.has(payment.billId)).length;
+    const metrics = [
+      ['Customers missing / invalid 10-digit phone', missingPhones],
+      ['Phone values with extra spaces', spacedPhones],
+      ['Exact duplicate customer-name groups', duplicateNames],
+      ['Possible near-match customer-name pairs', nearMatches],
+      ['Legacy stock sold exceeds received', legacyStock],
+      ['Invoices with repeated item lines', duplicateLineBills],
+      ['Invoices with missing customer links', orphanBills],
+      ['Payments with missing invoice links', orphanPayments]
+    ];
+    target.innerHTML = metrics.map(([label, count]) => `<article class="database-audit-item ${count ? 'warn' : 'good'}"><strong>${count}</strong><span>${esc(label)}</span></article>`).join('');
+  }
+
+  async function renderDatabaseEditor() {
+    if (IS_SHOP || !byId('database-table-select')) return;
+    renderDatabaseAudit();
+    const table = byId('database-table-select').value;
+    const query = byId('database-search').value.trim().toLowerCase();
+    databaseRows = await readAll(table);
+    const filtered = databaseRows.filter(row => !query || JSON.stringify(row).toLowerCase().includes(query));
+    const fields = [...new Set(filtered.flatMap(row => Object.keys(row)))];
+    const readOnly = databaseReadOnly(table);
+    byId('database-count').textContent = `${filtered.length} matching / ${databaseRows.length} total ${table} records`;
+    byId('database-mode-note').textContent = readOnly ? 'Historical records are read-only to protect transaction history.' : 'Admin edits require internet, the latest shared Drive snapshot and a paused Shop device.';
+    byId('database-thead').innerHTML = fields.length ? `<tr>${fields.map(field => `<th>${esc(field)}</th>`).join('')}</tr>` : '<tr><th>No fields</th></tr>';
+    const keyField = databaseKeyField(table);
+    byId('database-tbody').innerHTML = filtered.length ? filtered.map(row => `<tr>${fields.map(field => {
+      const value = displayDatabaseValue(row[field]);
+      const canEdit = !readOnly && field !== keyField && !databaseFieldReadOnly(table, field);
+      return `<td><div class="database-cell"><span title="${esc(value)}">${esc(value)}</span>${canEdit ? `<button type="button" class="cell-edit-btn" data-action="edit-db-cell" data-table="${esc(table)}" data-record-key="${esc(row[keyField])}" data-field="${esc(field)}" aria-label="Edit ${esc(field)}">✎</button>` : ''}</div></td>`;
+    }).join('')}</tr>`).join('') : `<tr><td colspan="${Math.max(1, fields.length)}" class="empty-cell">No records in this table.</td></tr>`;
+  }
+
+  async function openDatabaseCellEditor(table, recordKey, field) {
+    if (IS_SHOP || databaseFieldReadOnly(table, field) || field === databaseKeyField(table)) return;
+    await ensureAdminWriteReady();
+    const row = await readOne(table, recordKey);
+    if (!row || !Object.prototype.hasOwnProperty.call(row, field)) throw new Error('That field is no longer available. Refresh the table.');
+    databaseEditState = { table, recordKey, field, original: structuredClone(row[field]) };
+    byId('database-cell-table').value = table;
+    byId('database-cell-key').value = recordKey;
+    byId('database-cell-field').value = field;
+    const original = row[field];
+    const type = Array.isArray(original) ? 'array' : original === null ? 'null' : typeof original;
+    byId('database-cell-type').value = type;
+    byId('database-cell-title').textContent = `${table} · ${field}`;
+    byId('database-cell-before').value = original === undefined ? '' : (typeof original === 'object' ? JSON.stringify(original, null, 2) : String(original));
+    byId('database-cell-value').value = original === undefined ? '' : (typeof original === 'object' ? JSON.stringify(original, null, 2) : String(original));
+    byId('database-cell-help').textContent = (table === 'inventory' && field === 'quantity')
+      ? 'Quantity is changed through a stock adjustment movement. The adjustment is added to stock history and the audit log.'
+      : 'The change is audited. Primary keys, linked invoice totals/lines, payment links and historical stock movement records are protected to keep the ledger consistent.';
+    showDialog('database-cell-dialog');
+  }
+
+  function parseDatabaseCellValue(raw, type) {
+    if (type === 'number') {
+      if (raw.trim() === '') throw new Error('Enter a number.');
+      const value = Number(raw);
+      if (!Number.isFinite(value)) throw new Error('Enter a valid finite number.');
+      return value;
+    }
+    if (type === 'boolean') {
+      if (!['true','false'].includes(raw.trim())) throw new Error('Boolean value must be true or false.');
+      return raw.trim() === 'true';
+    }
+    if (type === 'object' || type === 'array' || type === 'null') {
+      const value = JSON.parse(raw);
+      if (type === 'array' && !Array.isArray(value)) throw new Error('This field must remain an array.');
+      if (type === 'object' && (!value || typeof value !== 'object' || Array.isArray(value))) throw new Error('This field must remain an object.');
+      return value;
+    }
+    return raw;
+  }
+
+  async function saveDatabaseCell(event) {
+    event.preventDefault();
+    await ensureAdminWriteReady();
+    const state = databaseEditState;
+    if (!state) throw new Error('No database field is selected.');
+    const { table, recordKey, field, original } = state;
+    if (databaseFieldReadOnly(table, field) || field === databaseKeyField(table)) throw new Error('This field is protected to preserve linked records and transaction history.');
+    let nextValue = parseDatabaseCellValue(byId('database-cell-value').value, byId('database-cell-type').value);
+    if (field === 'name' && ['customers','inventory','services'].includes(table)) nextValue = titleCase(nextValue);
+    if (field === 'customerName' && table === 'bills') nextValue = titleCase(nextValue);
+    if (field === 'vehicleNo' && ['customers','bills'].includes(table)) nextValue = String(nextValue).toLocaleUpperCase('en-IN');
+    if (table === 'bills' && field === 'discount' && (nextValue < 0 || nextValue > Number((await readOne('bills', recordKey))?.subtotal || 0))) throw new Error('Discount must be between ₹0 and the invoice subtotal.');
+    if (table === 'payments' && field === 'amount' && (!(nextValue > 0) || !Number.isFinite(nextValue))) throw new Error('Payment amount must be greater than ₹0.');
+    if (table === 'inventory' && field === 'quantity') {
+      if (!Number.isInteger(nextValue) || nextValue < 0) throw new Error('Available quantity must be a non-negative whole number.');
+      recordLocalChange();
+    const tx = db.transaction(['inventory','stockMovements','auditLog'], 'readwrite');
+      const store = tx.objectStore('inventory');
+      const request = store.get(recordKey);
+      request.onsuccess = () => {
+        const row = request.result;
+        if (!row || Number(row.quantity || 0) !== Number(original || 0)) { tx.abort(); return; }
+        const before = Number(row.quantity || 0);
+        const delta = nextValue - before;
+        row.quantity = nextValue;
+        row.updatedAt = new Date().toISOString();
+        store.put(row);
+        if (delta !== 0) tx.objectStore('stockMovements').add({ id: uuid(), inventoryId: row.id, code: row.code, itemName: row.name, delta, reason: 'Admin quantity correction', referenceId: '', date: new Date().toISOString() });
+        tx.objectStore('auditLog').add({ id: uuid(), table, recordId: String(recordKey), field, before, after: nextValue, action: 'admin-correction', mode: APP_MODE, at: new Date().toISOString() });
+      };
+      await new Promise((resolve, reject) => { tx.oncomplete = resolve; tx.onerror = () => reject(tx.error || new Error('Quantity correction failed.')); tx.onabort = () => reject(tx.error || new Error('Quantity correction was cancelled.')); });
+    } else {
+      const stores = table === 'payments' ? [table,'bills','auditLog'] : [table,'auditLog'];
+      await new Promise((resolve, reject) => {
+        recordLocalChange();
+        const tx = db.transaction(stores, 'readwrite');
+        const store = tx.objectStore(table);
+        const request = store.get(recordKey);
+        request.onsuccess = () => {
+          const row = request.result;
+          if (!row || JSON.stringify(row[field] ?? null) !== JSON.stringify(original ?? null)) { tx.abort(); return; }
+          row[field] = nextValue;
+          if (table === 'bills') {
+            if (Number(row.discount || 0) < 0 || Number(row.discount || 0) > Number(row.subtotal || 0)) { tx.abort(); return; }
+            if (['subtotal','discount'].includes(field)) row.total = money(Number(row.subtotal || 0) - Number(row.discount || 0));
+            if (['subtotal','discount','total','paidTotal','due'].includes(field)) {
+              if (field === 'due') row.paidTotal = money(Number(row.total || 0) - Number(row.due || 0));
+              row.due = money(Number(row.total || 0) - Number(row.paidTotal || 0));
+              if (row.due < 0) { tx.abort(); return; }
+              row.status = row.due <= 0 ? 'paid' : Number(row.paidTotal || 0) > 0 ? 'partial' : 'due';
+            }
+            row.updatedAt = new Date().toISOString();
+          }
+          store.put(row);
+          tx.objectStore('auditLog').add({ id: uuid(), table, recordId: String(recordKey), field, before: original ?? null, after: nextValue ?? null, action: 'admin-cell-edit', mode: APP_MODE, at: new Date().toISOString() });
+          if (table === 'payments' && field === 'amount') {
+            const bill = tx.objectStore('bills').get(row.billId);
+            bill.onsuccess = () => {
+              if (bill.result) {
+                // Preserve the bill's existing aggregate (which may include legacy payments
+                // that were not represented as separate payment rows) by applying only delta.
+                const beforeBill = { paidTotal: Number(bill.result.paidTotal || 0), due: Number(bill.result.due || 0), status: bill.result.status };
+                const delta = Number(nextValue) - Number(original || 0);
+                const totalPaid = money(beforeBill.paidTotal + delta);
+                if (totalPaid < 0 || totalPaid > Number(bill.result.total || 0)) { tx.abort(); return; }
+                bill.result.paidTotal = totalPaid;
+                bill.result.due = money(Number(bill.result.total || 0) - totalPaid);
+                bill.result.status = bill.result.due <= 0 ? 'paid' : totalPaid > 0 ? 'partial' : 'due';
+                bill.result.updatedAt = new Date().toISOString();
+                tx.objectStore('bills').put(bill.result);
+                tx.objectStore('auditLog').add({ id: uuid(), table: 'bills', recordId: String(bill.result.id), field: 'paidTotal/due/status', before: beforeBill, after: { paidTotal: bill.result.paidTotal, due: bill.result.due, status: bill.result.status }, action: 'payment-correction', mode: APP_MODE, at: new Date().toISOString() });
+              }
+            };
+          }
+        };
+        tx.oncomplete = resolve;
+        tx.onerror = () => reject(tx.error || new Error('Field edit failed.'));
+        tx.onabort = () => reject(tx.error || new Error('Field edit was cancelled. No change was saved.'));
+      });
+    }
+    closeAllDialogs(); databaseEditState = null;
+    await refreshData();
+    renderDashboard(); renderInventory(); renderServices(); renderCustomers(); renderLedger(); renderReports();
+    await afterLocalChange(`Admin edited ${table}.${field}.`);
+    await renderDatabaseEditor();
+    toast('Field updated and audit entry recorded.', 'success');
+  }
+
+  async function exportDatabaseTable() {
+    const table = byId('database-table-select').value;
+    const rows = await readAll(table);
+    const fields = [...new Set(rows.flatMap(row => Object.keys(row)))];
+    const csv = Core.toCSV(rows, fields.map(field => ({ label: field, value: row => typeof row[field] === 'object' ? JSON.stringify(row[field]) : row[field] })));
+    downloadBlob(new Blob([csv], { type: 'text/csv;charset=utf-8' }), `WorkshopPro_${table}_${todayIST()}.csv`);
+    toast(`${table} table exported.`, 'success');
+  }
+
+  // ---------- Theme ----------
+  function applyTheme() {
+    let theme = 'light';
+    try { theme = localStorage.getItem('workshoppro-theme') || 'light'; } catch (_) {}
+    document.body.classList.toggle('theme-dark', theme === 'dark');
+    const button = byId('theme-toggle');
+    if (button) { button.textContent = theme === 'dark' ? '☀' : '◐'; button.title = `Switch to ${theme === 'dark' ? 'light' : 'dark'} theme`; }
+  }
+
+  function toggleTheme() {
+    const next = document.body.classList.contains('theme-dark') ? 'light' : 'dark';
+    document.body.classList.toggle('theme-dark', next === 'dark');
+    try { localStorage.setItem('workshoppro-theme', next); } catch (_) {}
+    applyTheme();
   }
 
   // ---------- Settings ----------
@@ -1103,13 +1636,14 @@
 
   async function saveSettings(event) {
     event.preventDefault();
-    if (!requireShopWriter('Settings changes')) return;
+    await ensureAdminWriteReady();
     const values = {
-      workshopName: byId('setting-name').value.trim(), workshopPhone: byId('setting-phone').value.trim(),
+      workshopName: titleCase(byId('setting-name').value), workshopPhone: byId('setting-phone').value.trim(),
       workshopGst: byId('setting-gst').value.trim(), workshopAddress: byId('setting-address').value.trim(),
       invoicePrefix: byId('setting-prefix').value.trim().replace(/[^a-zA-Z0-9-]/g, '').slice(0, 12) || 'INV'
     };
     for (const [key, value] of Object.entries(values)) await putSetting(key, value);
+    await addAudit('settings', 'workshop-settings', '*', null, values, 'update');
     await afterLocalChange('Workshop settings saved on this device.');
     renderSettings(); toast('Workshop settings saved.', 'success');
   }
@@ -1344,20 +1878,6 @@
     refreshData().then(() => { renderDashboard(); renderInventory(); renderServices(); renderCustomers(); renderLedger(); renderReports(); populateBillCustomers(); }).catch(console.error);
   });
 
-
-  function applyTheme(theme) {
-    const chosen = theme === 'dark' ? 'dark' : 'light';
-    document.documentElement.dataset.theme = chosen;
-    try { localStorage.setItem('workshoppro-theme', chosen); } catch (_) {}
-    const button = byId('theme-toggle');
-    if (button) { button.textContent = chosen === 'dark' ? '☀' : '◐'; button.setAttribute('aria-label', chosen === 'dark' ? 'Switch to light theme' : 'Switch to dark theme'); }
-  }
-  let initialTheme = 'light'; try { initialTheme = localStorage.getItem('workshoppro-theme') || 'light'; } catch (_) {} applyTheme(initialTheme);
-  byId('theme-toggle')?.addEventListener('click', () => applyTheme(document.documentElement.dataset.theme === 'dark' ? 'light' : 'dark'));
-  document.addEventListener('keydown', event => {
-    if ((event.key === 'Enter' || event.key === ' ') && event.target instanceof Element && event.target.matches('.dashboard-link')) { event.preventDefault(); showView(event.target.dataset.view); }
-  });
-
   // ---------- Event wiring ----------
   document.addEventListener('click', event => {
     const actionElement = event.target.closest('[data-action]');
@@ -1368,6 +1888,7 @@
       return;
     }
     const { action, id } = actionElement.dataset;
+    if (shopReadOnlyAction(action)) { toast('This function is restricted to the Admin app.', 'warning'); return; }
     if (action === 'open-stock') openStockDialog();
     if (action === 'open-customer') openCustomerDialog();
     if (action === 'go-billing') showView('billing');
@@ -1377,7 +1898,6 @@
     if (action === 'customer-details') showCustomerDetails(id);
     if (action === 'edit-customer') { closeAllDialogs(); openCustomerDialog(customers.find(row => row.id === id)); }
     if (action === 'choose-bill-item') chooseBillItem(id);
-    if (action === 'choose-bill-customer') { const customer=customers.find(row=>row.id===id); if(customer){byId('bill-customer').value=id;byId('bill-customer-search').value=customer.name;byId('bill-customer-suggestions').style.display='none';byId('bill-vehicle').value=customer.vehicleNo||'';} }
     if (action === 'add-bill-item') addSelectedBillItem();
     if (action === 'open-service-line') { byId('service-form').reset(); byId('service-qty').value = '1'; byId('service-price').value = ''; byId('service-kind').value = 'service'; byId('service-save-catalog').checked = true; showDialog('service-dialog'); }
     if (action === 'open-service-catalog') openServiceCatalogDialog();
@@ -1385,7 +1905,7 @@
     if (action === 'archive-service-catalog') archiveServiceCatalog(id);
     if (action === 'use-service-catalog' || action === 'choose-bill-service') { addCatalogServiceToCart(id); if (byId('bill-service-search')) byId('bill-service-search').value = ''; if (byId('bill-service-suggestions')) byId('bill-service-suggestions').style.display = 'none'; }
     if (action === 'remove-cart-item') { currentCart = currentCart.filter(row => row.id !== id); renderCart(); }
-    if (action === 'cart-qty-step') { const line=currentCart.find(row=>row.id===id); if(line){const next=line.qty+Number(actionElement.dataset.step||0);const stock=line.inventoryId?inventory.find(row=>row.id===line.inventoryId):null;if(next>=1&&(!stock||next<=Number(stock.quantity||0))){line.qty=next;renderCart();}else if(stock)toast(`Only ${Number(stock.quantity||0)} unit(s) are available.`, 'warning');} }
+    if (action === 'cart-minus' || action === 'cart-plus') { const line = currentCart.find(row => row.id === id); if (line) { line.qty = Math.max(1, line.qty + (action === 'cart-plus' ? 1 : -1)); renderCart(); } }
     if (action === 'save-bill') finalizeBill();
     if (action === 'clear-bill') { if (!currentCart.length || confirm('Clear this unsaved invoice draft?')) clearBillDraft(); }
     if (action === 'collect-payment') openPaymentDialog(id);
@@ -1401,13 +1921,19 @@
     if (action === 'reset-ledger') resetLedgerFilters();
     if (action === 'apply-reports') renderReports();
     if (action === 'backup-download') downloadLocalBackup();
+    if (action === 'sync-safety-download') downloadLatestSyncSafetyCopy();
     if (action === 'backup-import') byId('backup-file').click();
     if (action === 'drive-connect') connectDrive();
     if (action === 'drive-upload') backupToDrive();
     if (action === 'drive-restore') restoreFromDrive();
+    if (action === 'toggle-theme') toggleTheme();
+    if (action === 'database-refresh' || action === 'database-audit-refresh') { renderDatabaseAudit(); renderDatabaseEditor(); }
+    if (action === 'database-export') exportDatabaseTable();
+    if (action === 'edit-db-cell') openDatabaseCellEditor(actionElement.dataset.table, actionElement.dataset.recordKey, actionElement.dataset.field);
   });
 
   document.addEventListener('input', event => {
+    normalizeInputValue(event.target);
     if (event.target.matches('#inventory-search,#inventory-filter,#inventory-category-filter,#inventory-sort')) renderInventory();
     if (event.target.matches('#customer-search')) renderCustomers();
     if (event.target.matches('#bill-customer-search')) filterBillCustomers();
@@ -1418,9 +1944,7 @@
     if (event.target.matches('[data-cart-qty]')) {
       const item = currentCart.find(row => row.id === event.target.dataset.cartQty);
       const value = Number(event.target.value);
-      const stock = item?.inventoryId ? inventory.find(row => row.id === item.inventoryId) : null;
-      if (item && Number.isInteger(value) && value > 0 && (!stock || value <= Number(stock.quantity || 0))) item.qty = value;
-      else if (item) { event.target.value = item.qty; if (stock && value > Number(stock.quantity || 0)) toast(`Only ${Number(stock.quantity || 0)} unit(s) are available.`, 'warning'); }
+      if (item && Number.isInteger(value) && value > 0) item.qty = value;
       updateCartLine(event.target);
     }
     if (event.target.matches('[data-cart-price]')) {
@@ -1430,6 +1954,7 @@
       updateCartLine(event.target);
     }
     if (event.target.matches('#ledger-search,#ledger-from,#ledger-to,#ledger-period,#ledger-sort')) renderLedger();
+    if (event.target.matches('#database-search')) renderDatabaseEditor();
   });
 
   function updateCartLine(input) {
@@ -1444,12 +1969,13 @@
     if (event.target.matches('#ledger-period,#ledger-sort')) renderLedger();
     if (event.target.id === 'bill-customer') {
       const customer = customers.find(row => row.id === event.target.value);
-      if (customer) byId('bill-vehicle').value = customer.vehicleNo || '';
+      if (customer) byId('bill-vehicle').value = String(customer.vehicleNo || '').toLocaleUpperCase('en-IN');
     }
     if (event.target.id === 'backup-file') importBackupFile(event.target.files?.[0]);
     if (event.target.id === 'service-kind-filter') renderServices();
     if (event.target.id === 'scanner-image') scanImageFile(event.target.files?.[0]);
     if (event.target.id === 'drive-auto-backup') updateAutoBackupSetting(event.target.checked);
+    if (event.target.id === 'database-table-select') renderDatabaseEditor();
   });
 
   byId('stock-code').addEventListener('input', () => {
@@ -1472,7 +1998,7 @@
     const qty = Number(byId('service-qty').value);
     const unitPrice = Number(byId('service-price').value);
     if (!name || !Number.isInteger(qty) || qty < 1 || !Number.isFinite(unitPrice) || unitPrice < 0) { toast('Enter a description, valid quantity and non-negative price.', 'error'); return; }
-    const saveToCatalog = byId('service-save-catalog').checked;
+    const saveToCatalog = !IS_SHOP && byId('service-save-catalog').checked;
     const catalogKind = byId('service-kind').value;
     const existing = services.find(row => row.name.trim().toLowerCase() === name.toLowerCase() && row.kind === catalogKind);
     currentCart.push({ id: uuid(), inventoryId: null, serviceId: existing?.id || null, createCatalogRecord: saveToCatalog && !existing, code: catalogKind === 'service' ? 'SERVICE' : 'NON-STOCK', name, qty, unitPrice: money(unitPrice), catalogKind, saveToCatalog });
@@ -1480,6 +2006,7 @@
   });
   byId('service-catalog-form').addEventListener('submit', event => saveServiceCatalog(event).catch(error => toast(error.message, 'error')));
   byId('settings-form').addEventListener('submit', event => saveSettings(event).catch(error => toast(error.message, 'error')));
+  byId('database-cell-form').addEventListener('submit', event => saveDatabaseCell(event).catch(error => toast(error.message, 'error')));
   byId('menu-toggle').addEventListener('click', openSidebar);
   byId('sidebar-close').addEventListener('click', closeSidebar);
   byId('mobile-scrim').addEventListener('click', closeSidebar);
@@ -1506,8 +2033,10 @@
     resolveBillingBarcode(true);
   });
   byId('bill-add-qty').addEventListener('keydown', event => { if (event.key === 'Enter') { event.preventDefault(); addSelectedBillItem(); } });
-  window.addEventListener('online', () => { updateNetworkState(); if (syncEngine) syncEngine.sync(); if (settings.autoDriveBackup && driveToken && driveSessionReadyForAutoBackup) scheduleAutomaticDriveBackup(); });
-  window.addEventListener('offline', updateNetworkState);
+  window.addEventListener('online', () => { updateNetworkState(); if (driveToken) automaticDriveSync('online'); });
+  window.addEventListener('offline', () => { updateNetworkState(); byId('backup-status').textContent = 'Offline: local changes are saved on this device and will sync when connection returns.'; });
+  window.addEventListener('focus', () => { if (driveToken) automaticDriveSync('focus'); });
+  document.addEventListener('visibilitychange', () => { if (!document.hidden && driveToken) automaticDriveSync('visible'); });
   window.addEventListener('beforeunload', () => { if (scanner?.isScanning) scanner.stop().catch(() => {}); });
 
   // ---------- One-time migration from the original PouchDB database ----------
@@ -1531,6 +2060,7 @@
       const total = STORES.reduce((sum, store) => sum + (migrated[store]?.length || 0), 0);
       if (!total) return false;
       await new Promise((resolve, reject) => {
+        if (!remotePullInProgress) recordLocalChange();
         const tx = db.transaction(STORES, 'readwrite');
         for (const storeName of STORES) {
           const store = tx.objectStore(storeName);
@@ -1560,28 +2090,28 @@
       if (navigator.storage?.persist) { try { await navigator.storage.persist(); } catch (_) {} }
       const didMigrateLegacy = await migrateLegacyPouchDB();
       await refreshData();
+      try {
+        if (localStorage.getItem('workshoppro-v6-state-initialized') !== '1') {
+          const hasExistingRecords = customers.length + inventory.length + services.length + bills.length + payments.length + stockMovements.length > 0;
+          localStorage.setItem('workshoppro-v6-local-dirty', hasExistingRecords ? '1' : '0');
+          localStorage.setItem('workshoppro-v6-state-initialized', '1');
+        }
+      } catch (_) {}
+      if (settings.autoDriveBackup !== true) { await putSetting('autoDriveBackup', true); }
       if (didMigrateLegacy) await afterLocalChange('Original Workshop Pro records imported into the new local database.');
+      applyAppMode();
+      applyTheme();
       renderDashboard(); renderInventory(); renderServices(); renderCustomers(); renderLedger(); renderReports(); renderSettings(); populateBillCustomers(); clearBillDraft();
       refreshDatabaseHealth();
       updateNetworkState();
-      const savedDeviceId = localStorage.getItem('workshoppro-v5-device-id') || crypto.randomUUID();
-      localStorage.setItem('workshoppro-v5-device-id', savedDeviceId);
-      syncEngine = new window.WorkshopDriveSync.DriveRecordSync({
-        db, getToken: () => driveToken,
-        deviceId: savedDeviceId,
-        setStatus: state => { const node = byId('backup-status'); if (node) node.textContent = `Drive sync: ${state.text}`; },
-        onApplied: refreshAfterRemoteSync,
-        onRole: applyDeviceRole
-      });
-      applyDeviceRole(await syncEngine.loadRole());
-      if (await syncEngine.meta('initialSeedComplete')) await syncEngine.captureLocalChanges();
-      else await syncEngine.primeBaseline();
-      byId('page-title').textContent = 'Dashboard';
+      if (IS_SHOP) { byId('page-title').textContent = 'Quick Billing'; byId('page-eyebrow').textContent = 'SALES'; await showView('billing'); }
+      else byId('page-title').textContent = 'Dashboard';
       if ('serviceWorker' in navigator && location.protocol.startsWith('http')) {
         navigator.serviceWorker.register('./sw.js').catch(error => console.warn('Offline app shell could not be installed:', error));
       }
-      initGoogleDrive();
-      if (!settings.workshopName) byId('backup-status').textContent = 'Add your workshop details in Settings. Your records save on this device.';
+      initGoogleDrive({ silent: true });
+      if (!settings.workshopName && !IS_SHOP) byId('backup-status').textContent = 'Add your workshop details in Settings. Your records save on this device.';
+      if (IS_SHOP) byId('backup-status').textContent = 'Shop mode · transactions save locally first. Connect Google Drive once per browser session to enable automatic two-way sync.';
     } catch (error) {
       console.error(error);
       toast(error.message || 'Workshop Pro could not start.', 'error');

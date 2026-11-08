@@ -7,6 +7,17 @@
     return Math.round((n + Number.EPSILON) * 100) / 100;
   }
 
+  function titleCase(value) {
+    return String(value ?? '').trim().toLocaleLowerCase('en-IN').replace(/(^|[\s\-/'’])([\p{L}])/gu, (_, gap, letter) => gap + letter.toLocaleUpperCase('en-IN'));
+  }
+
+  function titleCaseWhileTyping(value) {
+    const text = String(value ?? '');
+    const trailingWhitespace = text.match(/\s+$/)?.[0] || '';
+    const content = trailingWhitespace ? text.slice(0, -trailingWhitespace.length) : text;
+    return content.toLocaleLowerCase('en-IN').replace(/(^|[\s\-/'’])([\p{L}])/gu, (_, gap, letter) => gap + letter.toLocaleUpperCase('en-IN')) + trailingWhitespace;
+  }
+
   function calculateTotals(items, discountValue, paidValue) {
     if (!Array.isArray(items)) throw new TypeError('Bill items must be an array.');
     const subtotal = money(items.reduce((sum, item) => {
@@ -48,14 +59,15 @@
 
   function validateBackup(payload) {
     if (!payload || typeof payload !== 'object' || payload.app !== 'WorkshopPro') throw new Error('This is not a Workshop Pro backup file.');
-    if (!Number.isInteger(payload.schemaVersion) || ![2, 3].includes(payload.schemaVersion)) throw new Error('Unsupported backup version.');
+    if (!Number.isInteger(payload.schemaVersion) || ![2, 3, 4].includes(payload.schemaVersion)) throw new Error('Unsupported backup version.');
     if (!payload.data || typeof payload.data !== 'object' || Array.isArray(payload.data)) throw new Error('Backup data section is missing or invalid.');
     if (!Array.isArray(payload.data.services)) payload.data.services = [];
-    const required = ['customers', 'inventory', 'services', 'bills', 'payments', 'stockMovements', 'settings'];
+    if (!Array.isArray(payload.data.auditLog)) payload.data.auditLog = [];
+    const required = ['customers', 'inventory', 'services', 'bills', 'payments', 'stockMovements', 'settings', 'auditLog'];
     for (const name of required) {
       if (!Array.isArray(payload.data?.[name])) throw new Error(`Backup is missing ${name} records.`);
     }
-    const keyFields = { customers: 'id', inventory: 'id', services: 'id', bills: 'id', payments: 'id', stockMovements: 'id', settings: 'key' };
+    const keyFields = { customers: 'id', inventory: 'id', services: 'id', bills: 'id', payments: 'id', stockMovements: 'id', settings: 'key', auditLog: 'id' };
     for (const name of required) {
       const key = keyFields[name];
       const seen = new Set();
@@ -165,7 +177,7 @@
       { key: 'legacyMigrationAt', value: new Date().toISOString() },
       { key: 'legacyMigrationSource', value: 'workshop_db' }
     ];
-    return { customers, inventory, services: [], bills, payments, stockMovements, settings };
+    return { customers, inventory, services: [], bills, payments, stockMovements, settings, auditLog: [] };
   }
 
   function normalizeBackupPayload(payload) {
@@ -186,7 +198,7 @@
       migrated.settings.push({ key: 'legacyMigrationDone', value: true });
       const normalized = {
         app: 'WorkshopPro',
-        schemaVersion: 3,
+        schemaVersion: 4,
         exportedAt: payload?.timestamp || payload?.exportedAt || new Date().toISOString(),
         data: migrated
       };
@@ -204,6 +216,14 @@
     return true;
   }
 
+
+  function decideSyncAction(localDirty, remoteChanged) {
+    if (localDirty && remoteChanged) return 'conflict';
+    if (remoteChanged) return 'pull';
+    if (localDirty) return 'push';
+    return 'idle';
+  }
+
   function deriveCustomerBalances(bills) {
     const map = new Map();
     for (const bill of bills || []) {
@@ -216,7 +236,7 @@
     return [...map.values()].filter(item => item.due > 0).sort((a, b) => b.due - a.due);
   }
 
-  const api = { money, calculateTotals, aggregateCart, csvCell, toCSV, validateBackup, normalizeBackupPayload, deriveCustomerBalances, isFastBarcodeBurst, migrateLegacyPouchDocs };
+  const api = { money, titleCase, titleCaseWhileTyping, calculateTotals, aggregateCart, csvCell, toCSV, validateBackup, normalizeBackupPayload, deriveCustomerBalances, isFastBarcodeBurst, decideSyncAction, migrateLegacyPouchDocs };
   root.WorkshopCore = api;
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
 })(typeof window !== 'undefined' ? window : globalThis);

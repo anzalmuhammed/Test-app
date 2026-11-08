@@ -1,0 +1,18 @@
+{
+  "name": "WorkshopPro Shop",
+  "short_name": "WP Shop",
+  "description": "Workshop staff billing and read-only workshop data.",
+  "start_url": "./shop.html",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#f4f7fb",
+  "theme_color": "#10243a",
+  "icons": [
+    {
+      "src": "icons/icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}

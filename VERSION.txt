@@ -1,0 +1,3 @@
+WorkshopPro Corrected v7
+IndexedDB schema version: 6
+Service worker cache: v7

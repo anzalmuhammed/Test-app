@@ -2,6 +2,12 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const core = require('../core.js');
 
+test('Title Case formats text without preventing spaces during typing', () => {
+  assert.equal(core.titleCase('  john DOE '), 'John Doe');
+  assert.equal(core.titleCaseWhileTyping('john doe '), 'John Doe ');
+  assert.equal(core.titleCaseWhileTyping("mary-jane doe "), "Mary-Jane Doe ");
+});
+
 test('invoice totals are calculated to two decimal places', () => {
   const result = core.calculateTotals([
     { qty: 2, unitPrice: 150.25 },
@@ -83,9 +89,18 @@ test('old PouchDB / Google Drive backup format converts to the current backup sc
   ] };
   const normalized = core.normalizeBackupPayload(oldPayload);
   assert.equal(normalized.migratedLegacy, true);
-  assert.equal(normalized.payload.schemaVersion, 3);
+  assert.equal(normalized.payload.schemaVersion, 4);
+  assert.deepEqual(normalized.payload.data.auditLog, []);
   assert.equal(normalized.payload.data.inventory[0].quantity, 4);
   assert.equal(normalized.payload.data.bills[0].due, 80);
   assert.equal(normalized.payload.data.settings.some(row => row.key === 'legacyMigrationDone' && row.value === true), true);
   assert.equal(core.normalizeBackupPayload(normalized.payload).migratedLegacy, false);
+});
+
+
+test('sync policy never overwrites pending local changes with a newer remote snapshot', () => {
+  assert.equal(core.decideSyncAction(true, true), 'conflict');
+  assert.equal(core.decideSyncAction(false, true), 'pull');
+  assert.equal(core.decideSyncAction(true, false), 'push');
+  assert.equal(core.decideSyncAction(false, false), 'idle');
 });

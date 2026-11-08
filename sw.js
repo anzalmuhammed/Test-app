@@ -1,8 +1,8 @@
 'use strict';
-const CACHE_NAME = 'workshop-pro-shell-v5';
+const CACHE_NAME = 'workshoppro-shell-v7';
 const APP_SHELL = [
-  './', './index.html', './style.css', './app.js', './core.js',
-  './config.js', './sync.js', './manifest.webmanifest', './icons/icon.svg'
+  './', './index.html', './shop.html', './style.css', './app.js', './core.js',
+  './config.js', './admin.html', './manifest.webmanifest', './shop.webmanifest', './icons/icon.svg'
 ];
 self.addEventListener('install', event => {
   event.waitUntil(caches.open(CACHE_NAME).then(cache => cache.addAll(APP_SHELL)).then(() => self.skipWaiting()));
@@ -15,12 +15,12 @@ self.addEventListener('fetch', event => {
   const url = new URL(event.request.url);
   if (url.origin !== self.location.origin) return;
   if (event.request.mode === 'navigate') {
+    const path = new URL(event.request.url).pathname;
+    const key = path.endsWith('/shop.html') ? './shop.html' : './index.html';
     event.respondWith(fetch(event.request).then(response => {
-      const copy = response.clone();
-      const cacheKey = './index.html';
-      caches.open(CACHE_NAME).then(cache => cache.put(cacheKey, copy));
+      if (response.ok) caches.open(CACHE_NAME).then(cache => cache.put(key, response.clone()));
       return response;
-    }).catch(() => caches.match('./index.html')));
+    }).catch(() => caches.match(key)));
     return;
   }
   event.respondWith(caches.match(event.request).then(cached => cached || fetch(event.request).then(response => {

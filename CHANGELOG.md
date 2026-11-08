@@ -1,15 +1,14 @@
-# Changelog
+# WorkshopPro corrected v7
 
-## v5 — automatic record-level sync foundation
+- Retained the Admin and restricted Shop entry points from v6.
+- Added automatic Drive polling and remote download when the local database has no pending changes.
+- Added conflict stop when remote and local data have both changed; pending local work is not silently overwritten.
+- Added separate IndexedDB `syncSafety` storage and a button to download the latest pre-pull safety copy.
+- Marked local writes pending before the corresponding IndexedDB transaction, reducing the crash window where new local records could otherwise appear clean.
+- Added IndexedDB v6 upgrade for the safety store, silent OAuth token-renewal attempt on reload, and bumped the service-worker cache to v7.
+- Kept one named Google Drive snapshot; no per-transaction Drive files are created.
+- Existing business features, invoice/payment/stock atomic transactions, formatting, barcode handling, database editor, reports, theme and responsive layouts retained.
 
-- Added append-only Google Drive operation files for record-level multi-device synchronization.
-- Added local outbox, applied-operation deduplication, per-record baseline fingerprints and conflict records.
-- Added automatic sync attempts on app startup, local edits, reconnect and periodic checks while the app is open.
-- Preserved local-first IndexedDB writes and atomic bill / stock transaction flows.
-- Added inventory stock movement replay so quantity is synchronized as deltas rather than last-write-wins snapshots.
-- Added dark/light theme switch, clickable dashboard cards, customer autocomplete suggestions, title-case input normalization and cart quantity stepper controls.
-- Deferred the separate Admin app as requested.
+## Verification
 
-## v4 baseline
-
-- Preserved existing billing, inventory, services, customer, ledger, reports, barcode scanning, printing and local backup workflows.
+`node --check app.js`, `node --check core.js`, 11 Node tests and `tests/static_check.py` pass. No real Google OAuth or two-physical-device offline/reconnect test has been completed.
