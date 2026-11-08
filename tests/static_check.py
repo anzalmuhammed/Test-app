@@ -61,7 +61,10 @@ assert 'auditLog' in app and 'stockMovements' in app, 'Admin audit / stock histo
 assert "requestAccessToken({ prompt: '' })" in app, 'Drive connect must not force consent on every reload.'
 assert 'WorkshopPro_Backup.json' in app and 'WP5_OP_' not in app, 'New app should use one Drive snapshot file, not v5 operation files.'
 assert (ROOT / 'shop.webmanifest').exists(), 'Shop PWA manifest is missing.'
-assert 'data-shop-only' in shop_html and 'Sync now' in shop_html and 'shop-sync-panel' in shop_html, 'Shop Drive controls are missing.'
+assert 'data-shop-only' in shop_html and 'shop-sync-panel' in shop_html and 'id="shop-drive-state"' in shop_html, 'Shop automatic-sync status is missing.'
+assert 'id="drive-auth-gate"' in shop_html and 'Sign in with Google' in shop_html, 'Shop automatic sign-in prompt is missing.'
+assert 'id="drive-auth-gate"' in html and 'Sign in with Google' in html, 'Admin automatic sign-in prompt is missing.'
+assert 'overscroll-behavior-y: none' in (ROOT / 'style.css').read_text(encoding='utf-8'), 'PWA pull-to-refresh prevention is missing.'
 
 
 assert "data-format=\"vehicle\"" in html and "toLocaleUpperCase('en-IN')" in app, 'Vehicle numbers must be uppercase.'

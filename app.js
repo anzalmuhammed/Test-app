@@ -42,12 +42,14 @@
     document.querySelectorAll('[data-shop-hide]').forEach(el => { el.hidden = IS_SHOP; });
     document.querySelectorAll('[data-shop-only]').forEach(el => { el.hidden = !IS_SHOP; });
     if (IS_SHOP) {
-      document.querySelectorAll('[data-view="dashboard"],[data-view="services"],[data-view="reports"],[data-view="settings"]').forEach(el => { el.hidden = true; });
-      byId('page-title').textContent = 'Quick Billing';
-      byId('page-eyebrow').textContent = 'SALES';
+      document.querySelectorAll('[data-view="dashboard"],[data-view="services"],[data-view="reports"],[data-view="settings"],[data-view="database"]').forEach(el => { el.hidden = true; });
+      document.querySelectorAll('#view-dashboard,#view-services,#view-reports,#view-settings,#view-database').forEach(el => { el.hidden = true; el.classList.remove('active'); });
       document.querySelectorAll('.second-label').forEach(el => { el.hidden = true; });
       document.querySelectorAll('[data-action="open-stock"],[data-action="open-scanner-stock"]').forEach(el => { el.hidden = true; });
       document.querySelectorAll('[data-view="billing"]').forEach(el => el.classList.add('active'));
+      if (byId('view-billing')) { byId('view-billing').hidden = false; byId('view-billing').classList.add('active'); }
+      byId('page-title').textContent = 'Quick Billing';
+      byId('page-eyebrow').textContent = 'SHOP WORKSPACE';
     }
   }
 
@@ -116,6 +118,7 @@
   let driveToken = null;
   let driveTokenClient = null;
   let driveSilentAttempt = false;
+  let driveInteractivePending = false;
   let driveFileId = null;
   let driveKnownModifiedTime = null;
   let driveBaselineLoaded = false;
@@ -1018,6 +1021,30 @@
   // ---------- Google Drive backup / restore ----------
   function driveConfigured() { return Boolean(String(CONFIG.googleClientId || '').trim()); }
 
+  function showDriveAuthPrompt(message) {
+    const gate = byId('drive-auth-gate');
+    if (!gate) return;
+    let continuedOffline = false;
+    try { continuedOffline = sessionStorage.getItem('workshoppro-offline-continue') === '1'; } catch (_) {}
+    if (continuedOffline && !navigator.onLine) return;
+    if (message && byId('drive-auth-message')) byId('drive-auth-message').textContent = message;
+    gate.hidden = false;
+    document.body.classList.add('auth-prompt-open');
+  }
+
+  function hideDriveAuthPrompt() {
+    const gate = byId('drive-auth-gate');
+    if (gate) gate.hidden = true;
+    document.body.classList.remove('auth-prompt-open');
+    try { sessionStorage.removeItem('workshoppro-offline-continue'); } catch (_) {}
+  }
+
+  function continueOfflineForSession() {
+    try { sessionStorage.setItem('workshoppro-offline-continue', '1'); } catch (_) {}
+    hideDriveAuthPrompt();
+    byId('backup-status').textContent = 'Offline/local mode: changes save on this device. Sign in when ready to sync.';
+  }
+
   function updateDriveUI() {
     const connected = Boolean(driveToken);
     byId('drive-state').textContent = connected ? 'Connected for this session' : 'Not connected';
@@ -1027,10 +1054,16 @@
     byId('drive-auto-backup').disabled = true;
     byId('drive-upload').disabled = !connected;
     byId('drive-restore').disabled = !connected;
+    const shopState = byId('shop-drive-state');
+    if (shopState) { shopState.textContent = connected ? 'Connected' : (navigator.onLine ? 'Sign-in needed' : 'Offline'); shopState.classList.toggle('connected', connected); }
   }
 
   function initGoogleDrive(options = {}) {
     updateDriveUI();
+    if (!driveConfigured() && options.silent) {
+      showDriveAuthPrompt('Google sign-in is not configured yet. Add your OAuth Client ID to config.js, then redeploy both apps.');
+      return;
+    }
     const start = () => {
       if (driveTokenClient || !driveConfigured()) return;
       if (!window.google?.accounts?.oauth2) return;
@@ -1040,13 +1073,14 @@
         callback: async response => {
           if (response.error || !response.access_token) {
             const message = `Google authorization ${response.error || 'failed'}; select Connect Google Drive if you want to retry.`;
-            if (driveSilentAttempt) byId('backup-status').textContent = message;
+            if (driveSilentAttempt) { byId('backup-status').textContent = message; showDriveAuthPrompt('Your Google session needs your approval. Sign in to resume automatic restore and backup.'); }
             else toast(message, 'error');
             driveSilentAttempt = false;
             return;
           }
           driveSilentAttempt = false;
           driveToken = response.access_token;
+          hideDriveAuthPrompt();
           try { localStorage.setItem('workshoppro-drive-authorized', '1'); } catch (_) {}
           driveBaselineLoaded = false;
           driveSessionReadyForAutoBackup = false;
@@ -1076,7 +1110,7 @@
           updateDriveUI();
         },
         error_callback: error => {
-          if (driveSilentAttempt) byId('backup-status').textContent = 'Google Drive session needs reconnecting. Select Connect Google Drive.';
+          if (driveSilentAttempt) { byId('backup-status').textContent = 'Google Drive session needs reconnecting.'; showDriveAuthPrompt('Google needs you to sign in again. Approve access to resume automatic sync.'); }
           else toast(error?.message || 'Google sign-in window was closed or blocked.', 'error');
           driveSilentAttempt = false;
         }
@@ -1087,8 +1121,14 @@
         if (previouslyAuthorized) {
           driveSilentAttempt = true;
           try { driveTokenClient.requestAccessToken({ prompt: 'none' }); }
-          catch (_) { driveSilentAttempt = false; byId('backup-status').textContent = 'Google Drive session needs reconnecting. Select Connect Google Drive.'; }
+          catch (_) { driveSilentAttempt = false; byId('backup-status').textContent = 'Google Drive session needs reconnecting.'; showDriveAuthPrompt('Please sign in to reconnect Google Drive and resume automatic sync.'); }
+        } else {
+          showDriveAuthPrompt(driveConfigured() ? 'Sign in to Google to automatically restore the latest shared data first, then back up new changes.' : 'Google sign-in is not configured yet. Add your OAuth Client ID to config.js, then deploy the app again.');
         }
+      }
+      if (options.interactive && driveInteractivePending) {
+        driveInteractivePending = false;
+        driveTokenClient.requestAccessToken({ prompt: '' });
       }
     };
     if (window.google?.accounts?.oauth2) start();
@@ -1106,15 +1146,18 @@
   function connectDrive() {
     if (!driveConfigured()) { toast('Add your Google OAuth Client ID in config.js first.', 'warning'); return; }
     if (!window.google?.accounts?.oauth2) { toast('Google Identity Services did not load. Check your internet connection.', 'error'); return; }
-    if (!driveTokenClient) initGoogleDrive();
-    if (!driveTokenClient) { toast('Google Drive authorization is not ready.', 'error'); return; }
+    if (!driveTokenClient) {
+      driveInteractivePending = true;
+      initGoogleDrive({ interactive: true });
+      return;
+    }
     driveTokenClient.requestAccessToken({ prompt: '' });
   }
 
   async function driveFetch(url, options = {}) {
     if (!driveToken) throw new Error('Connect Google Drive first.');
     const response = await fetch(url, { ...options, headers: { ...(options.headers || {}), Authorization: `Bearer ${driveToken}` } });
-    if (response.status === 401) { driveToken = null; updateDriveUI(); throw new Error('Google authorization expired. Reconnect Google Drive and try again.'); }
+    if (response.status === 401) { driveToken = null; driveSessionReadyForAutoBackup = false; updateDriveUI(); showDriveAuthPrompt('Your Google authorization expired. Sign in again to resume automatic restore and backup.'); throw new Error('Google authorization expired. Sign in again to resume automatic sync.'); }
     if (!response.ok) {
       let detail = '';
       try { const body = await response.json(); detail = body.error?.message || ''; } catch (_) {}
@@ -1924,6 +1967,7 @@
     if (action === 'sync-safety-download') downloadLatestSyncSafetyCopy();
     if (action === 'backup-import') byId('backup-file').click();
     if (action === 'drive-connect') connectDrive();
+    if (action === 'auth-offline') continueOfflineForSession();
     if (action === 'drive-upload') backupToDrive();
     if (action === 'drive-restore') restoreFromDrive();
     if (action === 'toggle-theme') toggleTheme();
@@ -2033,10 +2077,11 @@
     resolveBillingBarcode(true);
   });
   byId('bill-add-qty').addEventListener('keydown', event => { if (event.key === 'Enter') { event.preventDefault(); addSelectedBillItem(); } });
-  window.addEventListener('online', () => { updateNetworkState(); if (driveToken) automaticDriveSync('online'); });
+  window.addEventListener('online', () => { updateNetworkState(); if (driveToken) automaticDriveSync('online'); else showDriveAuthPrompt('Internet is back. Sign in to resume automatic restore and backup.'); });
   window.addEventListener('offline', () => { updateNetworkState(); byId('backup-status').textContent = 'Offline: local changes are saved on this device and will sync when connection returns.'; });
   window.addEventListener('focus', () => { if (driveToken) automaticDriveSync('focus'); });
   document.addEventListener('visibilitychange', () => { if (!document.hidden && driveToken) automaticDriveSync('visible'); });
+  // Chrome Android PWA pull-to-refresh is disabled by root overscroll-behavior in style.css.
   window.addEventListener('beforeunload', () => { if (scanner?.isScanning) scanner.stop().catch(() => {}); });
 
   // ---------- One-time migration from the original PouchDB database ----------
@@ -2111,7 +2156,7 @@
       }
       initGoogleDrive({ silent: true });
       if (!settings.workshopName && !IS_SHOP) byId('backup-status').textContent = 'Add your workshop details in Settings. Your records save on this device.';
-      if (IS_SHOP) byId('backup-status').textContent = 'Shop mode · transactions save locally first. Connect Google Drive once per browser session to enable automatic two-way sync.';
+      if (IS_SHOP && !driveToken) byId('backup-status').textContent = 'Shop mode · bills save locally first. Sign in to enable automatic two-way sync.';
     } catch (error) {
       console.error(error);
       toast(error.message || 'Workshop Pro could not start.', 'error');

@@ -12,3 +12,10 @@
 ## Verification
 
 `node --check app.js`, `node --check core.js`, 11 Node tests and `tests/static_check.py` pass. No real Google OAuth or two-physical-device offline/reconnect test has been completed.
+
+
+## v8 — requested UX and startup sync changes
+- Prevent Chrome Android PWA pull-to-refresh while retaining ordinary scrolling.
+- Show a Google sign-in prompt automatically in Admin and Shop when there is no valid session; attempt silent renewal for previously authorized users.
+- Start automatic restore/check before automatic upload after authorization. Conflicting pending local work is preserved and sync pauses for review.
+- Redesign Shop entry navigation and Quick Billing header/status for a simpler counter workflow.

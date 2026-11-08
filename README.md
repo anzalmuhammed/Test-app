@@ -1,4 +1,4 @@
-# WorkshopPro — Admin + Shop (corrected working build)
+# WorkshopPro v8 — Admin + Shop (corrected build)
 
 ## Apps
 
@@ -9,7 +9,7 @@ Both use the same IndexedDB schema in each browser profile. They are responsive 
 
 ## Automatic sync behavior
 
-After connecting Google Drive in a browser session, the app now:
+After Google authorization in either app, the app now:
 
 - Checks the shared snapshot on connection, after local changes, when the browser returns online, on tab focus/visibility return, and approximately every 25 seconds while open.
 - Uploads local changes automatically when the shared file still matches the last confirmed remote version.
@@ -43,3 +43,18 @@ Set the Google OAuth Web Client ID in `config.js`, enable Google Drive API, and 
 ## Verification status
 
 The included Node business-logic tests and static HTML/asset checks can verify code paths and required UI elements. They do not simulate real Google OAuth, simultaneous Drive writes, browser storage eviction, or two physical devices going offline and reconnecting. Complete those acceptance tests with sample data before relying on the app for live transactions.
+
+
+## v8 changes
+
+- Added automatic Google sign-in prompt on both Admin and Shop startup. Previously authorized sessions first attempt silent token renewal; if Google requires interaction, the prompt asks the user to approve sign-in. A user can continue in local/offline mode.
+- After sign-in, the sync flow checks the remote snapshot first. If the local database is empty/clean, it safely downloads the newest snapshot before any pending upload. If local changes and remote changes both exist, it pauses for review instead of overwriting either copy. If there is no cloud snapshot, pending local data is uploaded automatically.
+- Added Chrome Android PWA pull-to-refresh suppression using root overscroll behavior, while retaining normal content and nested scrolling.
+- Simplified Shop navigation to Quick Billing, Inventory, Customers and Ledger; added a clearer Shop counter intro and automatic-sync status. Removed the Shop-side manual sync controls from the normal workflow.
+- This does not force a Google account selection screen without user interaction: browser security requires a user gesture when silent authorization is unavailable.
+
+## Important when updating your existing GitHub Pages deployment
+
+The included `config.js` is a template and has an empty `googleClientId`. Before deploying, copy the `googleClientId` value from your currently working GitHub Pages `config.js` into this package's `config.js`. Do not overwrite a working OAuth Client ID with the blank template value. The OAuth Client ID is a public client identifier, not a client secret.
+
+Upload the contents of `WorkshopPro_v8` to the same GitHub Pages repository/root used by your current Admin app. Keep `index.html` and `shop.html` together on the same origin. After deployment, open `index.html` for Admin and `shop.html` for Shop. The service-worker cache is bumped to v8 so the browser should fetch the updated shell; close and reopen the installed PWA if it continues showing an older screen.

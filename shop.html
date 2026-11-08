@@ -4,6 +4,8 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
   <meta name="theme-color" content="#10243a">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="description" content="Offline-first workshop inventory, billing and customer ledger management.">
   <title>WorkshopPro Shop</title>
   <link rel="manifest" href="shop.webmanifest">
@@ -60,9 +62,6 @@
         <div class="topbar-actions">
           <button class="button button-light" data-action="open-stock" data-admin-only>＋ <span>Add stock</span></button>
           <button class="button button-primary" data-action="go-billing">＋ <span>New bill</span></button>
-          <button class="button button-light" data-shop-only data-action="drive-connect">Connect Drive</button>
-          <button class="button button-light" data-shop-only data-action="drive-restore">Restore / recover</button>
-          <button class="button button-primary" data-shop-only data-action="drive-upload">Sync now</button>
           <button class="icon-btn theme-toggle" id="theme-toggle" data-action="toggle-theme" aria-label="Switch theme" title="Switch theme">◐</button>
           <div class="avatar">WP</div>
         </div>
@@ -93,7 +92,8 @@
 
         <section class="view" id="view-billing">
           <div class="section-intro"><div><h2>Create invoice</h2><p>Add a customer and items, then record the payment received.</p></div><div class="invoice-draft-label"><span class="draft-dot"></span> New draft</div></div>
-          <div class="shop-sync-panel" data-shop-only><div><strong>Shared data backup</strong><span>Connect once per browser session. Sync runs automatically while the app is open and online.</span></div><div class="shop-sync-actions"><button class="button button-light" data-action="drive-connect">Connect Drive</button><button class="button button-light" data-action="drive-restore">Restore / recover</button><button class="button button-light" data-action="sync-safety-download">Safety copy</button><button class="button button-primary" data-action="drive-upload">Sync now</button></div></div>
+          <div class="shop-sync-panel" data-shop-only><div class="shop-sync-icon">↻</div><div class="shop-sync-copy"><strong>Automatic cloud sync</strong><span id="shop-sync-copy">Sign in to Google once. Latest shared data is checked first, then pending changes are backed up automatically.</span></div><span class="drive-pill" id="shop-drive-state">Checking…</span></div>
+          <div class="shop-quick-intro" data-shop-only><div><span class="shop-kicker">WORKSHOP COUNTER</span><h3>Ready for the next customer?</h3><p>Find a customer, scan or search an item, and create the bill.</p></div><button class="button button-light" data-action="open-scanner-bill">▦ Scan item</button></div>
           <div class="billing-layout">
             <div class="billing-main">
               <article class="panel form-panel"><div class="panel-heading"><div><h3>Customer details</h3><p>Choose an existing customer or add a new one.</p></div><button class="text-button" data-action="open-customer">＋ Add customer</button></div><div class="form-grid"><label class="field full"><span>Search customer by name / phone / vehicle</span><input id="bill-customer-search" type="search" placeholder="Start typing customer name or phone number"></label><label class="field full"><span>Customer <b>*</b></span><select id="bill-customer"><option value="">Select customer</option></select></label><label class="field"><span>Vehicle registration</span><input id="bill-vehicle" data-format="vehicle" type="text" placeholder="e.g. KL01AB1234" maxlength="20"></label><label class="field"><span>Invoice date</span><input id="bill-date" type="date"></label></div></article>
@@ -150,6 +150,18 @@
   <div class="mobile-scrim" id="mobile-scrim"></div>
   <div class="toast-stack" id="toast-stack" aria-live="polite" aria-atomic="true"></div>
 
+
+  <section class="drive-auth-gate" id="drive-auth-gate" hidden role="dialog" aria-modal="true" aria-labelledby="drive-auth-title">
+    <div class="drive-auth-card">
+      <div class="drive-auth-mark">W</div>
+      <span class="shop-kicker">WORKSHOPPRO CLOUD SYNC</span>
+      <h2 id="drive-auth-title">Connect your Google account</h2>
+      <p id="drive-auth-message">Sign in to check the latest shared workshop data and automatically back up new changes.</p>
+      <button class="button button-primary button-block" data-action="drive-connect">Sign in with Google</button>
+      <button class="button button-light button-block" data-action="auth-offline">Continue offline</button>
+      <small>Your records continue saving on this device while offline. Cloud sync starts after Google authorization.</small>
+    </div>
+  </section>
   <dialog class="app-dialog" id="stock-dialog"><form id="stock-form" method="dialog"><div class="dialog-head"><div><div class="eyebrow">INVENTORY</div><h2 id="stock-dialog-title">Add stock</h2></div><button class="icon-btn" type="button" data-action="close-dialog">×</button></div><input type="hidden" id="stock-id"><div class="form-grid"><div class="field barcode-field"><span>Barcode / item code <b>*</b></span><div class="barcode-input-row"><input id="stock-code" maxlength="80" required autocomplete="off" inputmode="text" placeholder="Scan or enter barcode"><button class="button button-light barcode-camera-button" type="button" data-action="open-scanner-stock" title="Scan with camera">📷 Scan</button></div><small class="field-help">USB / Bluetooth scanners work like a keyboard. Click this field and scan; Enter is detected automatically.</small></div><label class="field"><span>Part name <b>*</b></span><input id="stock-name" data-format="title" maxlength="120" required placeholder="Item name"></label><label class="field"><span>Unit price (₹) <b>*</b></span><input id="stock-price" type="number" min="0" step="0.01" required placeholder="Enter price"></label><label class="field"><span>Quantity to add <b>*</b></span><input id="stock-quantity" type="number" min="1" step="1" required value="1"></label><label class="field"><span>Category</span><select id="stock-category"><option>General</option><option>Brake System</option><option>Engine</option><option>Electrical</option><option>Body Parts</option><option>Service</option></select></label><label class="field"><span>Minimum stock</span><input id="stock-min" type="number" min="0" step="1" value="5"></label><label class="field full"><span>Shelf / rack location</span><input id="stock-location" maxlength="80" placeholder="e.g. Rack A / Shelf 2"></label></div><div class="dialog-actions"><button class="button button-light" type="button" data-action="close-dialog">Cancel</button><button class="button button-primary" type="submit">Save stock</button></div></form></dialog>
 
   <dialog class="app-dialog" id="customer-dialog"><form id="customer-form" method="dialog"><div class="dialog-head"><div><div class="eyebrow">CUSTOMER RECORD</div><h2 id="customer-dialog-title">Add customer</h2></div><button class="icon-btn" type="button" data-action="close-dialog">×</button></div><input type="hidden" id="customer-id"><div class="form-grid"><label class="field full"><span>Customer name <b>*</b></span><input id="customer-name-input" data-format="title" maxlength="120" required></label><label class="field"><span>Vehicle registration</span><input id="customer-vehicle-input" data-format="vehicle" maxlength="20" style="text-transform:uppercase"></label><label class="field"><span>Phone (10 digits) <b>*</b></span><input id="customer-phone-input" type="tel" maxlength="10" inputmode="numeric" pattern="[0-9]{10}" required placeholder="10-digit mobile number"></label><label class="field"><span>Email</span><input id="customer-email-input" type="email" maxlength="120"></label><label class="field"><span>GST number</span><input id="customer-gst-input" maxlength="20"></label><label class="field full"><span>Address</span><textarea id="customer-address-input" rows="2" maxlength="300"></textarea></label></div><div class="dialog-actions"><button class="button button-light" type="button" data-action="close-dialog">Cancel</button><button class="button button-primary" type="submit">Save customer</button></div></form></dialog>

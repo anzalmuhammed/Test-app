@@ -154,3 +154,40 @@
 .shop-sync-actions { display: flex; flex-wrap: wrap; gap: 7px; }
 @media (max-width: 900px) { .topbar-actions [data-shop-only] { display: none; } .shop-sync-panel { display: flex; flex-wrap: wrap; } .shop-sync-actions { width: 100%; } .shop-sync-actions .button { flex: 1 1 100px; min-height: 42px; } }
 @media (max-width: 480px) { .shop-sync-panel { align-items: flex-start; } .shop-sync-actions { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); } .shop-sync-actions .button:last-child { grid-column: 1 / -1; } }
+
+
+/* PWA: prevent Chrome Android's pull-to-refresh gesture without disabling normal scrolling. */
+html, body { overscroll-behavior-y: none; }
+body { overscroll-behavior: none; }
+.app-shell, .main-area, .content-wrap { overscroll-behavior-y: contain; }
+
+/* Google sign-in gate shown automatically on both Admin and Shop when no valid session exists. */
+.drive-auth-gate[hidden] { display: none !important; }
+.drive-auth-gate { position: fixed; inset: 0; z-index: 1000; display: grid; place-items: center; padding: 20px; background: rgba(9, 24, 42, .72); backdrop-filter: blur(7px); }
+.drive-auth-card { width: min(430px, 100%); padding: 28px; border: 1px solid var(--line); border-radius: 22px; background: var(--white); color: var(--ink); box-shadow: 0 24px 80px rgba(0,0,0,.24); text-align: center; }
+.drive-auth-mark { width: 54px; height: 54px; margin: 0 auto 16px; display: grid; place-items: center; border-radius: 17px; background: linear-gradient(145deg,#7080f8,#4455d2); color: #fff; font: 800 27px Manrope; }
+.drive-auth-card h2 { margin: 9px 0; font: 800 23px Manrope; }
+.drive-auth-card p { margin: 0 0 20px; color: var(--muted); font-size: 14px; line-height: 1.55; }
+.drive-auth-card .button { margin-top: 9px; min-height: 48px; }
+.drive-auth-card small { display: block; margin-top: 15px; color: var(--muted); font-size: 11px; line-height: 1.5; }
+.shop-quick-intro { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin: 0 0 15px; padding: 18px 20px; border: 1px solid var(--line); border-radius: 16px; background: linear-gradient(115deg, var(--white), #eef2ff); }
+.shop-quick-intro h3 { margin: 5px 0 4px; font: 800 18px Manrope; }
+.shop-quick-intro p { margin: 0; color: var(--muted); font-size: 12px; }
+.shop-kicker { color: #596be0; font-size: 9px; font-weight: 800; letter-spacing: 1.5px; }
+.shop-sync-panel { display: flex; align-items: center; gap: 12px; padding: 12px 15px; margin: 0 0 15px; border: 1px solid var(--line); border-radius: 13px; background: var(--white); }
+.shop-sync-icon { width: 34px; height: 34px; flex: 0 0 34px; display: grid; place-items: center; border-radius: 10px; background: #edf0ff; color: #5367e8; font-size: 20px; }
+.shop-sync-copy { display: grid; gap: 3px; flex: 1; min-width: 0; }
+.shop-sync-copy strong { font-size: 12px; }
+.shop-sync-copy span { color: var(--muted); font-size: 10px; line-height: 1.4; }
+.mode-shop .sidebar { width: 220px; }
+.mode-shop .main-area { margin-left: 220px; }
+.mode-shop .sidebar-label { display: none; }
+.mode-shop .brand-row { padding-bottom: 22px; }
+.mode-shop .side-nav { gap: 7px; }
+.mode-shop .nav-link { min-height: 46px; }
+.mode-shop #view-billing .section-intro { margin-bottom: 13px; }
+.mode-shop #view-billing .section-intro h2 { font-size: 22px; }
+.mode-shop #view-billing .billing-layout { align-items: start; }
+.mode-shop .topbar-actions [data-action="go-billing"] { display: none; }
+@media (max-width: 900px) { .mode-shop .sidebar { width: 270px; } .mode-shop .main-area { margin-left: 0; } }
+@media (max-width: 600px) { .drive-auth-card { padding: 22px 18px; } .shop-quick-intro { align-items: flex-start; padding: 15px; } .shop-quick-intro h3 { font-size: 16px; } .shop-quick-intro .button { min-height: 42px; white-space: nowrap; } .shop-sync-panel { align-items: flex-start; } .shop-sync-panel .drive-pill { margin-left: auto; } }

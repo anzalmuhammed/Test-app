@@ -1,5 +1,5 @@
 'use strict';
-const CACHE_NAME = 'workshoppro-shell-v7';
+const CACHE_NAME = 'workshoppro-shell-v8';
 const APP_SHELL = [
   './', './index.html', './shop.html', './style.css', './app.js', './core.js',
   './config.js', './admin.html', './manifest.webmanifest', './shop.webmanifest', './icons/icon.svg'
